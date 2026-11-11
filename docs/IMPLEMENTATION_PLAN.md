@@ -320,11 +320,52 @@ The earliest tangible output is the **demonstration prototype** (deliverable 10)
 
 **To verify with counsel before any further Niger State spend:** that a lottery/scratch-card licence is actually obtainable there, from which authority, and on what terms. Niger State is understood to be among the northern states applying Sharia-based law, under which gambling may be restricted. If a licence is not available, the first-state choice must change; the software is unaffected because the allow-list is data, not code.
 
+### Decided (12 November 2026)
+
+| # | Decision | Effect on the plan |
+|---|----------|--------------------|
+| 3 | **Independent auditors are appointed by the Company from time to time** | Auditor accounts are created per appointment and assigned per cycle. A cycle cannot be approved until its appointed auditor is recorded, and the draw cannot run without that auditor's countersignature. Past appointments stay in the audit trail. |
+| 4 | **Prize funds are held in escrow or trust when funded in advance** | Cash-prize cover for a cycle is deposited before approval; the approval screen requires the escrow/trust reference and evidence. Merchandise prizes require stock received or contractually secured. The dashboard compares liabilities with funded cover. |
+| 5a | **Published rules are set per cycle within ethical boundaries of fairness** | Rules are written in plain language, published and hashed before sales, and locked once sales start. |
+| 5b | **Multiple wins are treated individually per account, except where fraud is suspected** | No cap on how many tickets one account can win with. Suspected fraud places the affected prizes on hold for compliance review instead of paying automatically. |
+| 5c | **Staff are excluded** | See "Staff exclusion" below. |
+
+### Proposed for confirmation
+
+**Next of kin**
+- Collected as an *optional* step at registration (name, relationship, phone) so sign-up stays quick, and *required* before a major cash or merchandise prize is claimed.
+- It is a contact and claim nominee only: if a winner dies or cannot be reached within the claim window, the next of kin may claim after their own identity check and supporting documents. They never receive a prize automatically.
+- Changes to next-of-kin details need PIN/biometric confirmation, trigger a notification, and are blocked while a claim is in progress.
+
+**Refund scenarios**
+
+| Scenario | Outcome |
+|----------|---------|
+| Payment taken but no ticket issued (sell-out during payment, timeout, technical failure) | Automatic full refund |
+| Customer charged twice for one order | Automatic refund of the duplicate |
+| Cycle voided before the draw (regulator instruction, prize cannot be secured, integrity failure) | Ticket price refunded on every ticket; instant prizes already won are still honoured |
+| Purchase by someone who should not have been able to buy (under 18, outside Niger State, self-excluded, staff) | Ticket cancelled, ticket price refunded, any winnings void |
+| Stolen card or disputed payment | Refund to the cardholder, ticket cancelled, winnings forfeited, account reviewed |
+| Change of mind, or a ticket that did not win | No refund — the outcome is fixed at issue and the ticket is already in the final draw |
+
+Refunds always go back to the original payment method, never to a different account.
+
+**Default spending limits**
+- Limits apply to total ticket spend **across every payment method** (card, bank transfer, USSD), not only cards.
+- Suggested starting values, with tickets at ₦200–₦500: ₦5,000 per day, ₦20,000 per week, ₦50,000 per month, and at most 20 tickets per purchase.
+- A player can lower a limit instantly. Raising one takes effect after 24 hours and cannot exceed a company-set maximum.
+- A per-cycle cap on tickets per account (for example 1% of the inventory) stops one buyer cornering a small cycle.
+
+**Staff exclusion**
+- Excluded: employees and directors of WiiFarm Rewards and group companies, contractors with system access, appointed auditors, and prize suppliers' key staff — plus their immediate family and household members.
+- Enforced by matching verified identity (NIN/BVN), phone and bank account against an exclusion register maintained by Compliance; a matched account cannot buy, and any prize found to be won by an excluded person is void.
+
 ### Still open
 
-3. **Independent auditor / draw witness** — who it is, so their role and sign-off are designed in from the start.
-4. **Prize-fund protection** — segregated account or escrow arrangement, and who the finance approvers are.
-5. **Policy choices that become published rules** — unclaimed-prize window, refund conditions for a voided cycle, whether one person can win multiple major prizes, default spending limits, staff and family exclusion.
+- Confirmation of the four proposals above, especially the limit amounts.
+- The unclaimed-prize window (suggested: 90 days, with reminders, then handled as the published rules state).
+- Team make-up (recorded as a mix of in-house and contractors).
+- Legal confirmation that a licence is obtainable in Niger State.
 
 ---
 
@@ -347,7 +388,7 @@ The earliest tangible output is the **demonstration prototype** (deliverable 10)
 
 ## 14. Immediate next steps (first two weeks)
 
-1. Management answers the remaining open items in section 12 (auditor, prize-fund protection, published-rule policies).
+1. Management confirms the proposals and remaining open items in section 12.
 2. Write the threat model and the detailed specification for `game-core` (ticket commitments, draw algorithm, verifier).
 3. Produce player and admin wireframes for the core journey.
 4. Scaffold the monorepo with CI, linting, tests and environments.
