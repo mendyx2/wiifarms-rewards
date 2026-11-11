@@ -67,7 +67,7 @@ A **modular monolith** with strict module boundaries, not microservices. One dep
 | Infrastructure | Managed cloud, infrastructure-as-code, containers | Reproducible environments, auditable changes. |
 | Secrets and keys | Cloud KMS (HSM-backed keys for ticket outcomes and draw secrets) | Keys never sit in app config or the database. |
 
-Hosting region and data-residency position are an open decision (section 12): they depend on legal advice under the Nigeria Data Protection Act and on what the licensing regulator requires.
+Hosting is a regional cloud region (decided, section 12). The specific provider and region are chosen in Phase 1, subject to NDPA cross-border transfer safeguards and anything the Niger State regulator requires.
 
 ### 2.3 Repository layout (monorepo)
 
@@ -223,7 +223,7 @@ If the regulator mandates a specific certified RNG product or procedure, it plug
 - **Data protection (NDPA)**: consent and privacy notices, data-subject access/erasure workflow (within gaming record-retention duties), DPIA, data-processing agreements with vendors, retention schedule, breach notification procedure.
 - **AML**: thresholds for enhanced checks on large wins, sanctions/PEP screening via the KYC provider, suspicious-activity reporting workflow.
 
-Which regulator(s) license the product, and their exact technical standards, must be confirmed by legal counsel before Phase 3 scoping (section 12).
+The first launch state is Niger State (section 12). The licensing authority there and its exact technical standards must be confirmed by legal counsel before Phase 3 scoping.
 
 ---
 
@@ -243,7 +243,7 @@ Which regulator(s) license the product, and their exact technical standards, mus
 **Design rules**
 - Mobile-first, works on low-end Android and 3G: small bundles, compressed images, skeleton loading, resilient to dropped connections (purchases and reveals are idempotent and resumable).
 - Installable PWA with push notifications; SMS/WhatsApp fallback for critical messages (OTP, win, payout, draw result).
-- English first, with Pidgin, Hausa, Yoruba and Igbo to follow; plain language, no jargon.
+- English and Hausa at launch (Niger State first), with Pidgin, Yoruba and Igbo to follow; plain language, no jargon.
 - Trust is visible: licence details, published odds, commitments and verification links, clear receipts.
 - Accessibility: large touch targets, screen-reader labels, non-gesture alternatives, colour-safe contrast.
 - Responsible gaming is part of the flow, not hidden: spend-so-far indicator, easy limit setting, visible self-exclusion and help links.
@@ -299,7 +299,7 @@ Indicative, assuming a core team of 2 backend, 2 frontend, 1 designer, 1 QA, 1 D
 | **1. System design** | Weeks 1–4 | Process flowcharts, customer journey, architecture, database design, threat model, clickable UI prototypes (player + admin), vendor shortlist, cost estimate. **Exit: management sign-off.** |
 | **2. Minimum viable platform (simulated money only)** | Weeks 5–16 | M1 (wk 7): repo, CI/CD, auth, RBAC, audit log. M2 (wk 10): cycle management, ticket generation with commitments, catalogue. M3 (wk 13): simulated payments, ledger, scratch UI, reveal + verifier. M4 (wk 16): test final draw, fulfilment basics, dashboard, demo prototype. **Exit: end-to-end demo cycle with verifiable outcomes.** |
 | **3. Security and certification** | Weeks 17–26 (partly dependent on third parties) | Real gateway and KYC integrations in sandbox, reconciliation, load tests (sell-out bursts), penetration test and fixes, test-lab certification of `game-core` and draw, DR drill, compliance pack. **Exit: certificates and clean retest.** |
-| **4. Controlled commercial launch** | After licence approval, ~4 weeks | One small fully funded cycle in one licensed state, invited users first, daily reconciliation review, live draw with auditor. **Exit: cycle archived with zero unreconciled items.** |
+| **4. Controlled commercial launch** | After licence approval, ~4 weeks | One small fully funded cycle in Niger State, invited users first, daily reconciliation review, live draw with auditor. **Exit: cycle archived with zero unreconciled items.** |
 | **5. Expansion** | Ongoing | More merchandise categories, mobile apps, additional states, larger prize pools, more languages. |
 
 The earliest tangible output is the **demonstration prototype** (deliverable 10) at the end of Phase 2, with an early clickable version of the scratch flow by week 4.
@@ -308,14 +308,23 @@ The earliest tangible output is the **demonstration prototype** (deliverable 10)
 
 ---
 
-## 12. Decisions needed from management
+## 12. Management decisions
 
-1. **Licensing route** — which state(s) and regulator(s) first. This sets the geographic allow-list, technical standards and certification body.
-2. **Hosting and data residency** — in-country hosting vs. regional cloud with NDPA transfer safeguards; needs legal input.
+### Decided (11 November 2026)
+
+| # | Decision | Effect on the plan |
+|---|----------|--------------------|
+| 1 | **Launch in Niger State first** | The geographic allow-list starts with Niger State only; players located elsewhere can browse and play the demo but cannot buy. Licence and certification requirements are scoped to Niger State's regulator. Hausa moves ahead of the other local languages, alongside English. |
+| 2 | **Regional cloud hosting** | Production runs in a regional cloud region rather than an in-country data centre. Customer data therefore leaves Nigeria, so NDPA cross-border transfer safeguards (legal basis, vendor data-processing agreements, DPIA) become a Phase 1 task, and backups/standby stay within the same provider. |
+| 6 | **Team: mix of in-house staff and contractors** (recorded from a "yes" reply — to be confirmed) | In-house staff own `game-core`, the ledger, keys and production access; contractors work on UI, admin and integrations under code review. The cost estimate is prepared on this basis. |
+
+**To verify with counsel before any further Niger State spend:** that a lottery/scratch-card licence is actually obtainable there, from which authority, and on what terms. Niger State is understood to be among the northern states applying Sharia-based law, under which gambling may be restricted. If a licence is not available, the first-state choice must change; the software is unaffected because the allow-list is data, not code.
+
+### Still open
+
 3. **Independent auditor / draw witness** — who it is, so their role and sign-off are designed in from the start.
 4. **Prize-fund protection** — segregated account or escrow arrangement, and who the finance approvers are.
 5. **Policy choices that become published rules** — unclaimed-prize window, refund conditions for a voided cycle, whether one person can win multiple major prizes, default spending limits, staff and family exclusion.
-6. **Team** — build with in-house staff, contractors, or a mix; this drives the cost estimate.
 
 ---
 
@@ -338,9 +347,9 @@ The earliest tangible output is the **demonstration prototype** (deliverable 10)
 
 ## 14. Immediate next steps (first two weeks)
 
-1. Management reviews this plan and answers section 12 as far as possible.
+1. Management answers the remaining open items in section 12 (auditor, prize-fund protection, published-rule policies).
 2. Write the threat model and the detailed specification for `game-core` (ticket commitments, draw algorithm, verifier).
 3. Produce player and admin wireframes for the core journey.
 4. Scaffold the monorepo with CI, linting, tests and environments.
 5. Open sandbox accounts with the shortlisted payment, KYC and SMS providers.
-6. Engage legal counsel on licensing, data residency and certification bodies.
+6. Engage legal counsel on Niger State licensing availability, NDPA cross-border transfer safeguards and certification bodies.
