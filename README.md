@@ -9,6 +9,7 @@ Digital scratch-card and prize-management platform. **Phase 2 (simulated platfor
 | `docs/phase-2/` | Phase 2 status: what is built, how to run it, what remains |
 | `apps/api/` | Backend API (simulated payments, identity and randomness beacon) |
 | `apps/web/` | Player web app, served by the API |
+| `apps/admin/` | Admin web app, served by the API under `/admin` |
 | `packages/game-core/` | Reference implementation of ticket commitments and the final draw |
 | `db/` | PostgreSQL schema and its safety tests |
 | `prototypes/` | Clickable player and admin mockups (open the HTML files in a browser) |

@@ -166,7 +166,7 @@ test("cycle approval: separation of duties, funding, locking, commitments", asyn
   fails(await api("POST", "/v1/admin/cycles", { token: admins.finance!.token, body: { name: "x", ticketPriceKobo: N200, totalTickets: 20, maxTicketsPerAccount: 5, salesOpenAt: "2030-01-01", salesCloseAt: "2030-01-02", drawAt: "2030-01-03" } }), 403, "ROLE_REQUIRED");
   const c = ok(await mk({}));
   const url = `/v1/admin/cycles/${c.id}`;
-  fails(await api("POST", `${url}/prize-tiers`, { token: admins.manager!.token, body: { stage: "INSTANT", kind: "CASH", title: "too big", cashKobo: 5_000_000, quantity: 1 } }), 409, "RULE_VIOLATION");
+  fails(await api("POST", `${url}/prize-tiers`, { token: admins.manager!.token, body: { stage: "INSTANT", kind: "CASH", title: "too big", cashKobo: 5_000_000, quantity: 1 } }), 400, "INVALID_PRIZE");
   ok(await api("POST", `${url}/prize-tiers`, { token: admins.manager!.token, body: { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 4 } }));
   fails(await api("POST", `${url}/open`, { token: admins.manager!.token }), 409, "RULE_VIOLATION");
   ok(await api("POST", `${url}/submit`, { token: admins.manager!.token }));
@@ -494,5 +494,57 @@ test("web sessions: cookie is script-proof, cross-site requests are refused, onl
   for (const url of ["/../package.json", "/..%2f..%2fpackage.json", "/js/../../src/main.ts", "/.env"]) {
     assert.equal((await web.inject({ method: "GET", url })).statusCode, 404, url);
   }
+  await web.close();
+});
+
+test("admin web app: separate cookie session, role-limited views, no outcomes exposed", async () => {
+  const web = buildServer({ ...ctx, config: { ...config, webRoot: new URL("../../web/public", import.meta.url).pathname, adminRoot: new URL("../../admin/public", import.meta.url).pathname } });
+  const signIn = async (name: string) => {
+    const r = await web.inject({ method: "POST", url: "/v1/admin/dev-login", payload: { email: `${name}@example.test` } });
+    const c = String(r.headers["set-cookie"]);
+    assert.match(c, /^wr_admin=[\w-]+; Path=\/; HttpOnly; SameSite=Strict; Secure; Max-Age=28800$/);
+    return c.split(";")[0]!;
+  };
+  const cookie = await signIn("finance");
+  const getAs = async (c: string, url: string) => { const r = await web.inject({ method: "GET", url, headers: { cookie: c } }); return { status: r.statusCode, body: JSON.parse(r.body) }; };
+  assert.deepEqual((await getAs(cookie, "/v1/admin/me")).body.roles, ["FINANCE"]);
+  // An admin cookie is not a player session, and changing anything needs the custom header.
+  assert.equal((await getAs(cookie, "/v1/me")).status, 401);
+  assert.equal((await web.inject({ method: "POST", url: `/v1/admin/cycles/${cycleA.id}/approve`, headers: { cookie }, payload: {} })).statusCode, 403);
+
+  const detail = (await getAs(cookie, `/v1/admin/cycles/${cycleA.id}`)).body;
+  assert.equal(detail.status, "DRAWN");
+  assert.equal(detail.counts.sold, 60);
+  assert.equal(detail.approvals.length, 2);
+  assert.equal(detail.signoffs.length, 3);
+  assert.equal(detail.cashCoverRequiredKobo, 11_500_000);
+  assert.equal(detail.editable, false);
+  // Nothing an administrator can fetch contains ticket outcomes, salts or secrets.
+  const everything = JSON.stringify([detail, (await getAs(cookie, "/v1/admin/cycles")).body, (await getAs(cookie, "/v1/admin/dashboard")).body]);
+  assert.ok(!/outcome|salt|ciphertext|wrapped|"secret"/i.test(everything));
+
+  assert.equal((await getAs(cookie, "/v1/admin/audit")).status, 403); // finance cannot read the audit trail
+  const comp = (await getAs(cookie, "/v1/admin/compliance")).body;
+  assert.deepEqual(comp.realMoneyGate, { licences: 0, certifications: 0 });
+  assert.ok(comp.register.every((r: any) => r.phone === null || /^…\d{4}$/.test(r.phone)), "phones are masked");
+
+  // Friendly refusals instead of database text.
+  const mgr = await signIn("manager");
+  const post = async (c: string, url: string, payload: object) => { const r = await web.inject({ method: "POST", url, headers: { cookie: c, "x-wr-client": "web" }, payload }); return { status: r.statusCode, body: JSON.parse(r.body) }; };
+  const now = Date.now();
+  const draft = (await post(mgr, "/v1/admin/cycles", { name: "Msg", ticketPriceKobo: N200, totalTickets: 10, maxTicketsPerAccount: 5, salesOpenAt: new Date(now).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString() })).body;
+  const big = await post(mgr, `/v1/admin/cycles/${draft.id}/prize-tiers`, { stage: "INSTANT", kind: "CASH", title: "big", cashKobo: 5_000_000, quantity: 1 });
+  assert.equal(big.status, 400);
+  assert.match(big.body.error.message, /between ₦500 and ₦10,000/);
+
+  // The admin app is served under /admin, with the same strict headers.
+  const page = await web.inject({ method: "GET", url: "/admin" });
+  assert.equal(page.statusCode, 200);
+  assert.match(page.body, /Rewards Admin/);
+  assert.ok(!/<script(?![^>]*\bsrc=)|\son\w+=|style=/.test(page.body));
+  assert.equal((await web.inject({ method: "GET", url: "/admin/js/app.js" })).statusCode, 200);
+  const out = await web.inject({ method: "POST", url: "/v1/admin/logout", headers: { cookie, "x-wr-client": "web" }, payload: {} });
+  assert.match(String(out.headers["set-cookie"]), /Max-Age=0/);
+  assert.equal((await getAs(cookie, "/v1/admin/me")).status, 401);
   await web.close();
 });

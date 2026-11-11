@@ -23,6 +23,8 @@ export interface Config {
   cookieSecure: boolean;
   /** Folder holding the player web app, served from the same origin as the API. */
   webRoot?: string;
+  /** Folder holding the admin web app, served under /admin/. Production serves it from a separate, restricted address. */
+  adminRoot?: string;
 }
 
 function keyFromEnv(name: string): Buffer {
@@ -49,5 +51,6 @@ export function loadConfig(): Config {
     cookieSecure: process.env.COOKIE_SECURE !== "false",
     // The player web app ships with the API unless WEB_ROOT points elsewhere.
     webRoot: process.env.WEB_ROOT ?? fileURLToPath(new URL("../../web/public", import.meta.url)),
+    adminRoot: process.env.ADMIN_ROOT ?? fileURLToPath(new URL("../../admin/public", import.meta.url)),
   };
 }

@@ -56,14 +56,17 @@ const cookie = (req: FastifyRequest, name: string): string | undefined => {
  * against cross-site requests, anything that changes data via the cookie must
  * also carry a custom header, which another site cannot add.
  */
-function playerToken(req: FastifyRequest): string | undefined {
+const ADMIN_COOKIE = "wr_admin";
+function sessionToken(req: FastifyRequest, cookieName: string): string | undefined {
   const fromHeader = bearer(req);
   if (fromHeader) return fromHeader;
-  const fromCookie = cookie(req, SESSION_COOKIE);
+  const fromCookie = cookie(req, cookieName);
   if (!fromCookie) return undefined;
   if (req.method !== "GET" && req.headers["x-wr-client"] !== "web") throw new AppError(403, "CSRF", "Request refused.");
   return fromCookie;
 }
+const playerToken = (req: FastifyRequest) => sessionToken(req, SESSION_COOKIE);
+const adminToken = (req: FastifyRequest) => sessionToken(req, ADMIN_COOKIE);
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -71,15 +74,14 @@ const MIME: Record<string, string> = {
 };
 
 /** Loads the web app's files once at start. Only these exact files can ever be served. */
-function loadStatic(root: string): Map<string, { body: Buffer; type: string }> {
-  const files = new Map<string, { body: Buffer; type: string }>();
+function loadStatic(root: string, prefix = "", files = new Map<string, { body: Buffer; type: string }>()): Map<string, { body: Buffer; type: string }> {
   const walk = (dir: string): void => {
     for (const name of readdirSync(dir)) {
       const full = path.join(dir, name);
       if (statSync(full).isDirectory()) walk(full);
       else {
         const type = MIME[path.extname(name)];
-        if (type) files.set("/" + path.relative(root, full).split(path.sep).join("/"), { body: readFileSync(full), type });
+        if (type) files.set(prefix + "/" + path.relative(root, full).split(path.sep).join("/"), { body: readFileSync(full), type });
       }
     }
   };
@@ -125,7 +127,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
       ? `${SESSION_COOKIE}=; ${attrs}; Max-Age=0`
       : `${SESSION_COOKIE}=${token}; ${attrs}; Max-Age=${ctx.config.sessionDays * 86400}`);
   };
-  const staff = (req: FastifyRequest) => admin.authenticateAdmin(ctx, bearer(req));
+  const staff = (req: FastifyRequest) => admin.authenticateAdmin(ctx, adminToken(req));
   const actorOf = (userId: string, req: FastifyRequest): Actor => ({ type: "PLAYER", id: userId, ip: req.ip });
 
   app.get("/health", async () => ({ ok: true, mode: "SIMULATED" }));
@@ -235,10 +237,27 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   });
 
   // ---- Administration ---------------------------------------------------------------------------
-  app.post<{ Body: { email: string } }>("/v1/admin/dev-login", { schema: body({ email: str(200) }) }, async (req) => {
+  app.post<{ Body: { email: string } }>("/v1/admin/dev-login", { schema: body({ email: str(200) }) }, async (req, reply) => {
     authLimit(req.ip);
-    return admin.devAdminLogin(ctx, req.body.email);
+    const r = await admin.devAdminLogin(ctx, req.body.email);
+    // Admin sessions are short (8 hours) and use their own cookie, separate from player sessions.
+    reply.header("Set-Cookie", `${ADMIN_COOKIE}=${r.token}; Path=/; HttpOnly; SameSite=Strict${ctx.config.cookieSecure ? "; Secure" : ""}; Max-Age=28800`);
+    return r;
   });
+  app.post("/v1/admin/logout", async (req, reply) => {
+    const t = adminToken(req);
+    if (t) await admin.adminLogout(ctx, t);
+    reply.header("Set-Cookie", `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict${ctx.config.cookieSecure ? "; Secure" : ""}; Max-Age=0`);
+    return { ok: true };
+  });
+  app.get("/v1/admin/me", async (req) => { const a = await staff(req); return { id: a.id, fullName: a.fullName, email: a.email, roles: a.roles }; });
+  app.get("/v1/admin/auditors", async (req) => ({ auditors: await admin.listAuditors(ctx, await staff(req)) }));
+  app.get("/v1/admin/skus", async (req) => ({ skus: await admin.listSkus(ctx, await staff(req)) }));
+  app.post<{ Body: { name: string; advertisedValueKobo: number } }>("/v1/admin/skus", { schema: body({ name: str(120), advertisedValueKobo: int(1) }) },
+    async (req) => admin.createSku(ctx, await staff(req), req.body));
+  app.get("/v1/admin/compliance", async (req) => admin.compliance(ctx, await staff(req)));
+  app.get("/v1/admin/cycles", async (req) => ({ cycles: await cycles.listAdminCycles(ctx, await staff(req)) }));
+  app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id", { schema: idParam }, async (req) => cycles.getAdminCycle(ctx, await staff(req), req.params.id));
   app.get("/v1/admin/dashboard", async (req) => admin.dashboard(ctx, await staff(req)));
   app.get("/v1/admin/audit", async (req) => admin.auditTrail(ctx, await staff(req)));
   app.post<{ Body: { category: string; phone?: string; idKind?: "NIN" | "BVN"; idNumber?: string; note?: string } }>("/v1/admin/exclusion-register", {
@@ -274,6 +293,10 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     const files = loadStatic(ctx.config.webRoot);
     const serve = (reply: FastifyReply, file: { body: Buffer; type: string }) =>
       reply.header("Content-Type", file.type).header("Cache-Control", "no-cache").send(file.body);
+    if (ctx.config.adminRoot) {
+      loadStatic(ctx.config.adminRoot, "/admin", files);
+      for (const p of ["/admin", "/admin/"]) app.get(p, (_req, reply) => serve(reply, files.get("/admin/index.html")!));
+    }
     app.get("/", (_req, reply) => serve(reply, files.get("/index.html")!));
     app.get("/*", (req, reply) => {
       const file = files.get(req.url.split("?")[0]!);

@@ -121,3 +121,47 @@ export async function getAdminByEmail(ctx: Ctx, email: string): Promise<{ id: st
   if (!a) throw notFound();
   return a;
 }
+
+// --- Read models for the admin web app -----------------------------------------------------
+
+const ANY_ROLE: Role[] = ["CYCLE_MANAGER", "FINANCE", "PAYOUT_APPROVER", "FULFILMENT", "SUPPORT", "COMPLIANCE", "AUDITOR", "SECURITY_ADMIN"];
+
+export async function adminLogout(ctx: Ctx, token: string): Promise<void> {
+  await ctx.pool.query("DELETE FROM admin_sessions WHERE token_hash = $1", [sha256(token)]);
+}
+
+export async function listAuditors(ctx: Ctx, admin: Admin): Promise<unknown[]> {
+  requireRole(admin, ...ANY_ROLE);
+  return (await ctx.pool.query(
+    `SELECT a.id, a.full_name FROM admin_users a JOIN admin_roles r ON r.admin_user_id = a.id
+     WHERE r.role = 'AUDITOR' AND a.status = 'ACTIVE' ORDER BY a.full_name`)).rows;
+}
+
+export async function listSkus(ctx: Ctx, admin: Admin): Promise<unknown[]> {
+  requireRole(admin, ...ANY_ROLE);
+  return (await ctx.pool.query("SELECT id, name, advertised_value_kobo FROM skus ORDER BY name")).rows;
+}
+
+export async function createSku(ctx: Ctx, admin: Admin, input: { name: string; advertisedValueKobo: number }): Promise<{ id: string }> {
+  requireRole(admin, "FULFILMENT", "CYCLE_MANAGER");
+  return withTx(ctx.pool, async (db) => {
+    const r = await db.query<{ id: string }>("INSERT INTO skus (name, advertised_value_kobo) VALUES ($1, $2) RETURNING id", [input.name, input.advertisedValueKobo]);
+    await audit(db, adminActor(admin), "inventory.sku_created", "sku", r.rows[0]!.id, { ...input });
+    return { id: r.rows[0]!.id };
+  });
+}
+
+export async function compliance(ctx: Ctx, admin: Admin): Promise<unknown> {
+  requireRole(admin, "COMPLIANCE", "AUDITOR", "FINANCE", "SECURITY_ADMIN");
+  const alerts = await ctx.pool.query("SELECT id, kind, severity, entity_type, entity_id, details, status, created_at FROM compliance_alerts ORDER BY created_at DESC LIMIT 100");
+  // Phone numbers are masked; identity numbers were never stored in readable form.
+  const register = await ctx.pool.query(
+    `SELECT id, category, CASE WHEN phone_e164 IS NULL THEN NULL ELSE '…' || right(phone_e164, 4) END AS phone, identity_hash IS NOT NULL AS has_identity, note, created_at
+     FROM exclusion_register WHERE active ORDER BY created_at DESC LIMIT 200`);
+  const exclusions = await one<{ n: number }>(ctx.pool, "SELECT count(DISTINCT user_id)::int AS n FROM self_exclusions WHERE starts_at <= now() AND (ends_at IS NULL OR ends_at > now())");
+  const gate = await one<{ licences: number; certifications: number }>(
+    ctx.pool,
+    `SELECT (SELECT count(*) FROM licences WHERE current_date BETWEEN valid_from AND valid_to)::int AS licences,
+            (SELECT count(*) FROM certifications WHERE current_date >= valid_from AND (valid_to IS NULL OR current_date <= valid_to))::int AS certifications`);
+  return { alerts: alerts.rows, register: register.rows, activeSelfExclusions: exclusions!.n, realMoneyGate: gate };
+}

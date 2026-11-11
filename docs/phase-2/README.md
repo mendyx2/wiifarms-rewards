@@ -1,6 +1,6 @@
 # Phase 2 — minimum viable platform (simulated money only)
 
-Status as of 12 November 2026: **backend and player web app complete for the core journey and tested end to end; admin web app not yet built.**
+Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey and tested end to end.** Merchandise fulfilment, refunds/voids, notifications and reports remain.
 
 Nothing in this phase can take real money. There is no payment-gateway integration, every cycle is created in `SIMULATED` mode, the API has no setting that changes this, and the database separately refuses to open a real-money cycle without a licence and certification record.
 
@@ -16,11 +16,11 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 | D. Final draw | Entries frozen, two operators + appointed auditor, committed secret + beacon, runs once, public data to re-run it | Public randomness beacon |
 | E. Payments and cash prizes | Orders with idempotency, payment confirmation, automatic refund when no card can be issued, double-entry ledger, winnings balance, withdrawals with PIN, second approver above a threshold, reject returns the money | Payment gateway and bank transfers |
 | F. Merchandise | Winners get a claim with the 90-day window | Stock allocation, delivery and handover not built yet |
-| G. Dashboard | Figures per cycle and totals from the ledger; audit trail with integrity check | No screen yet (data only) |
+| G. Dashboard | Figures per cycle and totals from the ledger; audit trail with integrity check; role-based admin screens | Operating expenses and financial reports not built yet |
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 13 tests, run repeatedly without failure:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 14 tests, run repeatedly without failure:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -81,6 +81,26 @@ pnpm --filter @wiifarm/api start
 
 Both need `DATABASE_URL`, `MASTER_KEY` and `HASH_KEY`; over plain http on your own machine also set `COOKIE_SECURE=false`. Then open the address the server prints.
 
+## Admin web app
+
+`apps/admin` — served under `/admin`. Same construction as the player app: no framework, no third-party code, strict security headers. Its sign-in session is a separate 8-hour cookie that is not valid on the player side, and a player session is not valid here.
+
+| Screen | What it does |
+|--------|--------------|
+| Sign-in | Simulation only: by email. The live service uses company single sign-on with a hardware key |
+| Dashboard | Tickets sold and remaining, revenue, prizes awarded, outstanding liability against escrow cover, winnings owed, payouts in progress, ledger balance check, open alerts, all cycles |
+| Prize cycles | List; create a draft (price ₦200–₦500, quantities, dates) |
+| Cycle | Lifecycle strip; key figures; prize schedule; add prizes and merchandise items (draft only); evidence form with required escrow cover; approval checklist; generate tickets and publish fingerprint; open sales; published commitments; draw console; winning tickets |
+| Approvals | Cycles awaiting approval and payouts awaiting a second person, with a count in the menu |
+| Payouts | Queue of held payouts; approve or reject with a reason |
+| Audit & compliance | Licence and certification status (real-money gate), alerts, staff exclusion register (add entry), audit trail with integrity status |
+
+Buttons appear only for roles that may use them, but that is convenience: every rule is enforced by the server and the database, and refusals come back as plain-language messages (for example "the person who drafted a cycle cannot approve it").
+
+Checked in a real browser with six administrators signing in turn: draft through the form; drafter refused when approving their own cycle; finance refused without evidence and with escrow ₦1 short; locked after approval; tickets generated and sales opened; a player bought; sign-off buttons absent before close; execute disabled with one sign-off; payout approver offered no draw buttons; auditor could countersign but not execute; draw executed once and the button disappeared; a ₦20,000 payout held, rejected (money returned), re-requested and approved by the payout approver while finance was offered no approve button; exclusion register entry added by compliance and hidden from the auditor; audit trail intact; no script errors; no sideways scrolling at phone width. As with the player app, this browser run is a manual check script, not yet in the automated suite.
+
+Still missing from the admin app: merchandise stock and fulfilment screens, refunds and voiding, reconciliation and financial reports, recording licences and certifications, managing administrators and roles (currently set up directly in the database), customer support views. In production it must be served from its own restricted address rather than alongside the player app.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -100,7 +120,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 ## Still to do in Phase 2
 
 1. ~~Player web app connected to the API~~ — done (see above). Remaining: offline shell, more languages, automated browser tests in CI.
-2. **Admin web app** connected to the API, including the cycle wizard, approvals, draw console and payout queue.
+2. ~~Admin web app connected to the API~~ — done for cycles, approvals, draw, payouts, audit and compliance (see above).
 3. **Public verifier page**: check a card, re-run a draw.
 4. **Merchandise module**: suppliers, stock, reserving stock to a cycle, delivery/collection with code and photo, warranty records.
 5. Voiding a cycle with refunds; manual refunds (ineligible purchase, disputed payment) with two-person approval.

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>WiiFarm Rewards — Admin</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<div class="demo">SIMULATION · NO REAL MONEY</div>
+<div class="shell">
+  <aside id="side" hidden>
+    <div class="brand"><i>W</i> Rewards Admin</div>
+    <nav id="nav">
+      <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
+      <a href="#/cycles" data-nav="cycles">Prize cycles</a>
+      <a href="#/approvals" data-nav="approvals">Approvals <em id="apCount" hidden></em></a>
+      <a href="#/payouts" data-nav="payouts">Payouts</a>
+      <a href="#/audit" data-nav="audit">Audit &amp; compliance</a>
+    </nav>
+    <div class="who"><b id="whoName"></b><span id="whoRoles"></span><button id="signOut" class="linkbtn">Sign out</button></div>
+  </aside>
+  <main id="view"><p class="sub">Loading…</p></main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="/admin/js/app.js"></script>
+</body>
+</html>

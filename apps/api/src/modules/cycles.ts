@@ -30,7 +30,10 @@ export async function getCycle(db: Db | Ctx["pool"], id: string, forUpdate = fal
 /** Turns a database rule violation into a readable 409 instead of a 500. */
 function asConflict(err: unknown): never {
   const e = err as { code?: string; message?: string };
-  if (e.code === "23000" || e.code === "23514" || e.code === "23505") throw conflict("RULE_VIOLATION", e.message ?? "Not allowed.");
+  // Rules written in the database carry a readable message; built-in constraint errors do not.
+  if (e.code === "23000") throw conflict("RULE_VIOLATION", e.message ?? "Not allowed.");
+  if (e.code === "23514") throw conflict("RULE_VIOLATION", "One of the values is outside what the rules allow. Check the amounts, quantities and dates.");
+  if (e.code === "23505") throw conflict("RULE_VIOLATION", "That already exists for this cycle.");
   throw err;
 }
 
@@ -67,6 +70,12 @@ export interface NewTier {
 
 export async function addPrizeTier(ctx: Ctx, admin: Admin, cycleId: string, t: NewTier): Promise<{ id: string }> {
   requireRole(admin, "CYCLE_MANAGER");
+  if (t.kind === "CASH" && !t.cashKobo) throw badRequest("INVALID_PRIZE", "Enter the cash amount.");
+  if (t.kind === "MERCHANDISE" && !t.skuId) throw badRequest("INVALID_PRIZE", "Choose the merchandise item.");
+  if (t.stage === "FINAL_DRAW" && !t.drawOrder) throw badRequest("INVALID_PRIZE", "Give the draw order for a final-draw prize.");
+  if (t.stage === "INSTANT" && (t.kind !== "CASH" || t.cashKobo! < 50_000 || t.cashKobo! > 1_000_000)) {
+    throw badRequest("INVALID_PRIZE", "Instant prizes must be cash between ₦500 and ₦10,000.");
+  }
   const outcomeCode = t.kind === "CASH" ? `CASH:${t.cashKobo}` : `SKU:${t.skuId}`;
   return withTx(ctx.pool, async (db) => {
     const r = await db.query<{ id: string }>(
@@ -120,6 +129,14 @@ export async function approveCycle(ctx: Ctx, admin: Admin, cycleId: string): Pro
     await audit(db, adminActor(admin), "cycle.approval_recorded", "cycle", cycleId, { capacity });
     const n = await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM cycle_approvals WHERE cycle_id = $1", [cycleId]);
     if (n!.n < 2) return { status: "SUBMITTED" };
+    // Checked again by the database; done here first to give a message in naira.
+    const cover = await one<{ need: number; have: number | null }>(db,
+      `SELECT coalesce((SELECT sum(cash_kobo * quantity) FROM prize_tiers WHERE cycle_id = c.id AND kind = 'CASH'), 0)::bigint AS need, c.escrow_funded_kobo AS have
+       FROM cycles c WHERE c.id = $1`, [cycleId]);
+    if (cover && cover.have !== null && cover.have < cover.need) {
+      const n2 = (k: number) => "₦" + (k / 100).toLocaleString("en-NG");
+      throw conflict("RULE_VIOLATION", `Cash prizes total ${n2(cover.need)} but only ${n2(cover.have)} is recorded in escrow. They must be fully funded before approval.`);
+    }
     await db.query("UPDATE cycles SET status = 'APPROVED' WHERE id = $1", [cycleId]).catch(asConflict);
     await audit(db, adminActor(admin), "cycle.approved", "cycle", cycleId);
     return { status: "APPROVED" };
@@ -269,4 +286,50 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
 
 export function assertSimulated(cycle: CycleRow): void {
   if (cycle.mode !== "SIMULATED") throw new AppError(403, "REAL_MONEY_DISABLED", "Real-money play is not enabled.");
+}
+
+// --- Read models for the admin web app -----------------------------------------------------
+
+export async function listAdminCycles(ctx: Ctx, admin: Admin): Promise<unknown[]> {
+  if (!admin.roles.length) throw notFound();
+  return (await ctx.pool.query(
+    `SELECT c.id, c.name, c.status, c.mode, c.ticket_price_kobo, c.total_tickets, c.sales_open_at, c.sales_close_at, c.draw_at,
+            (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status IN ('SOLD','REVEALED'))::int AS sold,
+            (SELECT count(*) FROM cycle_approvals a WHERE a.cycle_id = c.id)::int AS approvals
+     FROM cycles c ORDER BY c.created_at DESC`)).rows;
+}
+
+/** Everything the admin screens show for one cycle. Never includes ticket outcomes. */
+export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Promise<unknown> {
+  if (!admin.roles.length) throw notFound();
+  const c = await one<Record<string, unknown> & { status: string; draw_at: Date; total_tickets: number }>(
+    ctx.pool,
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account,
+            c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.financial_model_ref, c.rules_document_ref,
+            encode(c.rules_sha256, 'hex') AS rules_sha256, c.escrow_reference, c.escrow_funded_kobo,
+            c.auditor_admin_id, au.full_name AS auditor_name, c.created_by, cb.full_name AS created_by_name
+     FROM cycles c JOIN admin_users cb ON cb.id = c.created_by LEFT JOIN admin_users au ON au.id = c.auditor_admin_id
+     WHERE c.id = $1`, [cycleId]);
+  if (!c) throw notFound("Cycle not found.");
+  const q = (sql: string) => ctx.pool.query(sql, [cycleId]).then((r) => r.rows);
+  const [tiers, approvals, signoffs, commitment, counts, drawn] = await Promise.all([
+    q(`SELECT p.id, p.stage, p.kind, p.title, p.cash_kobo, p.quantity, p.draw_order, s.name AS sku_name,
+              (SELECT count(*) FROM prize_claims pc WHERE pc.prize_tier_id = p.id)::int AS awarded
+       FROM prize_tiers p LEFT JOIN skus s ON s.id = p.sku_id WHERE p.cycle_id = $1 ORDER BY p.stage DESC, p.draw_order NULLS LAST, p.cash_kobo DESC`),
+    q(`SELECT a.capacity, a.approved_at, a.approver_id, u.full_name FROM cycle_approvals a JOIN admin_users u ON u.id = a.approver_id WHERE a.cycle_id = $1 ORDER BY a.approved_at`),
+    q(`SELECT s.capacity, s.signed_at, s.admin_user_id, u.full_name FROM draw_signoffs s JOIN admin_users u ON u.id = s.admin_user_id WHERE s.cycle_id = $1 ORDER BY s.signed_at`),
+    q(`SELECT cc.game_core_version, encode(cc.ticket_merkle_root, 'hex') AS ticket_merkle_root, encode(cc.prize_table_sha256, 'hex') AS prize_table_sha256,
+              encode(cc.draw_secret_commitment, 'hex') AS draw_secret_commitment, cc.published_at, cs.beacon_source, cs.beacon_round
+       FROM cycle_commitments cc JOIN cycle_secrets cs ON cs.cycle_id = cc.cycle_id WHERE cc.cycle_id = $1`),
+    q(`SELECT count(*) FILTER (WHERE status IN ('SOLD','REVEALED'))::int AS sold, count(*) FILTER (WHERE status = 'REVEALED')::int AS revealed,
+              count(*) FILTER (WHERE status = 'UNSOLD')::int AS unsold FROM tickets WHERE cycle_id = $1`),
+    q(`SELECT executed_at, entries_count FROM draws WHERE cycle_id = $1`),
+  ]);
+  const cashCover = (tiers as { kind: string; cash_kobo: number | null; quantity: number }[]).reduce((s, t) => s + (t.kind === "CASH" ? t.cash_kobo! * t.quantity : 0), 0);
+  return {
+    ...c, tiers, approvals, signoffs, commitment: commitment[0] ?? null, counts: counts[0], draw: drawn[0] ?? null,
+    cashCoverRequiredKobo: cashCover,
+    drawTimeReached: c.draw_at.getTime() <= Date.now(),
+    editable: c.status === "DRAFT" || c.status === "SUBMITTED",
+  };
 }
