@@ -321,6 +321,12 @@ export async function onExclusionRegister(db: Db, user: Pick<User, "identity_has
   return Boolean(r);
 }
 
+export async function listBankAccounts(ctx: Ctx, userId: string): Promise<unknown[]> {
+  const r = await ctx.pool.query(
+    `SELECT id, bank_code, resolved_name, name_match, usable_from FROM bank_accounts WHERE user_id = $1 AND status = 'ACTIVE' ORDER BY created_at`, [userId]);
+  return r.rows;
+}
+
 // --- Bank account (simulated name enquiry) ---------------------------------------------
 
 export async function addBankAccount(ctx: Ctx, actor: Actor, user: User, input: { bankCode: string; accountNumber: string; accountName: string }): Promise<{ id: string; nameMatch: boolean; usableFrom: string }> {

@@ -1,0 +1,13 @@
+{
+  "name": "@wiifarm/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@wiifarm/game-core": "workspace:*"
+  }
+}

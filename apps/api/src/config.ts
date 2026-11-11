@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 export interface Config {
   databaseUrl: string;
   /** 32-byte key that wraps per-cycle data keys. Stand-in for cloud KMS; never used in production as-is. */
@@ -17,6 +19,10 @@ export interface Config {
   maxLimitsKobo: { daily: number; weekly: number; monthly: number };
   /** Requests allowed per client address per minute. */
   rateLimits: { auth: number; general: number };
+  /** Session cookies are marked Secure (HTTPS only). Only ever false for local development over http. */
+  cookieSecure: boolean;
+  /** Folder holding the player web app, served from the same origin as the API. */
+  webRoot?: string;
 }
 
 function keyFromEnv(name: string): Buffer {
@@ -40,5 +46,8 @@ export function loadConfig(): Config {
     sessionDays: 30,
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 },
     rateLimits: { auth: 20, general: 300 },
+    cookieSecure: process.env.COOKIE_SECURE !== "false",
+    // The player web app ships with the API unless WEB_ROOT points elsewhere.
+    webRoot: process.env.WEB_ROOT ?? fileURLToPath(new URL("../../web/public", import.meta.url)),
   };
 }

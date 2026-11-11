@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14532d">
+<title>WiiFarm Rewards</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="phone">
+  <div class="demo" id="modeBanner">SIMULATION · NO REAL MONEY</div>
+  <header class="top">
+    <a class="brand" href="#/home"><span class="logo">W</span><b>WiiFarm Rewards</b></a>
+    <a class="bal" id="topBal" href="#/wallet" hidden></a>
+  </header>
+  <main id="view" tabindex="-1"><p class="muted">Loading…</p></main>
+  <nav class="tabs" id="tabs" aria-label="Main">
+    <a href="#/home" data-tab="home"><span aria-hidden="true">🏠</span>Home</a>
+    <a href="#/cards" data-tab="cards"><span aria-hidden="true">🎟️</span>My cards</a>
+    <a href="#/wallet" data-tab="wallet"><span aria-hidden="true">💰</span>Winnings</a>
+    <a href="#/draw" data-tab="draw"><span aria-hidden="true">🎯</span>Draw</a>
+    <a href="#/me" data-tab="me"><span aria-hidden="true">👤</span>Me</a>
+  </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+<noscript><p class="noscript">WiiFarm Rewards needs JavaScript switched on.</p></noscript>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

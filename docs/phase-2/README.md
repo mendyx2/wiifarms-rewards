@@ -1,6 +1,6 @@
 # Phase 2 — minimum viable platform (simulated money only)
 
-Status as of 12 November 2026: **backend complete for the core journey and tested end to end; web apps not yet connected.**
+Status as of 12 November 2026: **backend and player web app complete for the core journey and tested end to end; admin web app not yet built.**
 
 Nothing in this phase can take real money. There is no payment-gateway integration, every cycle is created in `SIMULATED` mode, the API has no setting that changes this, and the database separately refuses to open a real-money cycle without a licence and certification record.
 
@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 12 tests, run repeatedly without failure:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 13 tests, run repeatedly without failure:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -40,11 +40,53 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 1. **Deadlocks under simultaneous payments.** Fixed by changing how rows and ledger accounts are locked; a transaction aborted by the database is now retried safely.
 2. **False "audit trail broken" under load.** Audit numbers were assigned before the ordering lock. Fixed in `db/migrations/003_audit_chain_order.sql`; the number is now also covered by the hash.
 
+## Player web app
+
+`apps/web` — served by the API from the same address, so there is one thing to deploy and nothing is loaded from other sites.
+
+| Screen | What the player can do |
+|--------|------------------------|
+| Home | See the cycle: price, cards left, odds, closing and draw dates, prizes, published fingerprint; switch cycle; try a free demo card |
+| Sign up / sign in | Phone number, one-time code, 6-digit PIN |
+| Verify | Identity number, age and location check, optional next of kin |
+| Buy | Choose 1–20 cards, see spending against the limit, simulated payment, automatic refund message if cards sell out mid-payment |
+| My cards | All cards in all cycles; scratch with a finger or "Reveal now"; "Reveal all" |
+| Card | Result, "entered in the final draw", and a check **done on the player's own phone** that the result matches the fingerprint published before sales |
+| Winnings | Balance, history, add bank account, withdraw with PIN, withdrawal status |
+| Draw | Schedule and fairness steps before; winners (own cards highlighted) after; **re-run the whole draw on the phone** and see each check pass |
+| Me | Profile, next of kin, spending limit, 7-day break, self-exclusion, sign out |
+
+Safety and experience choices:
+
+- **No framework and no third-party code** in the app (about 58 KB in total before compression). It loads fast on slow connections and there is no supply chain to audit. This replaces the Next.js choice in the Phase 1 plan; a framework can be added later if the team wants one.
+- The session is kept in a cookie that page scripts cannot read, is never sent from another site, and state-changing requests need a header another site cannot add.
+- The server sends a strict content-security policy: no inline script or style, nothing from other origins, no framing.
+- The app never builds HTML from text, so data from the server cannot run as script.
+- Every money action is safe to retry after a dropped connection: the same request key is reused, so nothing is charged or paid twice. Buttons disable while a request is in flight.
+- `apps/web/test/verify.test.ts` proves the in-browser checker gives exactly the same answers as the game engine, and rejects altered results.
+
+Checked in a real browser (headless Chromium, phone width, and again at 320 px): full journey from demo card through sign-up, verification, purchase, scratching, in-phone verification, winnings, withdrawal, limits, a real draw executed by three administrators, and in-phone draw verification — with no script errors and no sideways scrolling. This browser run is a manual check script, not yet part of the automated suite.
+
+Not yet in the web app: offline shell/installation prompt (service worker), languages other than English, notifications, merchandise claim and delivery screens, support.
+
+### Try it locally
+
+```bash
+pnpm --filter @wiifarm/api seed:demo
+```
+
+```bash
+pnpm --filter @wiifarm/api start
+```
+
+Both need `DATABASE_URL`, `MASTER_KEY` and `HASH_KEY`; over plain http on your own machine also set `COOKIE_SECURE=false`. Then open the address the server prints.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
 |-----------|-------|-----|
 | NestJS | Fastify | Fewer third-party packages to trust; no build step |
+| Next.js player app | Dependency-free web app served by the API | Smaller download for low-end phones; no third-party code to audit; one deployment |
 | Argon2id for PINs | scrypt (built into Node.js) | Avoids a native add-on; parameters are stored with each hash so they can be raised or replaced |
 | Separate database roles per service | One role | Needs the hosting decision; still required before Phase 3 |
 | Reservation of specific cards during payment | Availability check, then assign on payment; refund if gone | Simpler and never strands a card; revisit if refunds at sell-out prove annoying |
@@ -57,7 +99,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 
 ## Still to do in Phase 2
 
-1. **Player web app** connected to the API (the Phase 1 prototype is still a stand-alone mockup).
+1. ~~Player web app connected to the API~~ — done (see above). Remaining: offline shell, more languages, automated browser tests in CI.
 2. **Admin web app** connected to the API, including the cycle wizard, approvals, draw console and payout queue.
 3. **Public verifier page**: check a card, re-run a draw.
 4. **Merchandise module**: suppliers, stock, reserving stock to a cycle, delivery/collection with code and photo, warranty records.

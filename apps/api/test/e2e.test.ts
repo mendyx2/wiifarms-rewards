@@ -96,7 +96,7 @@ before(async () => {
   config = {
     databaseUrl: dbUrl, masterKey: randomBytes(32), hashKey: randomBytes(32), simulated: true,
     payoutApprovalThresholdKobo: 500_000, bankCoolingOffHours: 0, beaconPeriodSeconds: 1, sessionDays: 30,
-    maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 },
+    maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 }, cookieSecure: true,
   };
   ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds) };
   app = buildServer(ctx);
@@ -459,4 +459,40 @@ test("rate limiting applies to sign-in endpoints", async () => {
   for (let i = 0; i < 7; i++) codes.push((await api("POST", "/v1/auth/login", { body: { phone: "08031112222", pin: "482915" } }, limited)).status);
   assert.deepEqual(codes, [401, 401, 401, 401, 401, 429, 429]);
   await limited.close();
+});
+
+test("web sessions: cookie is script-proof, cross-site requests are refused, only web-app files are served", async () => {
+  const web = buildServer({ ...ctx, config: { ...config, webRoot: new URL("../../web/public", import.meta.url).pathname } });
+  const phone = "08037770001";
+  const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone } }, web));
+  const reg = await web.inject({ method: "POST", url: "/v1/auth/register", payload: { phone, code: otp.devCode, pin: "482915" } });
+  const setCookie = String(reg.headers["set-cookie"]);
+  assert.match(setCookie, /^wr_session=[\w-]+; Path=\/; HttpOnly; SameSite=Strict; Secure; Max-Age=\d+$/);
+  const cookie = setCookie.split(";")[0]!;
+
+  // Reading with the cookie works; changing anything also needs the custom header a foreign site cannot send.
+  assert.equal((await web.inject({ method: "GET", url: "/v1/me", headers: { cookie } })).statusCode, 200);
+  const change = { method: "PUT" as const, url: "/v1/me/limits", payload: { dailyKobo: 100_000, weeklyKobo: 400_000, monthlyKobo: 1_000_000 } };
+  const refused = await web.inject({ ...change, headers: { cookie } });
+  assert.equal(refused.statusCode, 403);
+  assert.equal(JSON.parse(refused.body).error.code, "CSRF");
+  assert.equal((await web.inject({ ...change, headers: { cookie, "x-wr-client": "web" } })).statusCode, 200);
+
+  // Signing out ends the session on the server, not just in the browser.
+  const out = await web.inject({ method: "POST", url: "/v1/auth/logout", headers: { cookie, "x-wr-client": "web" }, payload: {} });
+  assert.match(String(out.headers["set-cookie"]), /Max-Age=0/);
+  assert.equal((await web.inject({ method: "GET", url: "/v1/me", headers: { cookie } })).statusCode, 401);
+
+  // Static files: the app shell with strict headers, and nothing outside the web folder.
+  const page = await web.inject({ method: "GET", url: "/" });
+  assert.equal(page.statusCode, 200);
+  assert.match(String(page.headers["content-security-policy"]), /default-src 'self'/);
+  assert.ok(!/unsafe-inline|unsafe-eval/.test(String(page.headers["content-security-policy"])));
+  assert.equal(page.headers["x-frame-options"], "DENY");
+  assert.ok(!/<script(?![^>]*\bsrc=)|\son\w+=|style=/.test(page.body), "no inline script, handlers or styles");
+  assert.equal((await web.inject({ method: "GET", url: "/js/app.js" })).statusCode, 200);
+  for (const url of ["/../package.json", "/..%2f..%2fpackage.json", "/js/../../src/main.ts", "/.env"]) {
+    assert.equal((await web.inject({ method: "GET", url })).statusCode, 404, url);
+  }
+  await web.close();
 });

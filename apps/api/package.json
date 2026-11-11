@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/main.ts",
     "migrate": "node src/migrate.ts",
+    "seed:demo": "node src/seed-demo.ts",
     "test": "node --test --test-concurrency=1 test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json"
   },

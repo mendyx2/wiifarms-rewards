@@ -1,4 +1,6 @@
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { Actor } from "./audit.ts";
 import type { Ctx } from "./context.ts";
 import { withTx } from "./db.ts";
@@ -38,6 +40,53 @@ const bearer = (req: FastifyRequest): string | undefined => {
   const h = req.headers.authorization;
   return h?.startsWith("Bearer ") ? h.slice(7) : undefined;
 };
+const SESSION_COOKIE = "wr_session";
+const cookie = (req: FastifyRequest, name: string): string | undefined => {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return undefined;
+};
+
+/**
+ * The player's session token. Apps send it as a Bearer header. The web app
+ * keeps it in a cookie that page scripts cannot read (HttpOnly) and that the
+ * browser never sends from another site (SameSite=Strict). As a second guard
+ * against cross-site requests, anything that changes data via the cookie must
+ * also carry a custom header, which another site cannot add.
+ */
+function playerToken(req: FastifyRequest): string | undefined {
+  const fromHeader = bearer(req);
+  if (fromHeader) return fromHeader;
+  const fromCookie = cookie(req, SESSION_COOKIE);
+  if (!fromCookie) return undefined;
+  if (req.method !== "GET" && req.headers["x-wr-client"] !== "web") throw new AppError(403, "CSRF", "Request refused.");
+  return fromCookie;
+}
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".ico": "image/x-icon",
+};
+
+/** Loads the web app's files once at start. Only these exact files can ever be served. */
+function loadStatic(root: string): Map<string, { body: Buffer; type: string }> {
+  const files = new Map<string, { body: Buffer; type: string }>();
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else {
+        const type = MIME[path.extname(name)];
+        if (type) files.set("/" + path.relative(root, full).split(path.sep).join("/"), { body: readFileSync(full), type });
+      }
+    }
+  };
+  walk(root);
+  return files;
+}
+
 const idemKey = (req: FastifyRequest): string => {
   const k = req.headers["idempotency-key"];
   if (typeof k !== "string") throw badRequest("INVALID_IDEMPOTENCY_KEY", "Missing Idempotency-Key header.");
@@ -51,9 +100,13 @@ export function buildServer(ctx: Ctx): FastifyInstance {
 
   app.addHook("onRequest", async (req) => generalLimit(req.ip));
   app.addHook("onSend", async (_req, reply) => {
-    reply.header("Cache-Control", "no-store");
+    if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Referrer-Policy", "no-referrer");
+    reply.header("X-Frame-Options", "DENY");
+    // The web app loads nothing from other sites and runs no inline script or style.
+    reply.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    if (ctx.config.cookieSecure) reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   });
   app.setErrorHandler((err: unknown, _req, reply) => {
     const e = err as { validation?: unknown; statusCode?: number; message?: string };
@@ -65,7 +118,13 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     return reply.status(500).send({ error: { code: "INTERNAL", message: "Something went wrong. Please try again." } });
   });
 
-  const player = (req: FastifyRequest) => identity.authenticate(ctx, bearer(req));
+  const player = (req: FastifyRequest) => identity.authenticate(ctx, playerToken(req));
+  const setSession = (reply: FastifyReply, token: string | null): void => {
+    const attrs = `Path=/; HttpOnly; SameSite=Strict${ctx.config.cookieSecure ? "; Secure" : ""}`;
+    reply.header("Set-Cookie", token === null
+      ? `${SESSION_COOKIE}=; ${attrs}; Max-Age=0`
+      : `${SESSION_COOKIE}=${token}; ${attrs}; Max-Age=${ctx.config.sessionDays * 86400}`);
+  };
   const staff = (req: FastifyRequest) => admin.authenticateAdmin(ctx, bearer(req));
   const actorOf = (userId: string, req: FastifyRequest): Actor => ({ type: "PLAYER", id: userId, ip: req.ip });
 
@@ -76,17 +135,22 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     authLimit(req.ip);
     return identity.requestOtp(ctx, req.body.phone);
   });
-  app.post<{ Body: { phone: string; code: string; pin: string } }>("/v1/auth/register", { schema: body({ phone: str(20), code: str(6), pin: str(6) }) }, async (req) => {
+  app.post<{ Body: { phone: string; code: string; pin: string } }>("/v1/auth/register", { schema: body({ phone: str(20), code: str(6), pin: str(6) }) }, async (req, reply) => {
     authLimit(req.ip);
-    return identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip);
+    const r = await identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip);
+    setSession(reply, r.token);
+    return r;
   });
-  app.post<{ Body: { phone: string; pin: string } }>("/v1/auth/login", { schema: body({ phone: str(20), pin: str(6) }) }, async (req) => {
+  app.post<{ Body: { phone: string; pin: string } }>("/v1/auth/login", { schema: body({ phone: str(20), pin: str(6) }) }, async (req, reply) => {
     authLimit(req.ip);
-    return identity.login(ctx, req.body.phone, req.body.pin, req.ip);
+    const r = await identity.login(ctx, req.body.phone, req.body.pin, req.ip);
+    setSession(reply, r.token);
+    return r;
   });
-  app.post("/v1/auth/logout", async (req) => {
-    const t = bearer(req);
+  app.post("/v1/auth/logout", async (req, reply) => {
+    const t = playerToken(req);
     if (t) await identity.logout(ctx, t);
+    setSession(reply, null);
     return { ok: true };
   });
 
@@ -95,6 +159,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     const u = await player(req);
     const extra = await withTx(ctx.pool, async (db) => ({
       limits: await identity.getLimits(db, u.id),
+      spending: await tickets.spending(db, u.id),
       exclusion: (await identity.activeExclusion(db, u.id)) ?? null,
       nextOfKin: (await db.query("SELECT full_name, relationship FROM next_of_kin WHERE user_id = $1", [u.id])).rows[0] ?? null,
     }));
@@ -125,6 +190,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     const u = await player(req);
     return identity.selfExclude(ctx, actorOf(u.id, req), u.id, req.body.kind, req.body.days);
   });
+  app.get("/v1/me/bank-accounts", async (req) => ({ accounts: await identity.listBankAccounts(ctx, (await player(req)).id) }));
   app.post<{ Body: { bankCode: string; accountNumber: string; accountName: string } }>("/v1/me/bank-accounts", {
     schema: body({ bankCode: str(10), accountNumber: str(10), accountName: str(120) }),
   }, async (req) => {
@@ -202,6 +268,19 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/payouts/:id/decision", {
     schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
   }, async (req) => wallet.decidePayout(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+
+  // ---- Player web app (same origin as the API) -------------------------------------------
+  if (ctx.config.webRoot) {
+    const files = loadStatic(ctx.config.webRoot);
+    const serve = (reply: FastifyReply, file: { body: Buffer; type: string }) =>
+      reply.header("Content-Type", file.type).header("Cache-Control", "no-cache").send(file.body);
+    app.get("/", (_req, reply) => serve(reply, files.get("/index.html")!));
+    app.get("/*", (req, reply) => {
+      const file = files.get(req.url.split("?")[0]!);
+      if (!file) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Not found." } });
+      return serve(reply, file);
+    });
+  }
 
   return app;
 }

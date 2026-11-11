@@ -30,6 +30,11 @@ async function spentSince(db: Db, userId: string, interval: string): Promise<num
   return r!.s;
 }
 
+/** What the player has spent (or committed) in each rolling window, for showing against their limits. */
+export async function spending(db: Db, userId: string): Promise<{ dailyKobo: number; weeklyKobo: number; monthlyKobo: number }> {
+  return { dailyKobo: await spentSince(db, userId, "24 hours"), weeklyKobo: await spentSince(db, userId, "7 days"), monthlyKobo: await spentSince(db, userId, "30 days") };
+}
+
 export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: string, quantity: number, idempotencyKey: string): Promise<OrderResult> {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_PER_ORDER) {
     throw badRequest("INVALID_QUANTITY", `You can buy 1 to ${MAX_PER_ORDER} cards at a time.`);

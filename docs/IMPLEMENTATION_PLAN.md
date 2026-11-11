@@ -61,7 +61,7 @@ A **modular monolith** with strict module boundaries, not microservices. One dep
 | API | Fastify on Node.js LTS, one folder per module | Changed from NestJS at the start of Phase 2: far fewer third-party packages to trust and audit, and no build step between the code reviewed and the code run. Module boundaries are kept by structure and review. |
 | Database | PostgreSQL | Transactions, row-level locking for inventory, row-level security, triggers for immutability. |
 | Cache / queue | Redis + BullMQ | Sessions, rate limiting, ticket reservations, background jobs. |
-| Player web | Next.js PWA | Installable, works on low-end Android, small bundles, server-rendered catalogue. |
+| Player web | Dependency-free web app served by the API | Changed from Next.js in Phase 2: a much smaller download for low-end phones, no third-party code to audit, and one deployment. A framework can be introduced later if the team prefers. |
 | Admin web | Separate Next.js app on a separate domain | Isolated attack surface and session scope. |
 | Mobile (Phase 5) | React Native, reusing the API and shared packages | "Future Android and iOS applications" without a rewrite. |
 | Infrastructure | Managed cloud, infrastructure-as-code, containers | Reproducible environments, auditable changes. |
