@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WiiFarm Rewards — player prototype</title>
+<style>
+  :root {
+    --green: #14532d; --green-2: #1c6b3c; --leaf: #e8f3ec; --gold: #d99a1c; --gold-soft: #fdf3dc;
+    --ink: #17231c; --muted: #5d6b63; --line: #dfe6e1; --bg: #f4f6f3; --card: #fff; --red: #b3261e;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body { font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: #dfe5e0; }
+  button { font: inherit; cursor: pointer; }
+  .phone { max-width: 430px; min-height: 100vh; margin: 0 auto; background: var(--bg); display: flex; flex-direction: column; position: relative; box-shadow: 0 0 40px rgba(0,0,0,.12); }
+  .demo { background: var(--gold); color: #2b1d00; font-size: 12px; font-weight: 700; text-align: center; padding: 5px 12px; letter-spacing: .03em; }
+  header.top { background: var(--green); color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+  header.top .logo { width: 30px; height: 30px; border-radius: 9px; background: var(--gold); display: grid; place-items: center; font-weight: 800; color: var(--green); }
+  header.top b { font-size: 17px; }
+  header.top .bal { margin-left: auto; font-size: 13px; background: rgba(255,255,255,.14); padding: 5px 10px; border-radius: 99px; border: 0; color: #fff; }
+  main { flex: 1; padding: 16px 16px 96px; }
+  .screen { display: none; }
+  .screen.on { display: block; animation: in .18s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+  h1 { font-size: 23px; line-height: 1.2; margin: 4px 0 6px; }
+  h2 { font-size: 17px; margin: 22px 0 10px; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .btn { display: block; width: 100%; border: 0; border-radius: 14px; padding: 15px 16px; font-weight: 700; font-size: 16px; background: var(--green); color: #fff; }
+  .btn:active { transform: scale(.985); }
+  .btn.gold { background: var(--gold); color: #2b1d00; }
+  .btn.ghost { background: transparent; color: var(--green); border: 1.5px solid var(--green); }
+  .btn.small { padding: 10px 14px; font-size: 14px; width: auto; display: inline-block; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .stack > * + * { margin-top: 10px; }
+  .hero { background: linear-gradient(150deg, var(--green), var(--green-2)); color: #fff; border-radius: 20px; padding: 20px; margin-bottom: 14px; }
+  .hero .tag { display: inline-block; background: rgba(255,255,255,.16); border-radius: 99px; font-size: 12px; padding: 3px 10px; margin-bottom: 10px; }
+  .hero .price { font-size: 34px; font-weight: 800; }
+  .hero .price small { font-size: 14px; font-weight: 500; opacity: .85; }
+  .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.22); overflow: hidden; margin: 12px 0 6px; }
+  .bar i { display: block; height: 100%; background: var(--gold); border-radius: 99px; }
+  .bar.light { background: var(--line); }
+  .bar.light i { background: var(--green-2); }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; font-size: 13px; }
+  .facts div { background: rgba(255,255,255,.12); border-radius: 12px; padding: 9px 10px; }
+  .facts b { display: block; font-size: 15px; }
+  .prizes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .prize { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .prize .pic { height: 64px; border-radius: 10px; background: var(--leaf); display: grid; place-items: center; font-size: 32px; margin-bottom: 8px; }
+  .prize b { display: block; font-size: 14px; line-height: 1.25; }
+  .prize span { font-size: 12px; color: var(--muted); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row small { color: var(--muted); display: block; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
+  input, select { width: 100%; padding: 14px; border-radius: 12px; border: 1.5px solid var(--line); font: inherit; background: #fff; }
+  input:focus, select:focus { outline: 2px solid var(--green-2); border-color: transparent; }
+  .steps { display: flex; gap: 6px; margin-bottom: 14px; }
+  .steps i { flex: 1; height: 5px; border-radius: 99px; background: var(--line); }
+  .steps i.done { background: var(--green-2); }
+  .qty { display: flex; align-items: center; justify-content: center; gap: 22px; margin: 6px 0 12px; }
+  .qty button { width: 52px; height: 52px; border-radius: 50%; border: 1.5px solid var(--green); background: #fff; font-size: 26px; color: var(--green); }
+  .qty output { font-size: 44px; font-weight: 800; min-width: 70px; text-align: center; }
+  .chips { display: flex; gap: 8px; justify-content: center; margin-bottom: 14px; }
+  .chips button { border: 1px solid var(--line); background: #fff; border-radius: 99px; padding: 7px 14px; font-size: 14px; }
+  .note { background: var(--leaf); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: #1d4a2f; margin-bottom: 12px; }
+  .note.warn { background: var(--gold-soft); color: #5e4100; }
+  .tickets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ticket { border-radius: 14px; padding: 14px 12px; background: linear-gradient(135deg, #c9ced0, #eef0f1 45%, #b9bfc2); border: 0; text-align: left; min-height: 96px; position: relative; }
+  .ticket.done { background: var(--card); border: 1px solid var(--line); }
+  .ticket.win { background: var(--gold-soft); border: 1.5px solid var(--gold); }
+  .ticket code { font-size: 11px; color: var(--muted); display: block; }
+  .ticket b { display: block; font-size: 17px; margin-top: 8px; }
+  .ticket span { font-size: 12px; color: var(--muted); }
+  .scratchwrap { position: relative; width: 100%; aspect-ratio: 3 / 2; border-radius: 18px; overflow: hidden; border: 2px solid var(--gold); background: var(--gold-soft); touch-action: none; user-select: none; }
+  .result { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: 16px; }
+  .result .big { font-size: 40px; font-weight: 800; color: var(--green); }
+  .result .big.none { font-size: 24px; color: var(--muted); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .entered { display: flex; gap: 10px; align-items: center; background: var(--leaf); border-radius: 12px; padding: 12px; font-size: 14px; margin: 12px 0; }
+  .entered i { width: 26px; height: 26px; border-radius: 50%; background: var(--green-2); color: #fff; display: grid; place-items: center; font-style: normal; font-weight: 700; flex: none; }
+  .proof { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; background: #0f1f17; color: #b9f0cc; border-radius: 12px; padding: 12px; overflow-wrap: anywhere; }
+  .proof .okline { color: #ffd77a; font-weight: 700; }
+  .balance { font-size: 38px; font-weight: 800; }
+  nav.tabs { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: #fff; border-top: 1px solid var(--line); display: flex; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); z-index: 5; }
+  nav.tabs button { flex: 1; border: 0; background: none; padding: 6px 2px; font-size: 11px; color: var(--muted); display: grid; gap: 2px; justify-items: center; }
+  nav.tabs button span { font-size: 20px; line-height: 1; }
+  nav.tabs button.on { color: var(--green); font-weight: 700; }
+  .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 99px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 9; max-width: 90vw; text-align: center; }
+  .toast.on { opacity: 1; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: var(--leaf); color: var(--green); }
+  .pill.gold { background: var(--gold-soft); color: #7a5300; }
+  .link { background: none; border: 0; color: var(--green); font-weight: 700; padding: 0; text-decoration: underline; }
+  .danger { color: var(--red); border-color: var(--red); }
+  @media (prefers-reduced-motion: reduce) { .screen.on { animation: none; } }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="demo">DEMO · NO REAL MONEY · SIMULATED</div>
+  <header class="top">
+    <div class="logo">W</div><b>WiiFarm Rewards</b>
+    <button class="bal" id="topBal" data-go="wallet">₦0</button>
+  </header>
+
+  <main>
+    <!-- HOME / CATALOGUE -->
+    <section class="screen on" id="home">
+      <div class="hero">
+        <span class="tag">Harvest Cycle 1 · Niger State</span>
+        <div class="price">₦200 <small>per scratch card</small></div>
+        <div class="bar"><i id="soldBar" style="width:62%"></i></div>
+        <div style="font-size:13px"><span id="leftTxt">3,800</span> of 10,000 cards left</div>
+        <div class="facts">
+          <div><b>1 in 9</b>cards wins instant cash</div>
+          <div><b>₦500 – ₦10,000</b>instant prizes</div>
+          <div><b>30 Jan 2027</b>or when sold out</div>
+          <div><b>Final draw</b>6 Feb 2027, 6pm</div>
+        </div>
+      </div>
+      <div class="stack">
+        <button class="btn gold" data-action="start">Buy scratch cards</button>
+        <button class="btn ghost" data-action="demo">Try a free demo card</button>
+      </div>
+      <h2>Final-draw prizes</h2>
+      <p class="muted">Every card you buy is entered automatically, win or lose.</p>
+      <div class="prizes">
+        <div class="prize"><div class="pic">🏍️</div><b>Electric motorcycle</b><span>1 winner</span></div>
+        <div class="prize"><div class="pic">🧊</div><b>Solar freezer 200L</b><span>3 winners</span></div>
+        <div class="prize"><div class="pic">🔋</div><b>Solar panel + battery kit</b><span>5 winners</span></div>
+        <div class="prize"><div class="pic">📱</div><b>Smartphone</b><span>10 winners</span></div>
+        <div class="prize"><div class="pic">🌾</div><b>NaijaSweetRice 50kg</b><span>50 winners</span></div>
+        <div class="prize"><div class="pic">💵</div><b>₦500,000 cash</b><span>1 winner</span></div>
+      </div>
+      <h2>Why you can trust it</h2>
+      <div class="card">
+        <div class="row"><div><b>Results fixed before sale</b><small>Scratching only reveals what is already set.</small></div></div>
+        <div class="row"><div><b>Check every card yourself</b><small>Each result comes with a proof against a published fingerprint.</small></div></div>
+        <div class="row"><div><b>Prizes secured in advance</b><small>Cash held in escrow; goods in our warehouse before sales open.</small></div></div>
+        <div class="row"><div><b>Independent auditor at the draw</b><small>Anyone can re-run the draw afterwards.</small></div></div>
+      </div>
+      <p class="muted">18+ only. Play responsibly. Licence details and full rules are shown here once issued.</p>
+    </section>
+
+    <!-- SIGN UP -->
+    <section class="screen" id="signup">
+      <div class="steps"><i class="done"></i><i></i><i></i></div>
+      <h1>Create your account</h1>
+      <p class="muted">Just your phone number to start.</p>
+      <label for="phone">Phone number</label>
+      <input id="phone" inputmode="tel" placeholder="0803 000 0000" autocomplete="tel">
+      <div id="otpBlock" hidden>
+        <label for="otp">Enter the 6-digit code we sent</label>
+        <input id="otp" inputmode="numeric" maxlength="6" placeholder="••••••">
+        <p class="muted" style="margin-top:6px">Prototype: any 6 digits work.</p>
+        <label for="pin">Choose a 6-digit PIN</label>
+        <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••">
+      </div>
+      <div style="margin-top:16px"><button class="btn" data-action="signupNext">Send code</button></div>
+    </section>
+
+    <!-- VERIFY -->
+    <section class="screen" id="verify">
+      <div class="steps"><i class="done"></i><i class="done"></i><i></i></div>
+      <h1>Confirm it's you</h1>
+      <p class="muted">The law requires us to check you are 18 or over and in Niger State before you can buy.</p>
+      <label for="idtype">Verify with</label>
+      <select id="idtype"><option>NIN</option><option>BVN</option></select>
+      <label for="idnum">Number</label>
+      <input id="idnum" inputmode="numeric" maxlength="11" placeholder="11 digits">
+      <div class="note" style="margin-top:12px">📍 Location: <b>Minna, Niger State</b> (simulated)</div>
+      <details class="card">
+        <summary><b>Add next of kin</b> <span class="muted">— optional now, needed for big prizes</span></summary>
+        <label for="nokName">Full name</label><input id="nokName" placeholder="e.g. Amina Bello">
+        <label for="nokRel">Relationship</label><input id="nokRel" placeholder="e.g. Sister">
+        <label for="nokPhone">Phone</label><input id="nokPhone" inputmode="tel" placeholder="0803 000 0000">
+      </details>
+      <button class="btn" data-action="verify">Verify and continue</button>
+    </section>
+
+    <!-- BUY -->
+    <section class="screen" id="buy">
+      <div class="steps"><i class="done"></i><i class="done"></i><i class="done"></i></div>
+      <h1>How many cards?</h1>
+      <div class="card">
+        <div class="qty">
+          <button data-action="less" aria-label="Fewer">−</button>
+          <output id="qty">5</output>
+          <button data-action="more" aria-label="More">+</button>
+        </div>
+        <div class="chips"><button data-q="1">1</button><button data-q="5">5</button><button data-q="10">10</button><button data-q="20">20</button></div>
+        <div class="row"><span>Total</span><b id="total">₦1,000</b></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;font-size:14px"><span>Spent today</span><b id="spentTxt">₦0 of ₦5,000</b></div>
+        <div class="bar light"><i id="spentBar" style="width:0"></i></div>
+        <button class="link" data-go="me" style="font-size:13px">Change my limits</button>
+      </div>
+      <div id="limitNote" class="note warn" hidden></div>
+      <button class="btn gold" id="payBtn" data-action="pay">Pay ₦1,000</button>
+      <p class="muted" style="margin-top:10px;text-align:center">Card · Bank transfer · USSD (simulated in this prototype)</p>
+    </section>
+
+    <!-- MY CARDS -->
+    <section class="screen" id="cards">
+      <h1>My cards</h1>
+      <p class="muted" id="cardsSub">You have no cards yet.</p>
+      <div style="margin-bottom:12px" id="revealAllWrap" hidden><button class="btn small ghost" data-action="revealAll">Reveal all</button></div>
+      <div class="tickets" id="ticketList"></div>
+      <div style="margin-top:16px"><button class="btn" data-action="start">Buy more cards</button></div>
+    </section>
+
+    <!-- SCRATCH -->
+    <section class="screen" id="scratch">
+      <button class="link" data-go="cards">← My cards</button>
+      <h1 style="margin-top:10px">Scratch to reveal</h1>
+      <p class="muted">Card <code id="scSerial"></code></p>
+      <div class="scratchwrap" id="scWrap">
+        <div class="result" id="scResult"></div>
+        <canvas id="scCanvas" aria-label="Scratch surface"></canvas>
+      </div>
+      <div style="margin-top:12px"><button class="btn ghost" id="revealNow" data-action="revealNow">Reveal now</button></div>
+      <div id="afterReveal" hidden>
+        <div class="entered"><i>✓</i><div><b>Entered in the final draw</b><br><span class="muted">6 Feb 2027, 6pm · this card is in, win or lose</span></div></div>
+        <details class="card">
+          <summary><b>Verify this card</b></summary>
+          <p class="muted" style="margin-top:8px">This result was fixed before sales opened. The proof below ties it to the published fingerprint.</p>
+          <div class="proof" id="proofBox"></div>
+        </details>
+        <button class="btn" data-action="nextCard" id="nextCardBtn">Next card</button>
+      </div>
+    </section>
+
+    <!-- WALLET -->
+    <section class="screen" id="wallet">
+      <h1>Winnings</h1>
+      <div class="card">
+        <span class="muted">Available to withdraw</span>
+        <div class="balance" id="walBal">₦0</div>
+        <button class="btn" style="margin-top:10px" data-action="withdraw" id="wdBtn" disabled>Withdraw to bank</button>
+        <p class="muted" style="margin:10px 0 0">Paid only to a bank account in your own verified name.</p>
+      </div>
+      <h2>History</h2>
+      <div class="card" id="history"><p class="muted" style="margin:0">Nothing yet.</p></div>
+    </section>
+
+    <!-- DRAW -->
+    <section class="screen" id="draw">
+      <h1>Final draw</h1>
+      <div class="card">
+        <span class="pill gold" id="drawStatus">Scheduled · 6 Feb 2027, 6pm</span>
+        <p style="margin:10px 0 0">Your entries: <b id="myEntries">0</b></p>
+        <p class="muted" style="margin:4px 0 0">The draw runs on this date even if some cards are unsold.</p>
+      </div>
+      <button class="btn ghost" data-action="runDraw" id="runDrawBtn">Run a test draw (prototype)</button>
+      <div id="drawResults" hidden>
+        <h2>Winning cards</h2>
+        <div class="card" id="winnersList"></div>
+        <details class="card">
+          <summary><b>Verify the draw</b></summary>
+          <div class="proof" id="drawProof" style="margin-top:10px"></div>
+        </details>
+      </div>
+    </section>
+
+    <!-- ME -->
+    <section class="screen" id="me">
+      <h1>My account</h1>
+      <div class="card">
+        <div class="row"><div><b id="mePhone">Not signed in</b><small id="meTier">Browse and demo only</small></div><span class="pill" id="meBadge">Guest</span></div>
+        <div class="row"><div><b>Next of kin</b><small id="meNok">Not added</small></div></div>
+      </div>
+      <h2>Play within your limits</h2>
+      <div class="card">
+        <label for="limDay">Daily spending limit</label>
+        <select id="limDay"><option value="1000">₦1,000</option><option value="2000">₦2,000</option><option value="5000" selected>₦5,000 (default)</option></select>
+        <p class="muted" style="margin-top:8px">Lowering is instant. Raising takes 24 hours. Weekly ₦20,000 · Monthly ₦50,000.</p>
+        <div class="stack">
+          <button class="btn ghost" data-action="coolOff">Take a 7-day break</button>
+          <button class="btn ghost danger" data-action="exclude">Exclude myself</button>
+        </div>
+      </div>
+      <p class="muted">Need help? Support is in the app, by SMS and WhatsApp.</p>
+    </section>
+  </main>
+
+  <nav class="tabs" id="tabs">
+    <button data-go="home" class="on"><span>🏠</span>Home</button>
+    <button data-go="cards"><span>🎟️</span>My cards</button>
+    <button data-go="wallet"><span>💰</span>Winnings</button>
+    <button data-go="draw"><span>🎯</span>Draw</button>
+    <button data-go="me"><span>👤</span>Me</button>
+  </nav>
+  <div class="toast" id="toast" role="status"></div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const naira = (n) => "₦" + n.toLocaleString("en-NG");
+  const PRICE = 200;
+  const hex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, "0")).join("");
+
+  // --- Simulated server -----------------------------------------------------
+  // The whole inventory is fixed when the page loads, before anything is bought
+  // or scratched — the same order of events as the real platform.
+  const inventory = [];
+  (function generate() {
+    const outcomes = [];
+    const tiers = [[10000, 1], [5000, 1], [2000, 2], [1000, 4], [500, 14]];
+    for (const [amt, n] of tiers) for (let i = 0; i < n; i++) outcomes.push(amt);
+    while (outcomes.length < 200) outcomes.push(0);
+    for (let i = outcomes.length - 1; i > 0; i--) {
+      const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+      [outcomes[i], outcomes[j]] = [outcomes[j], outcomes[i]];
+    }
+    const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    for (const o of outcomes) {
+      let s = "";
+      for (const b of crypto.getRandomValues(new Uint8Array(8))) s += abc[b % abc.length];
+      inventory.push({ serial: "WR-" + s.slice(0, 4) + "-" + s.slice(4), outcome: o, salt: hex(16), leaf: hex(32) });
+    }
+  })();
+  const ROOT = hex(32);
+
+  const state = {
+    signedIn: false, verified: false, phone: "", nok: "", qty: 5, limit: 5000, spent: 0,
+    tickets: [], balance: 0, history: [], current: null, blocked: false, demo: false, drawn: false,
+  };
+
+  // --- Navigation -------------------------------------------------------------
+  function go(id) {
+    document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.id === id));
+    document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.go === id));
+    window.scrollTo(0, 0);
+    render();
+  }
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg; t.classList.add("on");
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 2600);
+  }
+
+  // --- Rendering ----------------------------------------------------------------
+  function render() {
+    $("topBal").textContent = naira(state.balance);
+    $("qty").textContent = state.qty;
+    const total = state.qty * PRICE;
+    $("total").textContent = naira(total);
+    $("payBtn").textContent = "Pay " + naira(total);
+    $("spentTxt").textContent = naira(state.spent) + " of " + naira(state.limit);
+    $("spentBar").style.width = Math.min(100, (state.spent / state.limit) * 100) + "%";
+    const over = state.spent + total > state.limit;
+    $("limitNote").hidden = !over && !state.blocked;
+    $("limitNote").textContent = state.blocked
+      ? "You are taking a break, so buying is switched off."
+      : "That would take you over your daily limit of " + naira(state.limit) + ". Choose fewer cards.";
+    $("payBtn").disabled = over || state.blocked;
+
+    const real = state.tickets.filter((t) => !t.demo);
+    const unrevealed = state.tickets.filter((t) => !t.revealed).length;
+    $("cardsSub").textContent = state.tickets.length
+      ? state.tickets.length + " card" + (state.tickets.length > 1 ? "s" : "") + " · " + unrevealed + " to scratch"
+      : "You have no cards yet.";
+    $("revealAllWrap").hidden = unrevealed < 2;
+    $("ticketList").innerHTML = state.tickets.map((t, i) => {
+      const cls = t.revealed ? (t.outcome ? "ticket win" : "ticket done") : "ticket";
+      const body = t.revealed ? (t.outcome ? "Won " + naira(t.outcome) : "No instant win") : "Tap to scratch";
+      const sub = t.demo ? "Demo card" : "In final draw ✓";
+      return `<button class="${cls}" data-ticket="${i}"><code>${t.serial}</code><b>${body}</b><span>${sub}</span></button>`;
+    }).join("");
+
+    $("walBal").textContent = naira(state.balance);
+    $("wdBtn").disabled = state.balance <= 0;
+    $("history").innerHTML = state.history.length
+      ? state.history.map((h) => `<div class="row"><div><b>${h.title}</b><small>${h.sub}</small></div><b>${h.amt}</b></div>`).join("")
+      : '<p class="muted" style="margin:0">Nothing yet.</p>';
+    $("myEntries").textContent = real.length;
+
+    $("mePhone").textContent = state.signedIn ? state.phone : "Not signed in";
+    $("meTier").textContent = state.verified ? "Verified · 18+ · Niger State" : state.signedIn ? "Phone verified" : "Browse and demo only";
+    $("meBadge").textContent = state.verified ? "Tier 1" : state.signedIn ? "Tier 0" : "Guest";
+    $("meNok").textContent = state.nok || "Not added";
+  }
+
+  // --- Purchase -----------------------------------------------------------------
+  let cursor = 0;
+  function issue(n, demo) {
+    // Cards are handed out from the pre-set inventory; nothing about the buyer
+    // or the moment of purchase influences which card they get.
+    const got = [];
+    for (let i = 0; i < n && cursor < inventory.length; i++) got.push({ ...inventory[cursor++], revealed: false, demo });
+    state.tickets.unshift(...got);
+    return got;
+  }
+
+  // --- Scratch --------------------------------------------------------------------
+  const canvas = $("scCanvas"), ctx = canvas.getContext("2d");
+  let scratching = false, moves = 0;
+  function openTicket(i) {
+    const t = state.tickets[i];
+    state.current = i;
+    $("scSerial").textContent = t.serial + (t.demo ? " (demo)" : "");
+    $("scResult").innerHTML = t.outcome
+      ? `<div class="muted">You won</div><div class="big">${naira(t.outcome)}</div><div class="muted">${t.demo ? "Demo only — not paid" : "Added to your winnings"}</div>`
+      : `<div class="big none">No instant win</div><div class="muted">Still in the final draw</div>`;
+    go("scratch");
+    $("afterReveal").hidden = !t.revealed;
+    $("revealNow").hidden = t.revealed;
+    canvas.style.display = t.revealed ? "none" : "block";
+    if (t.revealed) { showProof(t); return; }
+    const r = $("scWrap").getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    canvas.width = r.width * d; canvas.height = r.height * d;
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    const g = ctx.createLinearGradient(0, 0, r.width, r.height);
+    g.addColorStop(0, "#b4babd"); g.addColorStop(.5, "#e9ecee"); g.addColorStop(1, "#a9b0b3");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, r.width, r.height);
+    ctx.fillStyle = "#6c757a"; ctx.font = "600 18px system-ui"; ctx.textAlign = "center";
+    ctx.fillText("Scratch here", r.width / 2, r.height / 2 + 6);
+    moves = 0;
+  }
+  function scratchAt(e) {
+    const r = canvas.getBoundingClientRect();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath(); ctx.arc(e.clientX - r.left, e.clientY - r.top, 26, 0, Math.PI * 2); ctx.fill();
+    if (++moves % 8 === 0) checkCleared();
+  }
+  function checkCleared() {
+    const { width, height } = canvas, data = ctx.getImageData(0, 0, width, height).data;
+    let clear = 0, n = 0;
+    for (let i = 3; i < data.length; i += 4 * 40) { n++; if (data[i] === 0) clear++; }
+    if (clear / n > 0.5) reveal(state.current);
+  }
+  canvas.addEventListener("pointerdown", (e) => { scratching = true; canvas.setPointerCapture(e.pointerId); scratchAt(e); });
+  canvas.addEventListener("pointermove", (e) => { if (scratching) scratchAt(e); });
+  canvas.addEventListener("pointerup", () => { scratching = false; checkCleared(); });
+
+  // Reveal is the only place a result is disclosed, and it is idempotent:
+  // calling it again for the same card changes nothing and pays nothing.
+  function reveal(i, quiet) {
+    const t = state.tickets[i];
+    if (!t || t.revealed) return;
+    t.revealed = true;
+    if (t.outcome && !t.demo) {
+      state.balance += t.outcome;
+      state.history.unshift({ title: "Instant win", sub: t.serial, amt: "+" + naira(t.outcome) });
+    }
+    if (quiet) return;
+    canvas.style.display = "none";
+    $("afterReveal").hidden = false; $("revealNow").hidden = true;
+    showProof(t);
+    if (t.outcome) { navigator.vibrate?.(60); toast(t.demo ? "Demo win: " + naira(t.outcome) : "You won " + naira(t.outcome) + "!"); }
+    render();
+  }
+  function showProof(t) {
+    const left = state.tickets.some((x) => !x.revealed);
+    $("nextCardBtn").textContent = left ? "Next card" : "Back to my cards";
+    $("proofBox").innerHTML =
+      `serial&nbsp;&nbsp;${t.serial}<br>outcome ${t.outcome ? "CASH:" + t.outcome * 100 : "NONE"}<br>salt&nbsp;&nbsp;&nbsp;&nbsp;${t.salt}<br>leaf&nbsp;&nbsp;&nbsp;&nbsp;${t.leaf}<br>root&nbsp;&nbsp;&nbsp;&nbsp;${ROOT}<br><span class="okline">✓ matches the fingerprint published before sales (simulated)</span>`;
+  }
+
+  // --- Actions ----------------------------------------------------------------------
+  const actions = {
+    start() { go(state.verified ? "buy" : state.signedIn ? "verify" : "signup"); },
+    demo() { const [t] = issue(1, true); if (t) openTicket(0); },
+    signupNext(btn) {
+      if ($("otpBlock").hidden) {
+        if ($("phone").value.replace(/\D/g, "").length < 10) return toast("Enter your phone number");
+        $("otpBlock").hidden = false; btn.textContent = "Create account"; toast("Code sent by SMS (simulated)"); $("otp").focus();
+      } else {
+        if (!/^\d{6}$/.test($("otp").value)) return toast("Enter the 6-digit code");
+        if (!/^\d{6}$/.test($("pin").value)) return toast("Choose a 6-digit PIN");
+        state.signedIn = true; state.phone = $("phone").value; go("verify");
+      }
+    },
+    verify() {
+      if (!/^\d{11}$/.test($("idnum").value)) return toast("Enter the 11-digit number");
+      state.verified = true;
+      if ($("nokName").value) state.nok = $("nokName").value + ($("nokRel").value ? " · " + $("nokRel").value : "");
+      toast("Verified — you're 18+ and in Niger State"); go("buy");
+    },
+    less() { state.qty = Math.max(1, state.qty - 1); render(); },
+    more() { state.qty = Math.min(20, state.qty + 1); render(); },
+    pay() {
+      const total = state.qty * PRICE;
+      if (state.blocked || state.spent + total > state.limit) return;
+      const got = issue(state.qty, false);
+      state.spent += got.length * PRICE;
+      state.history.unshift({ title: got.length + " scratch card" + (got.length > 1 ? "s" : ""), sub: "Simulated payment", amt: "−" + naira(got.length * PRICE) });
+      toast("Payment confirmed — your cards are ready"); go("cards");
+    },
+    revealNow() { reveal(state.current); },
+    revealAll() { state.tickets.forEach((_, i) => reveal(i, true)); toast("All cards revealed"); render(); },
+    nextCard() { const i = state.tickets.findIndex((t) => !t.revealed); i >= 0 ? openTicket(i) : go("cards"); },
+    withdraw() {
+      if (state.balance <= 0) return;
+      if (!confirm("Withdraw " + naira(state.balance) + " to your verified bank account? (simulated — you would confirm with your PIN)")) return;
+      state.history.unshift({ title: "Withdrawal", sub: "To verified bank account · simulated", amt: "−" + naira(state.balance) });
+      state.balance = 0; toast("Withdrawal sent"); render();
+    },
+    runDraw() {
+      const mine = state.tickets.filter((t) => !t.demo);
+      const prizes = ["Electric motorcycle", "Solar freezer 200L", "Solar panel + battery kit", "Smartphone", "₦500,000 cash"];
+      const pool = inventory.slice(0, Math.max(cursor, 40)).filter((t) => !state.tickets.some((x) => x.demo && x.serial === t.serial));
+      const picked = [];
+      while (picked.length < prizes.length && pool.length) picked.push(pool.splice(crypto.getRandomValues(new Uint32Array(1))[0] % pool.length, 1)[0]);
+      $("winnersList").innerHTML = picked.map((t, i) => {
+        const me = mine.some((m) => m.serial === t.serial);
+        return `<div class="row"><div><b>${prizes[i]}</b><small>${t.serial}</small></div>${me ? '<span class="pill gold">Yours!</span>' : ""}</div>`;
+      }).join("");
+      $("drawProof").innerHTML = `entries&nbsp;&nbsp;${pool.length + picked.length} cards · hash ${hex(8)}…<br>secret&nbsp;&nbsp;&nbsp;${hex(8)}… (committed before sales)<br>beacon&nbsp;&nbsp;&nbsp;public round #4821077<br>seed&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${hex(8)}…<br><span class="okline">✓ auditor countersigned · re-run gives the same winners (simulated)</span>`;
+      $("drawStatus").textContent = "Test draw complete"; $("drawResults").hidden = false; $("runDrawBtn").hidden = true;
+      toast("Test draw complete");
+    },
+    coolOff() { state.blocked = true; toast("7-day break started — buying is off"); render(); },
+    exclude() { if (confirm("Self-exclusion cannot be undone early. Continue?")) { state.blocked = true; toast("You are now excluded from buying"); render(); } },
+  };
+
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-action],[data-go],[data-q],[data-ticket]");
+    if (!el) return;
+    if (el.dataset.action) actions[el.dataset.action](el);
+    else if (el.dataset.go) go(el.dataset.go);
+    else if (el.dataset.q) { state.qty = +el.dataset.q; render(); }
+    else if (el.dataset.ticket) openTicket(+el.dataset.ticket);
+  });
+  $("limDay").addEventListener("change", (e) => {
+    const v = +e.target.value;
+    if (v > state.limit) { toast("Increase requested — takes effect in 24 hours"); e.target.value = state.limit; }
+    else { state.limit = v; toast("Daily limit lowered to " + naira(v)); }
+    render();
+  });
+  render();
+})();
+</script>
+</body>
+</html>

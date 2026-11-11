@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WiiFarm Rewards — admin prototype</title>
+<style>
+  :root {
+    --green: #14532d; --green-2: #1c6b3c; --leaf: #e8f3ec; --gold: #d99a1c; --gold-soft: #fdf3dc;
+    --ink: #17231c; --muted: #5d6b63; --line: #dfe6e1; --bg: #f4f6f3; --card: #fff; --red: #b3261e; --red-soft: #fbe9e7;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+  button { font: inherit; cursor: pointer; }
+  .demo { background: var(--gold); color: #2b1d00; font-size: 12px; font-weight: 700; text-align: center; padding: 5px 12px; letter-spacing: .03em; }
+  .shell { display: grid; grid-template-columns: 230px 1fr; min-height: calc(100vh - 28px); }
+  aside { background: var(--green); color: #fff; padding: 18px 12px; }
+  aside .brand { display: flex; gap: 10px; align-items: center; font-weight: 700; padding: 0 8px 16px; }
+  aside .brand i { width: 30px; height: 30px; border-radius: 9px; background: var(--gold); color: var(--green); display: grid; place-items: center; font-style: normal; font-weight: 800; }
+  aside button { display: flex; justify-content: space-between; width: 100%; text-align: left; border: 0; background: none; color: #d6e6dc; padding: 10px 12px; border-radius: 10px; margin-bottom: 2px; }
+  aside button.on { background: rgba(255,255,255,.14); color: #fff; font-weight: 700; }
+  aside button em { font-style: normal; background: var(--gold); color: #2b1d00; border-radius: 99px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
+  aside .who { margin-top: 22px; padding: 12px; border-top: 1px solid rgba(255,255,255,.18); font-size: 13px; color: #d6e6dc; }
+  aside select { width: 100%; margin-top: 6px; padding: 7px; border-radius: 8px; border: 0; font: inherit; }
+  main { padding: 22px 26px 60px; min-width: 0; }
+  .page { display: none; } .page.on { display: block; }
+  h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 24px 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .tile span { font-size: 12px; color: var(--muted); display: block; }
+  .tile b { font-size: 22px; display: block; margin: 2px 0; }
+  .tile small { font-size: 12px; color: var(--muted); }
+  .tile.ok { border-left: 4px solid var(--green-2); } .tile.warn { border-left: 4px solid var(--gold); } .tile.bad { border-left: 4px solid var(--red); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 99px; background: var(--leaf); color: var(--green); white-space: nowrap; }
+  .pill.gold { background: var(--gold-soft); color: #7a5300; } .pill.red { background: var(--red-soft); color: var(--red); } .pill.grey { background: #eceeed; color: var(--muted); }
+  .btn { border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 700; background: var(--green); color: #fff; }
+  .btn.ghost { background: #fff; color: var(--green); border: 1.5px solid var(--green); }
+  .btn[disabled] { opacity: .4; cursor: not-allowed; }
+  .flow { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+  .flow span { font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 99px; background: #eceeed; color: var(--muted); }
+  .flow span.done { background: var(--leaf); color: var(--green); } .flow span.now { background: var(--green); color: #fff; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .check { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .check:last-child { border-bottom: 0; }
+  .check i { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 13px; font-weight: 700; background: #eceeed; color: var(--muted); }
+  .check.yes i { background: var(--green-2); color: #fff; }
+  .check small { color: var(--muted); display: block; }
+  .lock { background: var(--gold-soft); color: #5e4100; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; }
+  .mono { font: 12px ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; color: var(--muted); }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; min-width: 90px; } .bar i { display: block; height: 100%; background: var(--green-2); }
+  .toast { position: fixed; right: 20px; bottom: 20px; background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80vw; }
+  .toast.on { opacity: 1; }
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: 1fr; }
+    aside { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px; }
+    aside .brand, aside .who { width: 100%; padding: 4px 6px 8px; margin: 0; border: 0; }
+    aside button { width: auto; gap: 6px; padding: 7px 10px; }
+    main { padding: 16px; } .grid2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="demo">ADMIN PROTOTYPE · SAMPLE DATA · NOT CONNECTED TO ANY SYSTEM</div>
+<div class="shell">
+  <aside>
+    <div class="brand"><i>W</i> Rewards Admin</div>
+    <button data-page="dash" class="on">Dashboard</button>
+    <button data-page="cycle">Prize cycles</button>
+    <button data-page="approvals">Approvals <em id="apCount">3</em></button>
+    <button data-page="draw">Final draw</button>
+    <button data-page="money">Payments & payouts</button>
+    <button data-page="stock">Merchandise</button>
+    <button data-page="audit">Audit & compliance</button>
+    <div class="who">Signed in as
+      <select id="role" aria-label="Role">
+        <option value="FINANCE">Finance — H. Musa</option>
+        <option value="PAYOUT_APPROVER">Payout approver — C. Eze</option>
+        <option value="CYCLE_MANAGER">Cycle manager — A. Bello</option>
+        <option value="AUDITOR">Auditor (read-only) — external</option>
+      </select>
+    </div>
+  </aside>
+
+  <main>
+    <!-- DASHBOARD -->
+    <section class="page on" id="dash">
+      <h1>Dashboard</h1><p class="sub">Harvest Cycle 1 · Niger State · figures come from the ledger, not manual entry</p>
+      <div class="tiles">
+        <div class="tile"><span>Tickets sold</span><b>6,200</b><small>of 10,000 · 3,800 remaining</small></div>
+        <div class="tile"><span>Gross ticket revenue</span><b>₦1,240,000</b><small>62% of maximum</small></div>
+        <div class="tile"><span>Instant prizes revealed</span><b>₦412,500</b><small>₦371,000 paid out</small></div>
+        <div class="tile warn"><span>Outstanding prize liability</span><b>₦1,129,000</b><small>instant ₦587,500 + draw cash ₦500,000 + payable ₦41,500</small></div>
+        <div class="tile ok"><span>Escrow cover</span><b>₦1,500,000</b><small>133% of cash liability</small></div>
+        <div class="tile ok"><span>Reconciliation</span><b>Matched</b><small>Yesterday signed off 08:14</small></div>
+        <div class="tile"><span>Merchandise fulfilment</span><b>70 / 70</b><small>draw prizes in warehouse</small></div>
+        <div class="tile bad"><span>Compliance alerts</span><b>2 open</b><small>1 fraud signal · 1 KYC review</small></div>
+      </div>
+      <h2>Prize cycles</h2>
+      <div class="card"><table>
+        <tr><th>Cycle</th><th>Status</th><th>Sales</th><th class="num">Revenue</th><th class="num">Liability</th><th>Draw</th></tr>
+        <tr><td><b>Harvest Cycle 1</b><br><small class="mono">SIMULATED</small></td><td><span class="pill">OPEN</span></td><td><div class="bar"><i style="width:62%"></i></div></td><td class="num">₦1,240,000</td><td class="num">₦1,129,000</td><td>6 Feb 2027</td></tr>
+        <tr><td><b>Solar Cycle 2</b></td><td><span class="pill gold">SUBMITTED</span></td><td>—</td><td class="num">—</td><td class="num">—</td><td>20 Mar 2027</td></tr>
+        <tr><td><b>Pilot Cycle 0</b></td><td><span class="pill grey">ARCHIVED</span></td><td><div class="bar"><i style="width:100%"></i></div></td><td class="num">₦200,000</td><td class="num">₦0</td><td>Completed</td></tr>
+      </table></div>
+      <h2>Financial performance (cycle to date)</h2>
+      <div class="card"><table>
+        <tr><td>Ticket revenue</td><td class="num">₦1,240,000</td></tr>
+        <tr><td>Instant prizes (revealed)</td><td class="num">− ₦412,500</td></tr>
+        <tr><td>Payment and payout fees</td><td class="num">− ₦31,800</td></tr>
+        <tr><td>Operating expenses (allocated)</td><td class="num">− ₦96,000</td></tr>
+        <tr><td><b>Contribution before draw prizes</b></td><td class="num"><b>₦699,700</b></td></tr>
+      </table></div>
+    </section>
+
+    <!-- CYCLE -->
+    <section class="page" id="cycle">
+      <h1>Harvest Cycle 1</h1><p class="sub">Simulated mode · 10,000 tickets at ₦200</p>
+      <div class="flow"><span class="done">Draft</span><span class="done">Submitted</span><span class="done">Approved</span><span class="done">Committed</span><span class="now">Open</span><span>Closed</span><span>Drawn</span><span>Settling</span><span>Archived</span></div>
+      <div class="lock">🔒 This cycle is locked. Price, quantities, prizes, odds and dates were fixed at approval and cannot be edited by anyone. The only exceptional action is <b>Void and refund</b>, which needs two approvers and is reported to the regulator.</div>
+      <div class="grid2">
+        <div class="card"><b>Instant prizes</b><table>
+          <tr><th>Prize</th><th class="num">Quantity</th><th class="num">Revealed</th><th class="num">Total value</th></tr>
+          <tr><td>₦10,000</td><td class="num">10</td><td class="num">4</td><td class="num">₦100,000</td></tr>
+          <tr><td>₦5,000</td><td class="num">20</td><td class="num">9</td><td class="num">₦100,000</td></tr>
+          <tr><td>₦2,000</td><td class="num">100</td><td class="num">40</td><td class="num">₦200,000</td></tr>
+          <tr><td>₦1,000</td><td class="num">200</td><td class="num">85</td><td class="num">₦200,000</td></tr>
+          <tr><td>₦500</td><td class="num">800</td><td class="num">325</td><td class="num">₦400,000</td></tr>
+          <tr><td><b>Total</b></td><td class="num"><b>1,130</b></td><td class="num"><b>463</b></td><td class="num"><b>₦1,000,000</b></td></tr>
+        </table><p class="sub" style="margin:10px 0 0">Staff cannot see which unsold tickets hold these prizes.</p></div>
+        <div class="card"><b>Final-draw prizes</b><table>
+          <tr><th>Prize</th><th class="num">Qty</th><th>Secured</th></tr>
+          <tr><td>Electric motorcycle</td><td class="num">1</td><td><span class="pill">In warehouse</span></td></tr>
+          <tr><td>Solar freezer 200L</td><td class="num">3</td><td><span class="pill">In warehouse</span></td></tr>
+          <tr><td>Solar panel + battery kit</td><td class="num">5</td><td><span class="pill">In warehouse</span></td></tr>
+          <tr><td>Smartphone</td><td class="num">10</td><td><span class="pill">In warehouse</span></td></tr>
+          <tr><td>NaijaSweetRice 50kg</td><td class="num">50</td><td><span class="pill">In warehouse</span></td></tr>
+          <tr><td>₦500,000 cash</td><td class="num">1</td><td><span class="pill">Escrow</span></td></tr>
+        </table></div>
+      </div>
+      <div class="card"><b>Published commitments</b>
+        <p class="mono" style="margin:8px 0 0">ticket fingerprint (Merkle root) 9f2c41d07ab35e8811c6a4f0b7d2e6193c5a08f4e1b79d6200a3c5f8e4d17b62<br>prize table hash 41b7e09c…a21f · rules hash c80d3e5a…77b0 · draw-secret commitment 6ea1f4b2…0c93<br>game-core version 3f9a2c1 · published 02 Jan 2027 09:00 · auditor on record: appointed 28 Dec 2026</p>
+      </div>
+      <button class="btn ghost" data-toast="Void requires a second approver and a recorded reason. Not available in the prototype.">Void and refund…</button>
+    </section>
+
+    <!-- APPROVALS -->
+    <section class="page" id="approvals">
+      <h1>Approvals</h1><p class="sub">Every sensitive action needs a second person. You cannot approve something you raised.</p>
+      <div class="card"><table id="apTable">
+        <tr><th>Request</th><th>Raised by</th><th>Needs</th><th>Evidence</th><th></th></tr>
+        <tr data-need="FINANCE" data-by="A. Bello"><td><b>Approve Solar Cycle 2</b><br><small>5,000 tickets at ₦500 · cash prizes ₦900,000</small></td><td>A. Bello</td><td><span class="pill gold">Finance</span></td><td>Model ✓ · Rules ✓ · Auditor ✓ · Escrow ₦900,000 ✓</td><td><button class="btn" data-approve>Approve</button></td></tr>
+        <tr data-need="PAYOUT_APPROVER" data-by="H. Musa"><td><b>Payout ₦500,000</b><br><small>Pilot Cycle 0 draw winner · name match ✓ · Tier 2 ✓</small></td><td>H. Musa</td><td><span class="pill gold">Payout approver</span></td><td>Claim verified · bank account 14 days old</td><td><button class="btn" data-approve>Approve</button></td></tr>
+        <tr data-need="FINANCE" data-by="Compliance"><td><b>Refund ₦1,000 — ineligible purchase</b><br><small>Buyer matched staff exclusion register · 5 tickets to cancel</small></td><td>Compliance</td><td><span class="pill gold">Finance</span></td><td>Register match · winnings void ₦0</td><td><button class="btn" data-approve>Approve</button></td></tr>
+      </table></div>
+    </section>
+
+    <!-- DRAW -->
+    <section class="page" id="draw">
+      <h1>Final draw — Harvest Cycle 1</h1><p class="sub">Scheduled 6 Feb 2027, 6:00pm. Runs on schedule even if tickets remain unsold.</p>
+      <div class="grid2">
+        <div class="card"><b>Before the draw can run</b>
+          <div class="check yes"><i>✓</i><div>Draw secret committed<small>Published with the cycle on 02 Jan 2027</small></div></div>
+          <div class="check yes"><i>✓</i><div>Public randomness round announced<small>Round #4821077, after the latest closing time</small></div></div>
+          <div class="check"><i>3</i><div>Cycle closed<small>Sold out or 30 Jan 2027, whichever is first</small></div></div>
+          <div class="check"><i>4</i><div>Eligible entries frozen and hash published<small>Paid, valid tickets only — unsold, cancelled and refunded excluded</small></div></div>
+          <div class="check"><i>5</i><div>Operator 1 signed in</div></div>
+          <div class="check"><i>6</i><div>Operator 2 signed in<small>Must be a different person</small></div></div>
+          <div class="check"><i>7</i><div>Appointed auditor countersigned<small>Only the auditor recorded for this cycle</small></div></div>
+        </div>
+        <div class="card"><b>Execute</b>
+          <p class="sub">The button unlocks only when all seven checks pass. A draw can be executed once.</p>
+          <button class="btn" disabled>Execute draw</button>
+          <h2>After the draw</h2>
+          <div class="check"><i>↓</i><div>Draw report (PDF and data file)<small>Winners, secret, randomness round, entries hash, signatures</small></div></div>
+          <div class="check"><i>↗</i><div>Public results page<small>Winning ticket numbers with a "verify the draw" tool</small></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MONEY -->
+    <section class="page" id="money">
+      <h1>Payments & payouts</h1><p class="sub">Daily reconciliation of gateway, ledger and bank</p>
+      <div class="tiles">
+        <div class="tile ok"><span>Gateway settled (yesterday)</span><b>₦86,400</b><small>432 tickets · 119 orders</small></div>
+        <div class="tile ok"><span>Ledger ticket sales</span><b>₦86,400</b><small>difference ₦0</small></div>
+        <div class="tile"><span>Refunds</span><b>₦600</b><small>3 automatic · paid, no ticket issued</small></div>
+        <div class="tile warn"><span>Payouts awaiting approval</span><b>1</b><small>₦500,000</small></div>
+      </div>
+      <h2>Payout queue</h2>
+      <div class="card"><table>
+        <tr><th>Player</th><th class="num">Amount</th><th>Bank name match</th><th>Status</th></tr>
+        <tr><td>…0142</td><td class="num">₦500,000</td><td><span class="pill">Match</span></td><td><span class="pill gold">Pending approval</span></td></tr>
+        <tr><td>…7731</td><td class="num">₦10,000</td><td><span class="pill">Match</span></td><td><span class="pill">Sent</span></td></tr>
+        <tr><td>…2209</td><td class="num">₦2,000</td><td><span class="pill red">Mismatch</span></td><td><span class="pill red">Blocked — player to verify account</span></td></tr>
+        <tr><td>…5580</td><td class="num">₦5,000</td><td><span class="pill">Match</span></td><td><span class="pill red">On hold — fraud review</span></td></tr>
+      </table></div>
+    </section>
+
+    <!-- STOCK -->
+    <section class="page" id="stock">
+      <h1>Merchandise</h1><p class="sub">Inventory, costs and redemptions</p>
+      <div class="card"><table>
+        <tr><th>Item</th><th>Supplier</th><th class="num">Landed cost</th><th class="num">Advertised value</th><th class="num">In stock</th><th class="num">Reserved</th><th>Warehouse</th></tr>
+        <tr><td>Electric motorcycle</td><td>Sample Supplier A</td><td class="num">₦1,150,000</td><td class="num">₦1,500,000</td><td class="num">1</td><td class="num">1</td><td>Minna</td></tr>
+        <tr><td>Solar freezer 200L</td><td>Sample Supplier B</td><td class="num">₦420,000</td><td class="num">₦550,000</td><td class="num">4</td><td class="num">3</td><td>Minna</td></tr>
+        <tr><td>Solar panel + battery kit</td><td>Sample Supplier B</td><td class="num">₦260,000</td><td class="num">₦340,000</td><td class="num">6</td><td class="num">5</td><td>Minna</td></tr>
+        <tr><td>Smartphone</td><td>Sample Supplier C</td><td class="num">₦98,000</td><td class="num">₦130,000</td><td class="num">12</td><td class="num">10</td><td>Minna</td></tr>
+        <tr><td>NaijaSweetRice 50kg</td><td>WiiFarm</td><td class="num">₦58,000</td><td class="num">₦75,000</td><td class="num">80</td><td class="num">50</td><td>Minna</td></tr>
+      </table></div>
+      <h2>Redemptions (Pilot Cycle 0)</h2>
+      <div class="card"><table>
+        <tr><th>Prize</th><th>Serial no.</th><th>Winner</th><th>Method</th><th>Status</th></tr>
+        <tr><td>Smartphone</td><td class="mono">SN-48201177</td><td>…3310</td><td>Collection</td><td><span class="pill">Handed over · code + photo</span></td></tr>
+        <tr><td>NaijaSweetRice 50kg</td><td>—</td><td>…9024</td><td>Delivery</td><td><span class="pill gold">In transit</span></td></tr>
+        <tr><td>NaijaSweetRice 50kg</td><td>—</td><td>…1187</td><td>—</td><td><span class="pill red">Unclaimed · day 34 of 90</span></td></tr>
+      </table></div>
+    </section>
+
+    <!-- AUDIT -->
+    <section class="page" id="audit">
+      <h1>Audit & compliance</h1><p class="sub">Tamper-evident record of every action · read-only for everyone</p>
+      <div class="tiles">
+        <div class="tile ok"><span>Audit chain</span><b>Intact</b><small>verified 06:00 · anchored off-site daily</small></div>
+        <div class="tile warn"><span>Licence (Niger State)</span><b>Not recorded</b><small>real-money sales are blocked</small></div>
+        <div class="tile warn"><span>Game-core certification</span><b>Not recorded</b><small>real-money sales are blocked</small></div>
+        <div class="tile"><span>Self-exclusions active</span><b>14</b><small>4 cool-offs</small></div>
+      </div>
+      <h2>Open alerts</h2>
+      <div class="card"><table>
+        <tr><th>Alert</th><th>Detail</th><th>Severity</th></tr>
+        <tr><td>Fraud signal</td><td>4 accounts share one device and one bank account</td><td><span class="pill red">Critical</span></td></tr>
+        <tr><td>KYC review</td><td>Name mismatch between NIN and bank account</td><td><span class="pill gold">Warning</span></td></tr>
+      </table></div>
+      <h2>Recent activity</h2>
+      <div class="card"><table>
+        <tr><th>Time</th><th>Who</th><th>Action</th><th>Record</th></tr>
+        <tr><td>09:12</td><td>H. Musa (Finance)</td><td>Initiated payout ₦500,000</td><td class="mono">#18842 · a91c…</td></tr>
+        <tr><td>08:14</td><td>H. Musa (Finance)</td><td>Signed off reconciliation</td><td class="mono">#18801 · 3e07…</td></tr>
+        <tr><td>07:55</td><td>System</td><td>Blocked purchase — daily limit reached</td><td class="mono">#18790 · c4d2…</td></tr>
+        <tr><td>07:31</td><td>System</td><td>Decrypted outcome for one ticket (reveal)</td><td class="mono">#18766 · 77ab…</td></tr>
+      </table></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+(() => {
+  const toast = (m) => { const t = document.getElementById("toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3200); };
+  const role = document.getElementById("role");
+  const names = { FINANCE: "H. Musa", PAYOUT_APPROVER: "C. Eze", CYCLE_MANAGER: "A. Bello", AUDITOR: "Auditor" };
+  document.addEventListener("click", (e) => {
+    const nav = e.target.closest("[data-page]");
+    if (nav) {
+      document.querySelectorAll(".page").forEach((p) => p.classList.toggle("on", p.id === nav.dataset.page));
+      document.querySelectorAll("aside button").forEach((b) => b.classList.toggle("on", b === nav));
+      window.scrollTo(0, 0); return;
+    }
+    const t = e.target.closest("[data-toast]");
+    if (t) return toast(t.dataset.toast);
+    if (e.target.closest("[data-approve]")) {
+      const row = e.target.closest("tr");
+      // Separation of duties, as the real system enforces it in the database.
+      if (role.value === "AUDITOR") return toast("Auditors have read-only access.");
+      if (row.dataset.need !== role.value) return toast("This needs the " + row.dataset.need.replace("_", " ").toLowerCase() + " role. Your role cannot approve it.");
+      if (row.dataset.by === names[role.value]) return toast("You raised this request, so someone else must approve it.");
+      row.lastElementChild.innerHTML = '<span class="pill">Approved by ' + names[role.value] + "</span>";
+      const c = document.getElementById("apCount"); c.textContent = Math.max(0, +c.textContent - 1);
+      toast("Approved and written to the audit log.");
+    }
+  });
+})();
+</script>
+</body>
+</html>

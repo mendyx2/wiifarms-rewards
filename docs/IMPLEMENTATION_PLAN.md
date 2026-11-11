@@ -1,7 +1,7 @@
 # WiiFarm Rewards — Implementation Plan
 
 Response to the CEO's IT Development Brief of 5 November 2026.
-Status: **proposal for management review**. Nothing here is built yet.
+Status: **approved to proceed; Phase 1 (system design) in progress.** No production system exists yet.
 
 Two priorities drive every decision below, in this order:
 
@@ -330,7 +330,9 @@ The earliest tangible output is the **demonstration prototype** (deliverable 10)
 | 5b | **Multiple wins are treated individually per account, except where fraud is suspected** | No cap on how many tickets one account can win with. Suspected fraud places the affected prizes on hold for compliance review instead of paying automatically. |
 | 5c | **Staff are excluded** | See "Staff exclusion" below. |
 
-### Proposed for confirmation
+### Confirmed (12 November 2026)
+
+Management confirmed the four policies below as proposed, and a **90-day unclaimed-prize window**. The team is a mix of in-house staff and contractors. Phase 1 started the same day; see `docs/phase-1/README.md`.
 
 **Next of kin**
 - Collected as an *optional* step at registration (name, relationship, phone) so sign-up stays quick, and *required* before a major cash or merchandise prize is claimed.
@@ -362,10 +364,8 @@ Refunds always go back to the original payment method, never to a different acco
 
 ### Still open
 
-- Confirmation of the four proposals above, especially the limit amounts.
-- The unclaimed-prize window (suggested: 90 days, with reminders, then handled as the published rules state).
-- Team make-up (recorded as a mix of in-house and contractors).
 - Legal confirmation that a licence is obtainable in Niger State.
+- Items listed under "Needed from management" in `docs/phase-1/README.md` (rates, vendor quotes, cloud provider, payout approval threshold).
 
 ---
 
