@@ -25,7 +25,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      - name: Unit and end-to-end tests (the API tests create and drop their own database)
+        run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       - name: Apply database schema and run constraint tests
         env:
           PGPASSWORD: postgres

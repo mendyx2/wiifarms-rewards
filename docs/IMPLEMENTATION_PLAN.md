@@ -1,7 +1,7 @@
 # WiiFarm Rewards — Implementation Plan
 
 Response to the CEO's IT Development Brief of 5 November 2026.
-Status: **approved to proceed; Phase 1 (system design) in progress.** No production system exists yet.
+Status: **Phase 2 (minimum viable platform, simulated money only) in progress** — see `docs/phase-2/README.md`. No production system exists yet.
 
 Two priorities drive every decision below, in this order:
 
@@ -58,7 +58,7 @@ A **modular monolith** with strict module boundaries, not microservices. One dep
 | Layer | Choice | Why |
 |-------|--------|-----|
 | Language | TypeScript end to end | One language across API, web and future mobile; shared types and validation. |
-| API | NestJS on Node.js LTS | Enforced module structure, guards for RBAC, mature ecosystem. |
+| API | Fastify on Node.js LTS, one folder per module | Changed from NestJS at the start of Phase 2: far fewer third-party packages to trust and audit, and no build step between the code reviewed and the code run. Module boundaries are kept by structure and review. |
 | Database | PostgreSQL | Transactions, row-level locking for inventory, row-level security, triggers for immutability. |
 | Cache / queue | Redis + BullMQ | Sessions, rate limiting, ticket reservations, background jobs. |
 | Player web | Next.js PWA | Installable, works on low-end Android, small bundles, server-rendered catalogue. |
