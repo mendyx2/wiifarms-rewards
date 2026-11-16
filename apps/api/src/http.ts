@@ -9,6 +9,7 @@ import * as admin from "./modules/admin.ts";
 import * as cycles from "./modules/cycles.ts";
 import * as draw from "./modules/draw.ts";
 import * as identity from "./modules/identity.ts";
+import * as inventory from "./modules/inventory.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -113,7 +114,8 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.setErrorHandler((err: unknown, _req, reply) => {
     const e = err as { validation?: unknown; statusCode?: number; message?: string };
     if (err instanceof AppError) return reply.status(err.status).send({ error: { code: err.code, message: err.message } });
-    if (e.validation) return reply.status(400).send({ error: { code: "INVALID_REQUEST", message: e.message } });
+    // The technical detail is for developers; people get a plain sentence.
+    if (e.validation) return reply.status(400).send({ error: { code: "INVALID_REQUEST", message: "Some details are missing or not valid. Please check and try again.", detail: e.message } });
     if (e.statusCode && e.statusCode < 500) return reply.status(e.statusCode).send({ error: { code: "INVALID_REQUEST", message: e.message } });
     // Never leak internals to the caller.
     console.error(err);
@@ -227,6 +229,15 @@ export function buildServer(ctx: Ctx): FastifyInstance {
 
   // ---- Winnings ------------------------------------------------------------------------------
   app.get("/v1/wallet", async (req) => wallet.getWallet(ctx, (await player(req)).id));
+  app.get("/v1/claims", async (req) => ({ claims: await inventory.listClaims(ctx, (await player(req)).id) }));
+  app.post<{ Params: { id: string }; Body: { method: "DELIVERY" | "COLLECTION"; address?: string; pin: string } }>("/v1/claims/:id/redeem", {
+    schema: { ...idParam, ...body({ method: { enum: ["DELIVERY", "COLLECTION"] }, address: str(400), pin: str(6) }, ["address"]) },
+  }, async (req) => {
+    authLimit(req.ip);
+    const u = await player(req);
+    await identity.confirmPin(ctx, u.id, req.body.pin);
+    return inventory.redeemClaim(ctx, actorOf(u.id, req), u, req.params.id, req.body);
+  });
   app.post<{ Body: { amountKobo: number; bankAccountId: string; pin: string } }>("/v1/payouts", {
     schema: body({ amountKobo: int(1), bankAccountId: uuid, pin: str(6) }),
   }, async (req) => {
@@ -253,8 +264,28 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.get("/v1/admin/me", async (req) => { const a = await staff(req); return { id: a.id, fullName: a.fullName, email: a.email, roles: a.roles }; });
   app.get("/v1/admin/auditors", async (req) => ({ auditors: await admin.listAuditors(ctx, await staff(req)) }));
   app.get("/v1/admin/skus", async (req) => ({ skus: await admin.listSkus(ctx, await staff(req)) }));
-  app.post<{ Body: { name: string; advertisedValueKobo: number } }>("/v1/admin/skus", { schema: body({ name: str(120), advertisedValueKobo: int(1) }) },
-    async (req) => admin.createSku(ctx, await staff(req), req.body));
+  app.post<{ Body: inventory.NewItem }>("/v1/admin/skus", {
+    schema: body({ name: str(120), advertisedValueKobo: int(1), description: str(1000), serialised: { type: "boolean" }, warrantyMonths: int(0, 240) }, ["description", "serialised", "warrantyMonths"]),
+  }, async (req) => inventory.createItem(ctx, await staff(req), req.body));
+
+  // ---- Merchandise: stock, reservation, fulfilment ----
+  app.get("/v1/admin/inventory", async (req) => inventory.inventoryOverview(ctx, await staff(req)));
+  app.post<{ Body: { name: string; country?: string; contact?: string } }>("/v1/admin/suppliers", { schema: body({ name: str(120), country: str(60), contact: str(300) }, ["country", "contact"]) },
+    async (req) => inventory.createSupplier(ctx, await staff(req), req.body));
+  app.post<{ Body: { name: string; address: string; stateCode: string } }>("/v1/admin/warehouses", { schema: body({ name: str(120), address: str(300), stateCode: str(8) }) },
+    async (req) => inventory.createWarehouse(ctx, await staff(req), req.body));
+  app.post<{ Body: inventory.Receipt }>("/v1/admin/stock/receive", {
+    schema: body({ skuId: uuid, supplierId: uuid, warehouseId: uuid, poReference: str(80), documentRef: str(200), quantity: int(1, 5000),
+      serialNumbers: { type: "array", maxItems: 5000, items: str(80) }, acquisitionCostKobo: int(0), landedCostKobo: int(0) }, ["documentRef", "quantity", "serialNumbers"]),
+  }, async (req) => inventory.receiveStock(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string } }>("/v1/admin/cycles/:id/reserve-stock", { schema: idParam }, async (req) => inventory.reserveStock(ctx, await staff(req), req.params.id));
+  app.get("/v1/admin/fulfilment", async (req) => ({ claims: await inventory.fulfilmentQueue(ctx, await staff(req)) }));
+  app.post<{ Params: { id: string }; Body: { carrier?: string; trackingRef?: string } }>("/v1/admin/fulfilment/:id/dispatch", {
+    schema: { ...idParam, ...body({ carrier: str(80), trackingRef: str(80) }, ["carrier", "trackingRef"]) },
+  }, async (req) => inventory.dispatchClaim(ctx, await staff(req), req.params.id, req.body));
+  app.post<{ Params: { id: string }; Body: { code: string; photoRef: string; warrantyDocumentRef?: string } }>("/v1/admin/fulfilment/:id/handover", {
+    schema: { ...idParam, ...body({ code: str(6), photoRef: str(200), warrantyDocumentRef: str(200) }, ["warrantyDocumentRef"]) },
+  }, async (req) => { authLimit(req.ip); return inventory.confirmHandover(ctx, await staff(req), req.params.id, req.body); });
   app.get("/v1/admin/compliance", async (req) => admin.compliance(ctx, await staff(req)));
   app.get("/v1/admin/cycles", async (req) => ({ cycles: await cycles.listAdminCycles(ctx, await staff(req)) }));
   app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id", { schema: idParam }, async (req) => cycles.getAdminCycle(ctx, await staff(req), req.params.id));

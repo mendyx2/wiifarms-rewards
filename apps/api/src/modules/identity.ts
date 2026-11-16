@@ -224,7 +224,10 @@ export async function setNextOfKin(ctx: Ctx, actor: Actor, userId: string, input
   if (!input.fullName.trim() || !input.relationship.trim()) throw badRequest("INVALID_NEXT_OF_KIN", "Name and relationship are required.");
   await withTx(ctx.pool, async (db) => {
     const openClaim = await one(db, "SELECT 1 FROM prize_claims WHERE user_id = $1 AND status IN ('ENTITLED','ON_HOLD','VERIFIED') AND stage = 'FINAL_DRAW'", [userId]);
-    if (openClaim) throw conflict("CLAIM_IN_PROGRESS", "Next-of-kin details cannot be changed while a prize claim is in progress.");
+    const existing = await one(db, "SELECT 1 FROM next_of_kin WHERE user_id = $1", [userId]);
+    // Adding a next of kin for the first time is always allowed (it is needed to claim);
+    // changing one while a claim is open is not, so a claim cannot be redirected.
+    if (openClaim && existing) throw conflict("CLAIM_IN_PROGRESS", "Next-of-kin details cannot be changed while a prize claim is in progress.");
     await db.query(
       `INSERT INTO next_of_kin (user_id, full_name, relationship, phone_e164) VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id) DO UPDATE SET full_name = EXCLUDED.full_name, relationship = EXCLUDED.relationship, phone_e164 = EXCLUDED.phone_e164`,

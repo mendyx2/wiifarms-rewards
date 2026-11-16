@@ -209,6 +209,20 @@ async function cycle(id) {
     nodes.push(tier, sku);
   }
 
+  // Merchandise prizes must be covered by stock in the warehouse before approval.
+  if (c.stockCover.length) {
+    const covered = c.stockCover.every((x) => x.reserved >= x.needed);
+    nodes.push(el("h2", {}, "Merchandise prizes secured"), el("div", { class: "card" },
+      table(["Item", "#Needed", "#Reserved for this cycle", "#Free in warehouse"], c.stockCover.map((x) =>
+        el("tr", {}, td(x.item), td(num(x.needed), true), td(x.reserved >= x.needed ? pill(`${x.reserved} ✓`) : pill(`${x.reserved} of ${x.needed}`, "red"), true), td(num(x.inStock), true)))),
+      el("p", { class: "sub" }, covered ? "Every merchandise prize is in the warehouse and set aside for this cycle. It cannot be released while the cycle is live."
+        : "Not yet covered. The cycle cannot be approved until Fulfilment has received and reserved the stock."),
+      c.editable && !covered && can("FULFILMENT") ? el("div", { class: "actions" }, el("button", { class: "btn", onclick: action(async () => {
+        const r = await post(`/v1/admin/cycles/${id}/reserve-stock`);
+        return r.complete ? "Stock reserved for every merchandise prize." : "Reserved what is available. More stock must be received first.";
+      }) }, "Reserve stock for this cycle")) : null));
+  }
+
   // Evidence and approvals
   if (c.editable && can("CYCLE_MANAGER", "FINANCE")) {
     const auditors = (await get("/v1/admin/auditors")).auditors;
@@ -233,6 +247,8 @@ async function cycle(id) {
   nodes.push(el("h2", {}, "Approval"), el("div", { class: "card" },
     el("div", { class: "check" + (evidenceOk ? " yes" : "") }, el("i", {}, evidenceOk ? "✓" : "1"), el("div", {}, "Evidence complete and cash prizes fully funded",
       el("small", {}, c.auditor_name ? `Auditor: ${c.auditor_name} · rules fingerprint ${c.rules_sha256?.slice(0, 16)}…` : "Financial model, rules, escrow and auditor"))),
+    c.stockCover.length ? el("div", { class: "check" + (c.stockCover.every((x) => x.reserved >= x.needed) ? " yes" : "") }, el("i", {}, c.stockCover.every((x) => x.reserved >= x.needed) ? "✓" : "·"),
+      el("div", {}, "Merchandise prizes in the warehouse and reserved", el("small", {}, "Confirmed by Fulfilment, not by the people drafting or approving"))) : null,
     ...["OPERATIONS", "FINANCE"].map((cap) => {
       const a = c.approvals.find((x) => x.capacity === cap);
       return el("div", { class: "check" + (a ? " yes" : "") }, el("i", {}, a ? "✓" : "2"), el("div", {}, cap === "OPERATIONS" ? "Operations approval" : "Finance approval",
@@ -314,6 +330,97 @@ async function payouts() {
     el("div", { class: "card" }, payoutsTable(p.payouts))];
 }
 
+const CLAIM_TONE = { ENTITLED: "gold", ON_HOLD: "red", VERIFIED: "gold", DISPATCHED: "gold", DELIVERED: "", EXPIRED: "grey", VOID: "grey" };
+const CLAIM_TEXT = { ENTITLED: "Waiting for winner", ON_HOLD: "On hold", VERIFIED: "Claimed — to dispatch", DISPATCHED: "Out for handover", DELIVERED: "Handed over", EXPIRED: "Expired unclaimed", VOID: "Void" };
+
+async function merchandise() {
+  const [inv, queue] = await Promise.all([get("/v1/admin/inventory"), get("/v1/admin/fulfilment")]);
+  const f = can("FULFILMENT");
+  const sum = (key) => inv.items.reduce((n, i) => n + i[key], 0);
+  const nodes = [el("h1", {}, "Merchandise"), el("p", { class: "sub" }, "Every prize item, what it cost, where it is, and who it went to."),
+    el("div", { class: "tiles" },
+      el("div", { class: "tile" }, el("span", {}, "Free in warehouse"), el("b", {}, num(sum("in_stock")))),
+      el("div", { class: "tile" }, el("span", {}, "Reserved as prizes"), el("b", {}, num(sum("reserved")))),
+      el("div", { class: "tile " + (queue.claims.some((x) => x.status === "VERIFIED") ? "warn" : "") }, el("span", {}, "Claimed — to dispatch"), el("b", {}, num(queue.claims.filter((x) => x.status === "VERIFIED").length))),
+      el("div", { class: "tile" }, el("span", {}, "Out for handover"), el("b", {}, num(queue.claims.filter((x) => x.status === "DISPATCHED").length))),
+      el("div", { class: "tile" }, el("span", {}, "Handed over"), el("b", {}, num(sum("delivered")))),
+      el("div", { class: "tile" }, el("span", {}, "Stock held (landed cost)"), el("b", {}, naira(sum("stock_value_kobo")))))];
+
+  // Redemptions
+  nodes.push(el("h2", {}, "Prize redemptions"));
+  if (!queue.claims.length) nodes.push(el("div", { class: "card" }, el("p", { class: "sub" }, "No merchandise prizes have been won yet.")));
+  for (const q of queue.claims) {
+    const card = el("div", { class: "card" },
+      el("div", { class: "actions" }, el("b", {}, q.title), pill(CLAIM_TEXT[q.status] ?? q.status, CLAIM_TONE[q.status]), el("span", { class: "sub" }, `${q.cycle} · ticket ${q.ticket}`)),
+      el("p", { class: "sub" }, `Winner: ${q.winner_name ?? "—"} (…${q.winner_phone_last4}) · claim by ${when(q.expires_at)}` + (q.serial_number ? ` · serial ${q.serial_number}` : "") +
+        (q.method ? ` · ${q.method === "DELIVERY" ? "delivery to " + q.address : "collection"}` : "") + (q.carrier ? ` · ${q.carrier} ${q.tracking_ref ?? ""}` : "") + (q.handed_over_at ? ` · handed over ${when(q.handed_over_at)}` : "")));
+    if (f && q.status === "VERIFIED") {
+      const form = el("form", { onsubmit: action(async () => {
+        const body = {}; if (v(form, "carrier")) body.carrier = v(form, "carrier"); if (v(form, "tracking")) body.trackingRef = v(form, "tracking");
+        await post(`/v1/admin/fulfilment/${q.id}/dispatch`, body);
+        return "Marked as sent. The winner now has a one-time handover code in their app.";
+      }) }, el("div", { class: "form" },
+        input(q.method === "DELIVERY" ? "Carrier" : "Collection point (optional)", { name: "carrier" }), input("Tracking reference (optional)", { name: "tracking" }),
+        el("button", { class: "btn", type: "submit" }, q.method === "DELIVERY" ? "Dispatch" : "Ready for collection")));
+      card.append(form);
+    }
+    if (f && q.status === "DISPATCHED") {
+      const form = el("form", { onsubmit: action(async () => {
+        const body = { code: v(form, "code"), photoRef: v(form, "photo") }; if (v(form, "warranty")) body.warrantyDocumentRef = v(form, "warranty");
+        await post(`/v1/admin/fulfilment/${q.id}/handover`, body);
+        return "Handover complete and recorded.";
+      }) }, el("p", { class: "sub" }, "Ask the winner for the code shown in their app. Staff cannot see it. Five wrong codes lock the handover."),
+        el("div", { class: "form" },
+          input("Winner's handover code", { name: "code", inputmode: "numeric", maxlength: 6, required: true, autocomplete: "off" }),
+          input("Handover photo (file reference)", { name: "photo", required: true }), input("Warranty document (optional)", { name: "warranty" }),
+          el("button", { class: "btn", type: "submit" }, "Confirm handover")));
+      card.append(form);
+    }
+    nodes.push(card);
+  }
+
+  // Stock
+  nodes.push(el("h2", {}, "Items"), el("div", { class: "card" }, inv.items.length ? table(["Item", "#Advertised value", "#Avg landed cost", "#Free", "#Reserved", "#With winners", "#Handed over", "Warranty"], inv.items.map((i) =>
+    el("tr", {}, td(el("b", {}, i.name)), td(naira(i.advertised_value_kobo), true), td(i.avg_landed_cost_kobo ? naira(i.avg_landed_cost_kobo) : "—", true), td(num(i.in_stock), true), td(num(i.reserved), true),
+      td(num(i.with_winners), true), td(num(i.delivered), true), td(i.warranty_months ? i.warranty_months + " months" : "—")))) : el("p", { class: "sub" }, "No items yet.")));
+
+  if (f) {
+    const receive = el("form", { class: "card", onsubmit: action(async () => {
+      const serials = v(receive, "serials").split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+      const body = { skuId: v(receive, "sku"), supplierId: v(receive, "supplier"), warehouseId: v(receive, "warehouse"), poReference: v(receive, "po"),
+        acquisitionCostKobo: toKobo(v(receive, "cost")), landedCostKobo: toKobo(v(receive, "landed")) };
+      if (serials.length) body.serialNumbers = serials; else body.quantity = Number(v(receive, "qty"));
+      const r = await post("/v1/admin/stock/receive", body);
+      return `${r.received} unit${r.received === 1 ? "" : "s"} received into stock.`;
+    }) },
+      el("b", {}, "Receive stock"), el("p", { class: "sub" }, "Record goods when they physically arrive. Costs and serial numbers cannot be edited afterwards."),
+      inv.items.length && inv.suppliers.length && inv.warehouses.length ? [el("div", { class: "form" },
+        select("Item", "sku", inv.items.map((i) => [i.id, i.name + (i.serialised ? " (serial numbers)" : "")])),
+        select("Supplier", "supplier", inv.suppliers.map((s) => [s.id, s.name])), select("Warehouse", "warehouse", inv.warehouses.map((w) => [w.id, w.name])),
+        input("Purchase order reference", { name: "po", required: true }),
+        input("Purchase cost per unit (₦)", { name: "cost", type: "number", min: 0, required: true }), input("Landed cost per unit (₦)", { name: "landed", type: "number", min: 0, required: true }),
+        input("Quantity (if no serial numbers)", { name: "qty", type: "number", min: 1, value: 1 }),
+        input("Serial numbers, one per line", { name: "serials", rows: 3 }, true)),
+        el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Receive"))] : el("p", { class: "sub" }, "Add an item, a supplier and a warehouse first."));
+    const item = el("form", { class: "card", onsubmit: action(async () => {
+      await post("/v1/admin/skus", { name: v(item, "name"), advertisedValueKobo: toKobo(v(item, "value")), serialised: item.elements.serialised.checked, warrantyMonths: Number(v(item, "warranty") || 0) });
+      return "Item added.";
+    }) }, el("b", {}, "New item"), el("div", { class: "form" },
+      input("Name", { name: "name", required: true }), input("Advertised value (₦)", { name: "value", type: "number", min: 1, required: true }), input("Warranty (months)", { name: "warranty", type: "number", min: 0, value: 0 }),
+      el("label", {}, "Tracked by serial number", el("input", { type: "checkbox", name: "serialised" })), el("button", { class: "btn ghost", type: "submit" }, "Add item")));
+    const supplier = el("form", { class: "card", onsubmit: action(async () => { const b = { name: v(supplier, "name") }; if (v(supplier, "country")) b.country = v(supplier, "country"); await post("/v1/admin/suppliers", b); return "Supplier added."; }) },
+      el("b", {}, "New supplier"), el("div", { class: "form" }, input("Name", { name: "name", required: true }), input("Country", { name: "country" }), el("button", { class: "btn ghost", type: "submit" }, "Add supplier")));
+    const wh = el("form", { class: "card", onsubmit: action(async () => { await post("/v1/admin/warehouses", { name: v(wh, "name"), address: v(wh, "address"), stateCode: "NG-NI" }); return "Warehouse added."; }) },
+      el("b", {}, "New warehouse"), el("div", { class: "form" }, input("Name", { name: "name", required: true }), input("Address", { name: "address", required: true }), el("button", { class: "btn ghost", type: "submit" }, "Add warehouse")));
+    nodes.push(receive, el("div", { class: "grid2" }, item, el("div", {}, supplier, wh)));
+  }
+
+  nodes.push(el("h2", {}, "Stock units"), el("div", { class: "card" }, inv.units.length ? table(["Item", "Serial no.", "Status", "Warehouse", "Supplier / PO", "#Purchase cost", "#Landed cost", "Cycle"], inv.units.map((u) =>
+    el("tr", {}, td(u.item), td(el("span", { class: "mono" }, u.serial_number ?? "—")), td(pill(u.status.replace("_", " ").toLowerCase(), u.status === "IN_STOCK" ? "" : u.status === "DELIVERED" ? "grey" : "gold")), td(u.warehouse ?? "—"),
+      td(`${u.supplier ?? "—"} · ${u.po_reference ?? ""}`), td(naira(u.acquisition_cost_kobo), true), td(naira(u.landed_cost_kobo), true), td(u.cycle ?? "—")))) : el("p", { class: "sub" }, "No stock recorded yet.")));
+  return nodes;
+}
+
 async function auditPage() {
   const nodes = [el("h1", {}, "Audit & compliance")];
   if (can("COMPLIANCE", "AUDITOR", "FINANCE", "SECURITY_ADMIN")) {
@@ -360,7 +467,7 @@ async function auditPage() {
 
 // --- Router ------------------------------------------------------------------------------------
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, audit: auditPage };
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, merchandise, audit: auditPage };
 let renderId = 0;
 
 async function render() {

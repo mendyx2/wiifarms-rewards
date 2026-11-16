@@ -6,6 +6,7 @@ import { seal, sha256 } from "../crypto.ts";
 import { one, withTx, type Db } from "../db.ts";
 import { AppError, badRequest, conflict, notFound } from "../errors.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
+import { stockCover } from "./inventory.ts";
 
 /** Identifies the exact engine build that generated a cycle; certification is recorded against it. */
 export const GAME_CORE_VERSION = "game-core@0.1.0";
@@ -329,6 +330,7 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
   return {
     ...c, tiers, approvals, signoffs, commitment: commitment[0] ?? null, counts: counts[0], draw: drawn[0] ?? null,
     cashCoverRequiredKobo: cashCover,
+    stockCover: await stockCover(ctx, cycleId),
     drawTimeReached: c.draw_at.getTime() <= Date.now(),
     editable: c.status === "DRAFT" || c.status === "SUBMITTED",
   };

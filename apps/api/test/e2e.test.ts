@@ -74,6 +74,7 @@ async function openCycle(o: { total: number; closeInMs: number; cap: number; nam
   ok(await api("PUT", `/v1/admin/cycles/${c.id}/evidence`, { token: admins.manager!.token, body: {
     financialModelRef: "fm-1", rulesDocumentRef: "rules-1", rulesText: "Published rules", escrowReference: "ESC-1",
     escrowFundedKobo: 11_500_000, auditorAdminId: admins.auditor!.id } }));
+  assert.equal(ok(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: admins.fulfilment!.token })).complete, true);
   ok(await api("POST", `/v1/admin/cycles/${c.id}/submit`, { token: admins.manager!.token }));
   ok(await api("POST", `/v1/admin/cycles/${c.id}/approve`, { token: admins.manager2!.token }));
   assert.equal(ok(await api("POST", `/v1/admin/cycles/${c.id}/approve`, { token: admins.finance!.token })).status, "APPROVED");
@@ -82,7 +83,7 @@ async function openCycle(o: { total: number; closeInMs: number; cap: number; nam
   return { id: c.id, closeAt };
 }
 
-let skuId: string;
+let skuId: string, supplierId: string, warehouseId: string;
 let cycleA: { id: string; closeAt: number };
 let players: Player[] = [];
 
@@ -101,7 +102,7 @@ before(async () => {
   ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds) };
   app = buildServer(ctx);
 
-  const roles: Record<string, string> = { manager: "CYCLE_MANAGER", manager2: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", compliance: "COMPLIANCE", auditor: "AUDITOR", auditor2: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
+  const roles: Record<string, string> = { manager: "CYCLE_MANAGER", manager2: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", compliance: "COMPLIANCE", auditor: "AUDITOR", auditor2: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
   const ids: Record<string, string> = {};
   for (const name of Object.keys(roles)) {
     ids[name] = (await pool.query("INSERT INTO admin_users (email, full_name) VALUES ($1, $2) RETURNING id", [`${name}@example.test`, name])).rows[0].id;
@@ -110,7 +111,12 @@ before(async () => {
     await pool.query("INSERT INTO admin_roles (admin_user_id, role, granted_by) VALUES ($1, $2, $3)", [ids[name], role, name === "security" ? ids.security2 : ids.security]);
     admins[name] = { id: ids[name]!, token: ok(await api("POST", "/v1/admin/dev-login", { body: { email: `${name}@example.test` } })).token };
   }
-  skuId = (await pool.query("INSERT INTO skus (name, advertised_value_kobo) VALUES ('Solar freezer 200L', 55000000) RETURNING id")).rows[0].id;
+  // Merchandise set up by Fulfilment: item, supplier, warehouse, and serial-numbered stock with costs.
+  const ft = admins.fulfilment!.token;
+  skuId = ok(await api("POST", "/v1/admin/skus", { token: ft, body: { name: "Solar freezer 200L", advertisedValueKobo: 55_000_000, serialised: true, warrantyMonths: 24 } })).id;
+  supplierId = ok(await api("POST", "/v1/admin/suppliers", { token: ft, body: { name: "Test Supplier", country: "NG" } })).id;
+  warehouseId = ok(await api("POST", "/v1/admin/warehouses", { token: ft, body: { name: "Minna", address: "1 Test Road, Minna", stateCode: "NG-NI" } })).id;
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-1", serialNumbers: ["SN-1", "SN-2", "SN-3", "SN-4", "SN-5"], acquisitionCostKobo: 38_000_000, landedCostKobo: 42_000_000 } }));
 });
 
 after(async () => {
@@ -547,4 +553,111 @@ test("admin web app: separate cookie session, role-limited views, no outcomes ex
   assert.match(String(out.headers["set-cookie"]), /Max-Age=0/);
   assert.equal((await getAs(cookie, "/v1/admin/me")).status, 401);
   await web.close();
+});
+
+test("merchandise: stock must exist before approval, cannot be diverted, and is handed over only against the winner's code", async () => {
+  const ft = admins.fulfilment!.token, mt = admins.manager!.token;
+  const { expireClaims } = await import("../src/modules/inventory.ts");
+
+  // --- A cycle cannot be approved on a promise: the goods must be in the warehouse and reserved. ---
+  const now = Date.now();
+  const c = ok(await api("POST", "/v1/admin/cycles", { token: mt, body: { name: "Stock check", ticketPriceKobo: N200, totalTickets: 10, maxTicketsPerAccount: 5, salesOpenAt: new Date(now).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString() } }));
+  ok(await api("POST", `/v1/admin/cycles/${c.id}/prize-tiers`, { token: mt, body: { stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Solar freezer", skuId, quantity: 2, drawOrder: 1 } }));
+  ok(await api("PUT", `/v1/admin/cycles/${c.id}/evidence`, { token: mt, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 0, auditorAdminId: admins.auditor!.id } }));
+  fails(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: mt }), 403, "ROLE_REQUIRED"); // the drafter cannot vouch for stock
+  const partial = ok(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: ft }));
+  assert.equal(partial.complete, false); // 5 received, 4 already committed to earlier cycles
+  assert.deepEqual(partial.cover.map((x: any) => [x.needed, x.reserved]), [[2, 1]]);
+  ok(await api("POST", `/v1/admin/cycles/${c.id}/submit`, { token: mt }));
+  ok(await api("POST", `/v1/admin/cycles/${c.id}/approve`, { token: admins.manager2!.token }));
+  const refused = await api("POST", `/v1/admin/cycles/${c.id}/approve`, { token: admins.finance!.token });
+  fails(refused, 409, "RULE_VIOLATION");
+  assert.match(refused.body.error.message, /in stock and reserved.*needs 2, 1 reserved/);
+  fails(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", quantity: 1, acquisitionCostKobo: 1, landedCostKobo: 1 } }), 400, "SERIALS_REQUIRED");
+  fails(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", serialNumbers: ["SN-1"], acquisitionCostKobo: 1, landedCostKobo: 1 } }), 409, "ALREADY_EXISTS");
+  fails(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", serialNumbers: ["SN-6"], acquisitionCostKobo: 5, landedCostKobo: 4 } }), 400, "INVALID_COST");
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", serialNumbers: ["SN-6"], acquisitionCostKobo: 38_000_000, landedCostKobo: 42_000_000 } }));
+  assert.equal(ok(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: ft })).complete, true);
+  assert.equal(ok(await api("POST", `/v1/admin/cycles/${c.id}/approve`, { token: admins.finance!.token })).status, "APPROVED");
+  fails(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: ft }), 409, "CYCLE_LOCKED");
+
+  // --- Even with direct database access, committed prizes cannot be released, re-costed or deleted. ---
+  await assert.rejects(pool.query("UPDATE stock_units SET status = 'IN_STOCK', reserved_cycle_id = NULL WHERE reserved_cycle_id = $1", [cycleA.id]), /committed as a prize in a live cycle/);
+  await assert.rejects(pool.query("UPDATE stock_units SET reserved_cycle_id = $2 WHERE reserved_cycle_id = $1", [cycleA.id, c.id]), /committed as a prize/);
+  await assert.rejects(pool.query("UPDATE stock_units SET landed_cost_kobo = 1 WHERE serial_number = 'SN-1'"), /cannot be changed/);
+  await assert.rejects(pool.query("DELETE FROM stock_units WHERE serial_number = 'SN-1'"), /append-only/);
+  await assert.rejects(pool.query("UPDATE stock_units SET status = 'DELIVERED' WHERE reserved_cycle_id = $1", [cycleA.id]), /cannot move from RESERVED to DELIVERED/);
+
+  // --- The winner claims. ---
+  const open = (await pool.query(
+    `SELECT pc.id, pc.user_id FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id WHERE pt.cycle_id = $1 AND pt.kind = 'MERCHANDISE' ORDER BY pc.created_at, pc.id`, [cycleA.id])).rows;
+  assert.equal(open.length, 2);
+  const playerOf = (id: string) => players.find((p) => p.id === id)!;
+  const setKin = async (p: Player) => {
+    if (!ok(await api("GET", "/v1/me", { token: p.token })).nextOfKin) ok(await api("PUT", "/v1/me/next-of-kin", { token: p.token, body: { fullName: "Next Kin", relationship: "Sister", phone: "08030000099" } }));
+  };
+  const w1 = playerOf(open[0].user_id), claim1 = open[0].id;
+  const mine = ok(await api("GET", "/v1/claims", { token: w1.token })).claims;
+  assert.ok(mine.some((x: any) => x.id === claim1 && x.status === "ENTITLED" && x.handoverCode === null));
+  const redeem = (p: Player, id: string, b: object) => api("POST", `/v1/claims/${id}/redeem`, { token: p.token, body: b });
+  const hadKin = ok(await api("GET", "/v1/me", { token: w1.token })).nextOfKin;
+  if (!hadKin) fails(await redeem(w1, claim1, { method: "COLLECTION", pin: w1.pin }), 403, "NEXT_OF_KIN_REQUIRED");
+  await setKin(w1); // adding a next of kin for the first time is allowed even with a prize waiting
+  fails(await redeem(w1, claim1, { method: "COLLECTION", pin: "135790" }), 403, "PIN_REQUIRED");
+  fails(await redeem(w1, claim1, { method: "DELIVERY", pin: w1.pin }), 400, "ADDRESS_REQUIRED");
+  const stranger = players.find((p) => p.id !== w1.id && p.id !== open[1].user_id) ?? await newPlayer();
+  fails(await redeem(stranger, claim1, { method: "COLLECTION", pin: stranger.pin }), 404, "NOT_FOUND");
+  assert.equal(ok(await redeem(w1, claim1, { method: "DELIVERY", address: "12 Bosso Road, Minna", pin: w1.pin })).status, "VERIFIED");
+  fails(await redeem(w1, claim1, { method: "COLLECTION", pin: w1.pin }), 409, "ALREADY_CLAIMED");
+  // With a claim in progress, the next of kin can no longer be swapped.
+  fails(await api("PUT", "/v1/me/next-of-kin", { token: w1.token, body: { fullName: "Someone Else", relationship: "Friend", phone: "08030000098" } }), 409, "CLAIM_IN_PROGRESS");
+
+  // --- Fulfilment dispatches; only the winner ever sees the handover code. ---
+  const queue = ok(await api("GET", "/v1/admin/fulfilment", { token: ft })).claims;
+  const q1 = queue.find((x: any) => x.id === claim1);
+  assert.equal(q1.status, "VERIFIED"); assert.equal(q1.address, "12 Bosso Road, Minna"); assert.match(q1.serial_number, /^SN-\d$/);
+  assert.ok(!/handover_otp|handoverCode/.test(JSON.stringify(queue)));
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/dispatch`, { token: admins.finance!.token, body: { carrier: "X" } }), 403, "ROLE_REQUIRED");
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/dispatch`, { token: ft, body: {} }), 400, "CARRIER_REQUIRED");
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code: "000000", photoRef: "p.jpg" } }), 409, "NOT_IN_TRANSIT");
+  ok(await api("POST", `/v1/admin/fulfilment/${claim1}/dispatch`, { token: ft, body: { carrier: "Test Logistics", trackingRef: "TL-1" } }));
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/dispatch`, { token: ft, body: { carrier: "Again" } }), 409, "NOT_READY");
+  const code = ok(await api("GET", "/v1/claims", { token: w1.token })).claims.find((x: any) => x.id === claim1).handoverCode;
+  assert.match(code, /^\d{6}$/);
+  const stored = (await pool.query("SELECT handover_otp_hash, handover_otp_enc FROM shipments WHERE prize_claim_id = $1", [claim1])).rows[0];
+  assert.ok(!stored.handover_otp_hash.includes(code) && !stored.handover_otp_enc.toString("latin1").includes(code), "code is not stored in readable form");
+  const wrong = code === "000000" ? "000001" : "000000";
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code: wrong, photoRef: "p.jpg" } }), 403, "WRONG_CODE");
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code } }), 400, "INVALID_REQUEST"); // photo is mandatory
+  assert.equal(ok(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code, photoRef: "handover/claim1.jpg", warrantyDocumentRef: "warranty/SN.pdf" } })).status, "DELIVERED");
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code, photoRef: "p.jpg" } }), 409, "NOT_IN_TRANSIT");
+  const delivered = ok(await api("GET", "/v1/claims", { token: w1.token })).claims.find((x: any) => x.id === claim1);
+  assert.equal(delivered.status, "DELIVERED"); assert.equal(delivered.handoverCode, null); assert.equal(delivered.warranty_months, 24); assert.ok(delivered.serial_number);
+  assert.equal((await pool.query("SELECT u.status FROM stock_units u JOIN prize_claims pc ON pc.stock_unit_id = u.id WHERE pc.id = $1", [claim1])).rows[0].status, "DELIVERED");
+
+  // --- Guessing the code locks the handover. ---
+  const w2 = playerOf(open[1].user_id), claim2 = open[1].id;
+  await setKin(w2);
+  ok(await redeem(w2, claim2, { method: "COLLECTION", pin: w2.pin }));
+  ok(await api("POST", `/v1/admin/fulfilment/${claim2}/dispatch`, { token: ft, body: {} })); // collection needs no carrier
+  const code2 = ok(await api("GET", "/v1/claims", { token: w2.token })).claims.find((x: any) => x.id === claim2).handoverCode;
+  const bad = code2 === "111111" ? "111112" : "111111";
+  for (let i = 0; i < 5; i++) fails(await api("POST", `/v1/admin/fulfilment/${claim2}/handover`, { token: ft, body: { code: bad, photoRef: "p.jpg" } }), 403, "WRONG_CODE");
+  fails(await api("POST", `/v1/admin/fulfilment/${claim2}/handover`, { token: ft, body: { code: code2, photoRef: "p.jpg" } }), 429, "HANDOVER_LOCKED");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'HANDOVER_CODE_FAILURES' AND entity_id = $1", [claim2])).rows[0].n, 1);
+
+  // --- Records: costs, serial numbers, where every unit is. ---
+  const inv = ok(await api("GET", "/v1/admin/inventory", { token: admins.auditor!.token }));
+  const item = inv.items.find((i: any) => i.id === skuId);
+  assert.deepEqual([item.in_stock, item.reserved, item.with_winners, item.delivered], [0, 4, 1, 1]);
+  assert.equal(item.avg_landed_cost_kobo, 42_000_000);
+  assert.equal(item.stock_value_kobo, 5 * 42_000_000);
+  assert.ok(inv.units.every((u: any) => u.serial_number && u.supplier === "Test Supplier" && u.warehouse === "Minna"));
+  fails(await api("GET", "/v1/admin/inventory", { token: admins.approver!.token }), 403, "ROLE_REQUIRED");
+
+  // --- Unclaimed prizes close when the published window ends. ---
+  const late = (await pool.query("SELECT pc.id, pc.user_id FROM prize_claims pc WHERE pc.status = 'ENTITLED' LIMIT 1")).rows[0];
+  await pool.query("UPDATE prize_claims SET expires_at = now() - interval '1 minute' WHERE id = $1", [late.id]);
+  assert.equal(await expireClaims(ctx), 1);
+  assert.equal((await pool.query("SELECT status FROM prize_claims WHERE id = $1", [late.id])).rows[0].status, "EXPIRED");
 });

@@ -142,15 +142,6 @@ export async function listSkus(ctx: Ctx, admin: Admin): Promise<unknown[]> {
   return (await ctx.pool.query("SELECT id, name, advertised_value_kobo FROM skus ORDER BY name")).rows;
 }
 
-export async function createSku(ctx: Ctx, admin: Admin, input: { name: string; advertisedValueKobo: number }): Promise<{ id: string }> {
-  requireRole(admin, "FULFILMENT", "CYCLE_MANAGER");
-  return withTx(ctx.pool, async (db) => {
-    const r = await db.query<{ id: string }>("INSERT INTO skus (name, advertised_value_kobo) VALUES ($1, $2) RETURNING id", [input.name, input.advertisedValueKobo]);
-    await audit(db, adminActor(admin), "inventory.sku_created", "sku", r.rows[0]!.id, { ...input });
-    return { id: r.rows[0]!.id };
-  });
-}
-
 export async function compliance(ctx: Ctx, admin: Admin): Promise<unknown> {
   requireRole(admin, "COMPLIANCE", "AUDITOR", "FINANCE", "SECURITY_ADMIN");
   const alerts = await ctx.pool.query("SELECT id, kind, severity, entity_type, entity_id, details, status, created_at FROM compliance_alerts ORDER BY created_at DESC LIMIT 100");

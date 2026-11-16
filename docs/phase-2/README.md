@@ -1,6 +1,6 @@
 # Phase 2 — minimum viable platform (simulated money only)
 
-Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey and tested end to end.** Merchandise fulfilment, refunds/voids, notifications and reports remain.
+Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Refunds/voids, notifications and reports remain.
 
 Nothing in this phase can take real money. There is no payment-gateway integration, every cycle is created in `SIMULATED` mode, the API has no setting that changes this, and the database separately refuses to open a real-money cycle without a licence and certification record.
 
@@ -15,12 +15,12 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 | C. Prize cycle management | Draft → submit → two approvals → commit → open → close; evidence and escrow check; locked after approval; closes on sell-out or closing time | — |
 | D. Final draw | Entries frozen, two operators + appointed auditor, committed secret + beacon, runs once, public data to re-run it | Public randomness beacon |
 | E. Payments and cash prizes | Orders with idempotency, payment confirmation, automatic refund when no card can be issued, double-entry ledger, winnings balance, withdrawals with PIN, second approver above a threshold, reject returns the money | Payment gateway and bank transfers |
-| F. Merchandise | Winners get a claim with the 90-day window | Stock allocation, delivery and handover not built yet |
+| F. Merchandise | Items, suppliers, warehouses, purchase orders; stock received with purchase and landed cost and serial numbers; stock reserved to a cycle before approval; winner's claim (delivery or collection); dispatch; handover against a one-time code with photo; warranty reference; expiry of unclaimed prizes | Carrier integration (tracking is typed in); photos and documents are file references, not uploads |
 | G. Dashboard | Figures per cycle and totals from the ledger; audit trail with integrity check; role-based admin screens | Operating expenses and financial reports not built yet |
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 14 tests, run repeatedly without failure:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 15 tests, run repeatedly without failure:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -67,7 +67,7 @@ Safety and experience choices:
 
 Checked in a real browser (headless Chromium, phone width, and again at 320 px): full journey from demo card through sign-up, verification, purchase, scratching, in-phone verification, winnings, withdrawal, limits, a real draw executed by three administrators, and in-phone draw verification — with no script errors and no sideways scrolling. This browser run is a manual check script, not yet part of the automated suite.
 
-Not yet in the web app: offline shell/installation prompt (service worker), languages other than English, notifications, merchandise claim and delivery screens, support.
+Not yet in the web app: offline shell/installation prompt (service worker), languages other than English, notifications, support.
 
 ### Try it locally
 
@@ -99,7 +99,25 @@ Buttons appear only for roles that may use them, but that is convenience: every 
 
 Checked in a real browser with six administrators signing in turn: draft through the form; drafter refused when approving their own cycle; finance refused without evidence and with escrow ₦1 short; locked after approval; tickets generated and sales opened; a player bought; sign-off buttons absent before close; execute disabled with one sign-off; payout approver offered no draw buttons; auditor could countersign but not execute; draw executed once and the button disappeared; a ₦20,000 payout held, rejected (money returned), re-requested and approved by the payout approver while finance was offered no approve button; exclusion register entry added by compliance and hidden from the auditor; audit trail intact; no script errors; no sideways scrolling at phone width. As with the player app, this browser run is a manual check script, not yet in the automated suite.
 
-Still missing from the admin app: merchandise stock and fulfilment screens, refunds and voiding, reconciliation and financial reports, recording licences and certifications, managing administrators and roles (currently set up directly in the database), customer support views. In production it must be served from its own restricted address rather than alongside the player app.
+Still missing from the admin app: refunds and voiding, reconciliation and financial reports, recording licences and certifications, managing administrators and roles (currently set up directly in the database), customer support views. In production it must be served from its own restricted address rather than alongside the player app.
+
+## Merchandise
+
+How a physical prize is protected from start to finish:
+
+1. **It must exist first.** Fulfilment records goods when they arrive: item, supplier, purchase order, warehouse, purchase cost, landed cost and (for tracked items) serial numbers. Costs and serial numbers cannot be edited afterwards.
+2. **It is set aside before approval.** Fulfilment — not the people drafting or approving — reserves stock to the cycle. The database refuses to approve a cycle unless every merchandise prize is covered by a reserved unit in the warehouse.
+3. **It cannot be diverted.** Once the cycle is approved, a reserved unit cannot be released, moved to another cycle, re-costed or deleted, even with direct database access.
+4. **The winner claims it** in the app: delivery (with address) or collection, confirmed with their PIN. A next of kin must be on file, and cannot be swapped while a claim is open. A match on the staff register puts the claim on hold for Compliance.
+5. **Handover needs the winner's code.** When Fulfilment dispatches, the winner — and only the winner — is shown a six-digit code. Staff cannot see it. Handover is recorded only with that code and a photo reference; five wrong codes lock the handover and raise an alert.
+6. **Everything is recorded:** which serial number went to which winner, when, by whom, with the warranty reference.
+7. **Unclaimed prizes close** when the published 90-day window ends.
+
+Stricter than the earlier decision: the plan allowed prizes that were "received or contractually secured". The system currently accepts only goods physically received. Allowing contractually secured goods would need an evidence-and-approval step; say if you want it.
+
+Screens: the admin app has a Merchandise page (stock position and value, redemption queue with dispatch and handover, receiving stock, items, suppliers, warehouses, every unit with its costs) and the cycle page shows whether prizes are secured. The player app lists "My prizes" under Winnings, shows a banner on the home page when a prize is waiting, and leads a winner to the draw of the cycle they played.
+
+Checked in real browsers with a player and several administrators: stock received through the form (refused without serial numbers for a tracked item); a player won, was told on the home page, added next of kin, claimed with an address and PIN; dispatch refused without a carrier; the code appeared on the player's phone and nowhere on the admin page; a wrong code was refused; the right code completed the handover; the player then saw "Received" with serial number and warranty. Finance could view but had no action forms; the payout approver could not open the page.
 
 ## Differences from the Phase 1 plan
 
@@ -122,7 +140,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 1. ~~Player web app connected to the API~~ — done (see above). Remaining: offline shell, more languages, automated browser tests in CI.
 2. ~~Admin web app connected to the API~~ — done for cycles, approvals, draw, payouts, audit and compliance (see above).
 3. **Public verifier page**: check a card, re-run a draw.
-4. **Merchandise module**: suppliers, stock, reserving stock to a cycle, delivery/collection with code and photo, warranty records.
+4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking, next-of-kin claims.
 5. Voiding a cycle with refunds; manual refunds (ineligible purchase, disputed payment) with two-person approval.
 6. Publishing the full ticket list when a cycle is archived; settling and archiving steps.
 7. Notifications (SMS/WhatsApp/in-app) and support tickets.

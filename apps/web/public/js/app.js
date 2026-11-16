@@ -168,7 +168,11 @@ async function home() {
   fill.style.width = Math.round((sold / c.total_tickets) * 100) + "%";
   const odds = c.instantWinOdds ? `1 in ${Math.round(c.instantWinOdds.outOf / c.instantWinOdds.winners)}` : "—";
 
+  // A winner is told straight away, whichever cycle the prize came from.
+  const waiting = state.me ? (await api.get("/v1/claims")).claims.filter((p) => p.status === "ENTITLED").length : 0;
   const nodes = [
+    waiting ? el("a", { class: "btn gold", href: "#/wallet" }, `🎉 You have ${plural(waiting, "prize")} to claim`) : null,
+    waiting ? el("p") : null,
     el("div", { class: "hero" },
       el("span", { class: "tag" }, `${c.name} · ${STATUS_TEXT[c.status] ?? c.status}`),
       el("div", { class: "price" }, naira(c.ticket_price_kobo), " ", el("small", {}, "per scratch card")),
@@ -451,8 +455,53 @@ const BANKS = { "044": "Access Bank", "011": "First Bank", "058": "GTBank", "033
 const HISTORY_TEXT = { INSTANT_PRIZE: "Instant win", DRAW_PRIZE: "Final-draw prize", PAYOUT: "Withdrawal", PAYOUT_REVERSAL: "Withdrawal returned" };
 const PAYOUT_TEXT = { CONFIRMED: "Sent to your bank", PENDING_APPROVAL: "Being checked", REJECTED: "Not sent — money returned", REQUESTED: "Processing", APPROVED: "Processing", SENT: "On its way", FAILED: "Failed" };
 
+const CLAIM_TEXT = { ENTITLED: "Ready to claim", ON_HOLD: "Being reviewed", VERIFIED: "Claimed — being prepared", DISPATCHED: "On its way", DELIVERED: "Received", EXPIRED: "Claim period ended", VOID: "Not available" };
+
+/** One merchandise prize: claim it, follow it, and show the handover code when it is on its way. */
+function prizeCard(p) {
+  const daysLeft = Math.max(0, Math.ceil((new Date(p.expires_at) - Date.now()) / 864e5));
+  const card = el("div", { class: "card" },
+    el("div", { class: "row" }, el("div", {}, el("b", {}, p.title), el("small", {}, `${p.cycle} · card ${p.ticket}`)), el("span", { class: "pill" + (p.status === "DELIVERED" ? "" : " gold") }, CLAIM_TEXT[p.status] ?? p.status)));
+  if (p.status === "ENTITLED") {
+    if (!state.me.nextOfKin) {
+      card.append(el("div", { class: "note warn" }, "Add your next of kin before claiming this prize."), el("a", { class: "btn ghost", href: "#/me" }, "Add next of kin"));
+      return card;
+    }
+    const address = el("input", { name: "address", autocomplete: "street-address", placeholder: "House, street, town" });
+    const addressField = el("div", {}, ...field("Delivery address", address));
+    const form = el("form", { onsubmit: action(async () => {
+      const method = val(form, "method"), body = { method, pin: val(form, "pin") };
+      if (method === "DELIVERY") {
+        if (!val(form, "address")) { toast("Enter the delivery address."); return; }
+        body.address = val(form, "address");
+      }
+      const r = await api.post(`/v1/claims/${p.id}/redeem`, body);
+      toast(r.status === "VERIFIED" ? "Prize claimed. We will tell you when it is on its way." : "Your claim is being reviewed. We will be in touch.");
+      render();
+    }) },
+      el("p", { class: "muted" }, `Claim within ${daysLeft} day${daysLeft === 1 ? "" : "s"} (by ${when(p.expires_at)}).`),
+      ...field("How would you like it?", el("select", { name: "method", onchange: (e) => { addressField.hidden = e.target.value !== "DELIVERY"; } },
+        el("option", { value: "DELIVERY" }, "Deliver it to me"), el("option", { value: "COLLECTION" }, "I will collect it"))),
+      addressField,
+      ...field("Your PIN", el("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 6, autocomplete: "current-password", required: true })),
+      el("p"), el("button", { class: "btn gold", type: "submit" }, "Claim my prize"));
+    // Folded away so a player with several prizes sees a short list first.
+    card.append(el("details", {}, el("summary", {}, "Claim this prize"), form));
+  } else if (p.status === "DISPATCHED") {
+    card.append(
+      el("p", { class: "muted" }, p.method === "DELIVERY" ? `With ${p.carrier ?? "the carrier"}${p.tracking_ref ? " · " + p.tracking_ref : ""}, to ${p.address}.` : "Ready for you to collect" + (p.carrier ? " at " + p.carrier : "") + "."),
+      el("div", { class: "note warn" }, "Your handover code. Give it only to the person handing you the prize, when you have it in your hands."),
+      el("div", { class: "balance center" }, p.handoverCode ?? "—"));
+  } else if (p.status === "DELIVERED") {
+    card.append(el("p", { class: "muted" }, `Received ${when(p.handed_over_at)}` + (p.serial_number ? ` · serial ${p.serial_number}` : "") + (p.warranty_months ? ` · ${p.warranty_months}-month warranty` : "")));
+  } else if (p.status === "VERIFIED") {
+    card.append(el("p", { class: "muted" }, p.method === "DELIVERY" ? "We are preparing your delivery to " + p.address + "." : "We are getting it ready for collection."));
+  }
+  return card;
+}
+
 async function wallet() {
-  const [w, bank] = await Promise.all([api.get("/v1/wallet"), api.get("/v1/me/bank-accounts")]);
+  const [w, bank, prizes] = await Promise.all([api.get("/v1/wallet"), api.get("/v1/me/bank-accounts"), api.get("/v1/claims")]);
   await loadMe();
   const usable = bank.accounts.filter((a) => a.name_match);
   const nodes = [el("h1", {}, "Winnings"),
@@ -492,6 +541,13 @@ async function wallet() {
     nodes.push(el("details", { class: "card", open: !usable.length && w.balanceKobo > 0 }, el("summary", {}, usable.length ? "Add another bank account" : "Add your bank account"), add));
   }
 
+  if (prizes.claims.length) {
+    // Prizes that need the player's attention come first: on its way, being prepared, ready to claim.
+    const order = ["DISPATCHED", "VERIFIED", "ENTITLED", "ON_HOLD", "DELIVERED", "EXPIRED", "VOID"];
+    const sorted = [...prizes.claims].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+    nodes.splice(1, 0, el("h2", {}, "My prizes"), ...sorted.map(prizeCard));
+  }
+
   nodes.push(el("h2", {}, "History"), el("div", { class: "card" }, w.history.length
     ? w.history.map((h) => el("div", { class: "row" }, el("div", {}, el("b", {}, HISTORY_TEXT[h.kind] ?? h.kind), el("small", {}, when(h.created_at))), el("b", {}, (h.amount_kobo > 0 ? "+" : "−") + naira(Math.abs(h.amount_kobo)))))
     : el("p", { class: "muted" }, "Nothing yet.")));
@@ -503,14 +559,19 @@ async function wallet() {
 }
 
 async function draw() {
-  const c = await loadCycle();
+  await loadCycle();
+  // Unless the player picked a cycle here, show the draw of the cycle they most
+  // recently bought into — that is the one they are waiting for.
+  const all = state.me ? (await api.get("/v1/tickets")).tickets : [];
+  const drawCycleId = state.drawCycleId ?? all[0]?.cycleId ?? state.cycleId;
+  const c = drawCycleId ? await api.get("/v1/cycles/" + drawCycleId) : null;
   if (!c) return [el("h1", {}, "Final draw"), el("p", { class: "muted" }, "No prize cycle yet.")];
-  const mine = state.me ? await myTickets() : [];
+  const mine = all.filter((t) => t.cycleId === c.id);
   const drawn = ["DRAWN", "SETTLING", "ARCHIVED"].includes(c.status);
   const nodes = [el("h1", {}, "Final draw")];
   if (state.cycles.length > 1) {
     nodes.push(el("div", { class: "chips" }, state.cycles.map((x) =>
-      el("button", { class: x.id === c.id ? "on" : "", onclick: () => { remember(x.id); render(); } }, x.name))));
+      el("button", { class: x.id === c.id ? "on" : "", onclick: () => { state.drawCycleId = x.id; render(); } }, x.name))));
   }
   nodes.push(
     el("div", { class: "card" },
@@ -530,6 +591,7 @@ async function draw() {
   const checks = el("div");
   nodes.push(el("h2", {}, "Winning cards"),
     el("div", { class: "card" }, d.winners.map((w) => el("div", { class: "row" }, el("div", {}, el("b", {}, w.title), el("small", {}, w.serial)), serials.has(w.serial) ? el("span", { class: "pill gold" }, "Yours!") : el("span")))),
+    d.winners.some((w) => serials.has(w.serial)) ? el("a", { class: "btn gold", href: "#/wallet" }, "You won — see your prizes") : null, el("p"),
     el("div", { class: "card" }, el("b", {}, "Check the draw yourself"),
       el("p", { class: "muted" }, `Your phone re-runs the draw over all ${d.entries_count} entries using the published data.`),
       el("button", { class: "btn ghost", onclick: action(async () => {
