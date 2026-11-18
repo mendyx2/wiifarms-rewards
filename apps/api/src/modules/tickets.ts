@@ -153,8 +153,12 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
     await db.query("UPDATE payments SET status = 'SUCCEEDED', verified_at = now() WHERE id = $1", [payment.id]);
 
     // Assign cards at random from whatever is unsold. This query cannot see
-    // outcomes — they are encrypted — and SKIP LOCKED means two buyers paying
-    // at the same instant can never be given the same card.
+    // outcomes — they are encrypted. Assignment for one cycle happens one
+    // payment at a time: without this, two payments racing for the last cards
+    // could each lock part of them, each come up short, both be refunded and
+    // leave the cards unsold. (The lock is held only for the rest of this short
+    // transaction.) SKIP LOCKED stays as a second guard against double sale.
+    await lockKey(db, `cycle-sale:${order.cycle_id}`);
     const cycle = await getCycle(db, order.cycle_id);
     const picked = cycle.status === "OPEN"
       ? await db.query<{ id: string }>(

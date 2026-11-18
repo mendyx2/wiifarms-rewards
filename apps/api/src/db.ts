@@ -11,7 +11,12 @@ export type Db = pg.PoolClient;
 export type Pool = pg.Pool;
 
 export function createPool(databaseUrl: string): Pool {
-  return new pg.Pool({ connectionString: databaseUrl, max: 20 });
+  const pool = new pg.Pool({ connectionString: databaseUrl, max: 20 });
+  // An idle connection can be closed by the server (restart, failover, maintenance).
+  // Without this handler that would crash the whole process; with it, the broken
+  // connection is discarded and the next request opens a fresh one.
+  pool.on("error", (err) => console.error("database connection lost (will reconnect):", err.message));
+  return pool;
 }
 
 const RETRYABLE = new Set(["40P01", "40001"]); // deadlock detected, serialization failure

@@ -935,3 +935,20 @@ test("close-out: blocked until every prize is resolved, two people, then every c
   const actions = (await pool.query("SELECT action FROM audit_log WHERE entity_id = $1", [b])).rows.map((r: any) => r.action);
   assert.ok(actions.includes("cycle.archive_requested") && actions.includes("cycle.archived"));
 });
+
+test("sell-out rush: when more people pay than there are cards, every card is still sold and only the overflow is refunded", async () => {
+  // 30 cards, 10 buyers of 5 each, all paying at the same instant: exactly 6 must get cards and the
+  // cycle must sell out. Nobody may be refunded while cards remain.
+  for (let round = 0; round < 6; round++) {
+    const ft = admins.fulfilment!.token;
+    ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: `PO-R${round}`, serialNumbers: [`SN-R${round}-1`, `SN-R${round}-2`], acquisitionCostKobo: 1, landedCostKobo: 1 } }));
+    const c = await openCycle({ total: 30, closeInMs: 3600_000, cap: 30, name: `Race ${round}` });
+    const buyers = await Promise.all(Array.from({ length: 10 }, () => newPlayer()));
+    const orders = await Promise.all(buyers.map((p) => api("POST", "/v1/orders", { token: p.token, key: key(), body: { cycleId: c.id, quantity: 5 } })));
+    const paid = await Promise.all(buyers.map((p, i) => api("POST", "/v1/simulated-gateway/pay", { token: p.token, body: { paymentRef: ok(orders[i]!).paymentRef } })));
+    const statuses = paid.map((r) => ok(r).status);
+    const unsold = (await pool.query("SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [c.id])).rows[0].n;
+    assert.deepEqual([statuses.filter((x) => x === "FULFILLED").length, statuses.filter((x) => x === "REFUNDED").length, unsold], [6, 4, 0], `round ${round}`);
+    assert.equal(ok(await api("GET", `/v1/cycles/${c.id}`)).status, "CLOSED");
+  }
+});

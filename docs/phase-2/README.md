@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 18 tests, run repeatedly without failure:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 19 tests, run repeatedly without failure, including twice with the processor saturated:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -39,6 +39,8 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 1. **Deadlocks under simultaneous payments.** Fixed by changing how rows and ledger accounts are locked; a transaction aborted by the database is now retried safely.
 2. **False "audit trail broken" under load.** Audit numbers were assigned before the ordering lock. Fixed in `db/migrations/003_audit_chain_order.sql`; the number is now also covered by the hash.
+3. **Buyers wrongly refunded in a sell-out rush.** When more people paid at the same instant than there were cards left, two payments could each lock part of the remaining cards, each come up short, and both be refunded — leaving cards unsold. No money was lost (refunds were full), but buyers lost purchases they should have had. It showed up as an occasional failure of the whole suite; a dedicated test (six rushes of ten buyers for thirty cards) reproduced it. Fixed by assigning one cycle's cards one payment at a time.
+4. **Crash on a lost database connection.** If the database closed an idle connection (restart, maintenance), the server process would stop. Now the broken connection is discarded and a new one is opened.
 
 ## Player web app
 
