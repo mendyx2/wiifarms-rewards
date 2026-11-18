@@ -14,13 +14,15 @@ import { LocalKeyService } from "../src/crypto.ts";
 import { createPool, type Pool } from "../src/db.ts";
 import { buildServer } from "../src/http.ts";
 import { migrate } from "../src/migrate.ts";
+import { SimulatedMessenger } from "../src/messenger.ts";
+import { deliverMessages, nextSendTime, sendClaimReminders } from "../src/modules/notify.ts";
 import { closeDueCycles } from "../src/modules/cycles.ts";
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/postgres";
 const dbName = "wr_test_" + randomBytes(4).toString("hex");
 const dbUrl = (() => { const u = new URL(adminUrl); u.pathname = "/" + dbName; return u.toString(); })();
 
-let pool: Pool, app: FastifyInstance, ctx: Ctx, config: Config;
+let pool: Pool, app: FastifyInstance, ctx: Ctx, config: Config, messenger: SimulatedMessenger;
 const N200 = 20_000; // ₦200 in kobo
 
 interface Res { status: number; body: any }
@@ -99,7 +101,8 @@ before(async () => {
     payoutApprovalThresholdKobo: 500_000, bankCoolingOffHours: 0, beaconPeriodSeconds: 1, sessionDays: 30,
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 }, cookieSecure: true,
   };
-  ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds) };
+  messenger = new SimulatedMessenger();
+  ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds), messenger };
   app = buildServer(ctx);
 
   const roles: Record<string, string> = { manager: "CYCLE_MANAGER", manager2: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", compliance: "COMPLIANCE", auditor: "AUDITOR", auditor2: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
@@ -951,4 +954,108 @@ test("sell-out rush: when more people pay than there are cards, every card is st
     assert.deepEqual([statuses.filter((x) => x === "FULFILLED").length, statuses.filter((x) => x === "REFUNDED").length, unsold], [6, 4, 0], `round ${round}`);
     assert.equal(ok(await api("GET", `/v1/cycles/${c.id}`)).status, "CLOSED");
   }
+});
+
+test("notifications: every event tells the right person once, texts respect daytime and retry, and never carry secrets", async () => {
+  // Daytime rule (Nigeria, UTC+1): texts that can wait go out between 08:00 and 20:00.
+  const at = (iso: string) => new Date(iso);
+  assert.equal(nextSendTime(at("2026-11-18T11:00:00Z"), false).toISOString(), "2026-11-18T11:00:00.000Z"); // 12:00 Lagos
+  assert.equal(nextSendTime(at("2026-11-18T06:30:00Z"), false).toISOString(), "2026-11-18T07:00:00.000Z"); // 07:30 -> 08:00
+  assert.equal(nextSendTime(at("2026-11-18T19:00:00Z"), false).toISOString(), "2026-11-19T07:00:00.000Z"); // 20:00 -> next 08:00
+  assert.equal(nextSendTime(at("2026-12-31T22:30:00Z"), false).toISOString(), "2027-01-01T07:00:00.000Z"); // 23:30 New Year's Eve
+  assert.equal(nextSendTime(at("2026-11-18T01:00:00Z"), true).toISOString(), "2026-11-18T01:00:00.000Z"); // urgent: at once
+
+  const rows = async (where: string, params: unknown[] = []) => (await pool.query(`SELECT * FROM notifications WHERE ${where}`, params)).rows;
+  // The final draw told each winner (in the app and by text) and everyone else in the app only.
+  const winners = (await pool.query("SELECT t.id, t.owner_id FROM draw_winners w JOIN tickets t ON t.id = w.ticket_id WHERE w.cycle_id = $1", [cycleA.id])).rows;
+  for (const w of winners) {
+    const n = await rows("dedupe_key = $1", [`draw:${cycleA.id}:win:${w.id}`]);
+    assert.deepEqual(n.map((x: any) => x.channel).sort(), ["IN_APP", "SMS"]);
+    assert.ok(n.every((x: any) => x.user_id === w.owner_id && x.kind === "DRAW_WIN"));
+  }
+  const owners = (await pool.query("SELECT DISTINCT owner_id FROM tickets WHERE cycle_id = $1 AND owner_id IS NOT NULL", [cycleA.id])).rows.map((r: any) => r.owner_id);
+  const losers = owners.filter((o: string) => !winners.some((w: any) => w.owner_id === o));
+  assert.equal((await rows("kind = 'DRAW_RESULT' AND dedupe_key LIKE $1", [`draw:${cycleA.id}:result:%`])).length, losers.length);
+  assert.equal((await rows("kind = 'DRAW_RESULT' AND channel = 'SMS'")).length, 0); // no texts to people who did not win
+
+  // Money, merchandise, refunds, cancellations and security events each produced their messages.
+  for (const kind of ["PAYOUT_SENT", "PAYOUT_PENDING", "PAYOUT_REJECTED", "PRIZE_DISPATCHED", "PRIZE_DELIVERED", "CLAIM_EXPIRED", "REFUND", "CYCLE_CANCELLED", "SECURITY"]) {
+    assert.ok((await rows("kind = $1", [kind])).length > 0, kind);
+  }
+  assert.equal((await rows("kind = 'PRIZE_DISPATCHED' AND channel = 'SMS'")).length, 2);
+
+  // A PIN reset warns the account holder at once.
+  const victim = players[0]!;
+  const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone: victim.phone } }));
+  // The one-time code went straight to the provider and is stored nowhere.
+  assert.ok(messenger.sent.at(-1)!.text.startsWith(otp.devCode) && messenger.sent.at(-1)!.to === "+234" + victim.phone.slice(1));
+  assert.equal((await rows("body LIKE $1", [`%${otp.devCode}%`])).length, 0);
+  ok(await api("POST", "/v1/auth/register", { body: { phone: victim.phone, code: otp.devCode, pin: "582916" } }));
+  victim.pin = "582916";
+  victim.token = ok(await api("POST", "/v1/auth/login", { body: { phone: victim.phone, pin: victim.pin } })).token;
+  const sec = await rows("user_id = $1 AND kind = 'SECURITY' AND title = 'Your PIN was changed'", [victim.id]);
+  assert.equal(sec.length, 2);
+  assert.ok(sec.find((x: any) => x.channel === "SMS").not_before <= new Date()); // urgent: not held for daytime
+
+  // No text ever carries a PIN or a six-digit code (handover codes stay in the app).
+  for (const m of await rows("channel = 'SMS'")) {
+    assert.ok(!/(?<![\d,])\d{6}(?![\d,])/.test(m.body), m.body);
+    assert.ok(m.body.endsWith("We will never ask for your PIN."));
+    assert.ok(!/[^\x0A\x0D\x20-\x7E]/.test(m.body), "plain SMS characters only: " + m.body);
+  }
+
+  // Inbox: the player sees their own messages and can mark them read; nobody else can.
+  const w0 = players.find((p) => p.id === winners[0].owner_id)!;
+  const box = ok(await api("GET", "/v1/notifications", { token: w0.token }));
+  assert.ok(box.unread > 0 && box.items.some((i: any) => i.kind === "DRAW_WIN"));
+  const other = players.find((p) => p.id !== w0.id)!;
+  ok(await api("POST", "/v1/notifications/read", { token: other.token, body: { ids: [box.items[0].id] } }));
+  assert.equal(ok(await api("GET", "/v1/notifications", { token: w0.token })).unread, box.unread); // unchanged
+  assert.equal(ok(await api("POST", "/v1/notifications/read", { token: w0.token, body: { ids: [box.items[0].id] } })).unread, box.unread - 1);
+  assert.equal(ok(await api("POST", "/v1/notifications/read", { token: w0.token, body: {} })).unread, 0);
+
+  // Delivery: due texts are sent once each; a provider outage is retried with a delay, then given up after five tries.
+  await pool.query("UPDATE notifications SET not_before = now() WHERE status = 'QUEUED'"); // as if it were daytime
+  const queued = (await rows("status = 'QUEUED'")).length;
+  assert.ok(queued > 5);
+  messenger.failNext = 1;
+  const before = messenger.sent.length;
+  const d1 = await deliverMessages(ctx, 1000);
+  assert.equal(d1.sent, queued - 1);
+  assert.equal(messenger.sent.length - before, queued - 1);
+  const retry = (await rows("status = 'QUEUED'"))[0];
+  assert.equal(retry.attempts, 1); assert.match(retry.last_error, /outage/); assert.ok(retry.not_before > new Date());
+  assert.deepEqual(await deliverMessages(ctx), { sent: 0, failed: 0 }); // nothing sent twice; the retry waits its turn
+  for (let i = 0; i < 4; i++) {
+    messenger.failNext = 1;
+    await pool.query("UPDATE notifications SET not_before = now() WHERE id = $1", [retry.id]);
+    await deliverMessages(ctx);
+  }
+  const gaveUp = (await rows("id = $1", [retry.id]))[0];
+  assert.deepEqual([gaveUp.status, gaveUp.attempts], ["FAILED", 5]);
+  const payoutText = (await rows("kind = 'PAYOUT_SENT' AND channel = 'SMS' AND status = 'SENT'"))[0];
+  const payee = (await pool.query("SELECT phone_e164 FROM users WHERE id = $1", [payoutText.user_id])).rows[0].phone_e164;
+  assert.ok(messenger.sent.some((m) => m.to === payee && m.text === payoutText.body));
+  await assert.rejects(pool.query("UPDATE notifications SET body = 'edited' WHERE id = $1", [retry.id]), /cannot be changed/);
+  await assert.rejects(pool.query("DELETE FROM notifications WHERE id = $1", [retry.id]), /cannot be changed/);
+
+  // Unclaimed-prize reminders at 7, 30, 60 and 80 days; only the latest due is sent, and each only once.
+  const tier = (await pool.query("SELECT id FROM prize_tiers WHERE cycle_id = $1 AND kind = 'MERCHANDISE'", [cycleA.id])).rows[0].id;
+  const t = (await pool.query("SELECT id, owner_id FROM tickets WHERE cycle_id = $1 AND id NOT IN (SELECT ticket_id FROM draw_winners) LIMIT 1", [cycleA.id])).rows[0];
+  const claim = (await pool.query(`INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at, created_at)
+    VALUES ($1, 'FINAL_DRAW', $2, $3, 'ENTITLED', now() + interval '59 days', now() - interval '31 days') RETURNING id`, [t.id, tier, t.owner_id])).rows[0].id;
+  assert.equal(await sendClaimReminders(ctx), 1);
+  assert.equal(await sendClaimReminders(ctx), 0);
+  assert.equal((await rows("dedupe_key = $1", [`claim:${claim}:reminder:30`])).length, 2);
+  assert.equal((await rows("dedupe_key = $1", [`claim:${claim}:reminder:7`])).length, 0);
+  assert.match((await rows("dedupe_key = $1 AND channel = 'IN_APP'", [`claim:${claim}:reminder:30`]))[0].body, /within 59 days/);
+  await pool.query("UPDATE prize_claims SET created_at = now() - interval '61 days' WHERE id = $1", [claim]);
+  assert.equal(await sendClaimReminders(ctx), 1);
+  assert.equal((await rows("dedupe_key = $1", [`claim:${claim}:reminder:60`])).length, 2);
+
+  // Support and Compliance can see what was texted; others cannot.
+  const log = ok(await api("GET", "/v1/admin/messages", { token: admins.compliance!.token }));
+  assert.ok(log.messages.length > 0 && log.messages.every((m: any) => /^…\d{4}$/.test(m.phone)));
+  assert.equal(log.failed, 1);
+  fails(await api("GET", "/v1/admin/messages", { token: admins.finance!.token }), 403, "ROLE_REQUIRED");
 });

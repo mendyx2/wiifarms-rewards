@@ -83,6 +83,29 @@ async function loadMe() {
   const bal = document.getElementById("topBal");
   bal.hidden = !state.me;
   if (state.me) bal.textContent = naira(state.me.balanceKobo);
+  await refreshBell();
+}
+
+async function refreshBell() {
+  const bell = document.getElementById("bell"), count = document.getElementById("bellCount");
+  bell.hidden = !state.me;
+  if (!state.me) return;
+  const unread = (await api.get("/v1/notifications").catch(() => ({ unread: 0 }))).unread;
+  count.hidden = unread === 0;
+  count.textContent = unread > 9 ? "9+" : String(unread);
+  bell.setAttribute("aria-label", unread ? `Messages, ${unread} unread` : "Messages");
+}
+
+async function inbox() {
+  const box = await api.get("/v1/notifications");
+  const nodes = [el("h1", {}, "Messages"),
+    el("p", { class: "muted" }, "Wins, payouts, deliveries and account alerts. Important ones also come by text message. We will never ask for your PIN or a code.")];
+  if (!box.items.length) nodes.push(el("div", { class: "card" }, el("p", { class: "muted" }, "No messages yet.")));
+  else nodes.push(el("div", { class: "card" }, box.items.map((m) => el(m.link ? "a" : "div", { class: "msg row" + (m.read_at ? "" : " unread"), href: m.link ?? null },
+    el("div", {}, el("b", {}, m.title), el("small", {}, m.body), el("small", {}, when(m.created_at)))))));
+  // Seen now: clear the badge (the list above still shows which were new).
+  if (box.unread) api.post("/v1/notifications/read", {}).then(refreshBell).catch(() => {});
+  return nodes;
 }
 
 async function loadCycle() {
@@ -703,7 +726,7 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 
 let renderId = 0;

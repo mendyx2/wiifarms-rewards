@@ -1,4 +1,5 @@
 import { audit, type Actor } from "../audit.ts";
+import { naira, notify } from "./notify.ts";
 import type { Ctx } from "../context.ts";
 import { lockKey, one, withTx, type Db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
@@ -31,7 +32,10 @@ export async function getWallet(ctx: Ctx, userId: string): Promise<unknown> {
 
 /** Sends the money (simulated) and closes the payout in the ledger. */
 async function send(db: Db, payoutId: string, amountKobo: number): Promise<void> {
-  await db.query("UPDATE payouts SET status = 'CONFIRMED', provider = 'SIMULATED', provider_ref = $2 WHERE id = $1", [payoutId, `SIMPO-${payoutId}`]);
+  const p = await db.query<{ user_id: string }>("UPDATE payouts SET status = 'CONFIRMED', provider = 'SIMULATED', provider_ref = $2 WHERE id = $1 RETURNING user_id", [payoutId, `SIMPO-${payoutId}`]);
+  await notify(db, { userId: p.rows[0]!.user_id, kind: "PAYOUT_SENT", urgent: true, link: "#/wallet", dedupeKey: `payout:${payoutId}:sent`,
+    title: `${naira(amountKobo)} sent to your bank`, body: `Your withdrawal of ${naira(amountKobo)} has been sent to your bank account.`,
+    sms: `Your withdrawal of ${naira(amountKobo)} has been sent to your bank account.` });
   await post(db, { kind: "PAYOUT", reference: `payout:${payoutId}:sent`, debit: accounts.payoutsInTransit(), credit: accounts.gatewayClearing(), amountKobo });
 }
 
@@ -69,6 +73,10 @@ export async function requestPayout(ctx: Ctx, actor: Actor, user: User, input: {
     const id = r.rows[0]!.id;
     await post(db, { kind: "PAYOUT", reference: `payout:${id}:requested`, debit: accounts.playerWinnings(user.id), credit: accounts.payoutsInTransit(), amountKobo: input.amountKobo });
     await audit(db, actor, "payout.requested", "payout", id, { amountKobo: input.amountKobo, requiresApproval, flagged });
+    if (requiresApproval) {
+      await notify(db, { userId: user.id, kind: "PAYOUT_PENDING", link: "#/wallet", dedupeKey: `payout:${id}:pending`,
+        title: "Withdrawal being checked", body: `Your withdrawal of ${naira(input.amountKobo)} is being checked by a second person, as we do for larger amounts. We will tell you when it is sent.` });
+    }
     if (requiresApproval) return { id, status: "PENDING_APPROVAL" };
     await send(db, id, input.amountKobo);
     return { id, status: "CONFIRMED" };
@@ -96,6 +104,9 @@ export async function decidePayout(ctx: Ctx, admin: Admin, payoutId: string, app
       await db.query("UPDATE payouts SET status = 'REJECTED', approved_by = $2 WHERE id = $1", [p.id, admin.id]);
       await post(db, { kind: "PAYOUT_REVERSAL", reference: `payout:${p.id}:rejected`, debit: accounts.payoutsInTransit(), credit: accounts.playerWinnings(p.user_id), amountKobo: p.amount_kobo });
       await audit(db, adminActor(admin), "payout.rejected", "payout", p.id, { reason });
+      await notify(db, { userId: p.user_id, kind: "PAYOUT_REJECTED", urgent: true, link: "#/wallet", dedupeKey: `payout:${p.id}:rejected`,
+        title: "Withdrawal not sent", body: `Your withdrawal of ${naira(p.amount_kobo)} was not sent and the money is back in your winnings. Please contact support for the reason.`,
+        sms: `Your withdrawal of ${naira(p.amount_kobo)} was not sent; the money is back in your winnings. Contact support for details.` });
       return { status: "REJECTED" };
     }
     await db.query("UPDATE payouts SET status = 'APPROVED', approved_by = $2 WHERE id = $1", [p.id, admin.id]);

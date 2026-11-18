@@ -9,6 +9,7 @@ import { migrate } from "./migrate.ts";
 import type { Admin, Role } from "./modules/admin.ts";
 import * as cycles from "./modules/cycles.ts";
 import * as inventory from "./modules/inventory.ts";
+import { SimulatedMessenger } from "./messenger.ts";
 
 export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number; closeInMinutes?: number } = {}): Promise<{ cycleId: string; admins: Record<string, Admin> }> {
   const people: Record<string, Role> = { manager: "CYCLE_MANAGER", operations: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", compliance: "COMPLIANCE", auditor: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
@@ -69,7 +70,7 @@ if (process.argv[1]?.endsWith("seed-demo.ts")) {
   const config = loadConfig();
   await migrate(config.databaseUrl);
   const pool = createPool(config.databaseUrl);
-  const ctx: Ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds) };
+  const ctx: Ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds), messenger: new SimulatedMessenger() };
   const { cycleId } = await seedDemo(ctx);
   console.log(`Demo cycle ${cycleId} is open. Admin sign-in emails: <role>@demo.wiifarm.test`);
   await pool.end();

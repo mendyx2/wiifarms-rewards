@@ -724,6 +724,17 @@ async function auditPage() {
       el("div", { class: "card" }, table(["#No.", "When", "Who", "Action", "Record"], a.entries.map((e) =>
         el("tr", {}, td(e.seq, true), td(when(e.occurred_at)), td(e.actor_type.charAt(0) + e.actor_type.slice(1).toLowerCase()), td(e.action), td(el("span", { class: "mono" }, `${e.entity_type} ${String(e.entity_id).slice(0, 8)}`)))))));
   } else nodes.push(el("p", { class: "sub" }, "The audit trail is visible to compliance, auditors and security administrators."));
+  if (can("SUPPORT", "COMPLIANCE", "AUDITOR")) {
+    const m = await get("/v1/admin/messages");
+    const tone = { SENT: "", QUEUED: "gold", FAILED: "red" };
+    nodes.push(el("h2", {}, "Text messages"),
+      el("p", { class: "sub" }, `${num(m.sent_today)} sent today · ${num(m.queued)} waiting (texts that can wait are sent between 8am and 8pm) · ${num(m.failed)} failed after five tries.`),
+      el("div", { class: "card" }, m.messages.length ? table(["Created", "To", "Message", "Status"], m.messages.map((x) =>
+        el("tr", {}, td(when(x.created_at)), td(x.phone), td([x.kind.replaceAll("_", " ").toLowerCase(), el("div", { class: "sub" }, x.body)]),
+          td([pill(x.status.toLowerCase(), tone[x.status]), x.status === "QUEUED" ? el("div", { class: "sub" }, "after " + when(x.not_before)) : x.sent_at ? el("div", { class: "sub" }, when(x.sent_at)) : null,
+            x.last_error ? el("div", { class: "sub" }, `${x.attempts} tries: ${x.last_error}`) : null]))))
+        : el("p", { class: "sub" }, "No text messages yet.")));
+  }
   return nodes;
 }
 

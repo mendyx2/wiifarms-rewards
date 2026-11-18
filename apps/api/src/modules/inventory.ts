@@ -1,8 +1,9 @@
 import { randomInt, timingSafeEqual } from "node:crypto";
+import { notify } from "./notify.ts";
 import { SYSTEM, audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { keyedHash } from "../crypto.ts";
-import { one, withTx } from "../db.ts";
+import { one, withTx, type Db } from "../db.ts";
 import { AppError, badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { onExclusionRegister, type User } from "./identity.ts";
@@ -245,6 +246,12 @@ export async function dispatchClaim(ctx: Ctx, admin: Admin, claimId: string, inp
     await db.query("UPDATE stock_units SET status = 'DISPATCHED' WHERE id = $1", [row.stock_unit_id]).catch(dbRule);
     await db.query("UPDATE prize_claims SET status = 'DISPATCHED' WHERE id = $1", [claimId]);
     await audit(db, adminActor(admin), "claim.dispatched", "prize_claim", claimId, { carrier: input.carrier ?? null, method: row.method });
+    const who = (await one<{ user_id: string; title: string }>(db, "SELECT pc.user_id, pt.title FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id WHERE pc.id = $1", [claimId]))!;
+    // The handover code is shown only in the app, never in a text message.
+    await notify(db, { userId: who.user_id, kind: "PRIZE_DISPATCHED", urgent: true, link: "#/wallet", dedupeKey: `claim:${claimId}:dispatched`,
+      title: row.method === "DELIVERY" ? `Your ${who.title} is on its way` : `Your ${who.title} is ready to collect`,
+      body: "Your handover code is in the app. Give it only when the prize is in your hands.",
+      sms: `Your ${who.title} is ${row.method === "DELIVERY" ? "on its way" : "ready to collect"}. Your handover code is in the app: give it only when the prize is in your hands.` });
     return { status: "DISPATCHED" };
   });
 }
@@ -284,15 +291,27 @@ export async function confirmHandover(ctx: Ctx, admin: Admin, claimId: string, i
     await db.query("UPDATE stock_units SET status = 'DELIVERED' WHERE id = $1", [claim.stock_unit_id]).catch(dbRule);
     await db.query("UPDATE prize_claims SET status = 'DELIVERED' WHERE id = $1", [claimId]);
     await audit(db, adminActor(admin), "claim.handed_over", "prize_claim", claimId, { photoRef: input.photoRef });
+    const who = (await one<{ user_id: string; title: string }>(db, "SELECT pc.user_id, pt.title FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id WHERE pc.id = $1", [claimId]))!;
+    await notify(db, { userId: who.user_id, kind: "PRIZE_DELIVERED", link: "#/wallet", dedupeKey: `claim:${claimId}:delivered`,
+      title: `${who.title} received`, body: "Your prize has been handed over and recorded. Enjoy it!" });
     return { status: "DELIVERED" };
   });
+}
+
+export async function notifyExpired(db: Db, c: { id: string; user_id: string; prize_tier_id: string }): Promise<void> {
+  const title = (await one<{ title: string }>(db, "SELECT title FROM prize_tiers WHERE id = $1", [c.prize_tier_id]))!.title;
+  await notify(db, { userId: c.user_id, kind: "CLAIM_EXPIRED", link: "#/wallet", dedupeKey: `claim:${c.id}:expired`,
+    title: "Claim period ended", body: `The claim period for your ${title} has ended, so it is no longer available, as the published rules say.` });
 }
 
 /** Run periodically: closes claims whose published claim window has ended without the winner coming forward. */
 export async function expireClaims(ctx: Ctx): Promise<number> {
   return withTx(ctx.pool, async (db) => {
-    const r = await db.query<{ id: string }>("UPDATE prize_claims SET status = 'EXPIRED' WHERE status = 'ENTITLED' AND expires_at < now() RETURNING id");
-    for (const { id } of r.rows) await audit(db, SYSTEM, "claim.expired", "prize_claim", id);
+    const r = await db.query<{ id: string; user_id: string; prize_tier_id: string }>("UPDATE prize_claims SET status = 'EXPIRED' WHERE status = 'ENTITLED' AND expires_at < now() RETURNING id, user_id, prize_tier_id");
+    for (const c of r.rows) {
+      await audit(db, SYSTEM, "claim.expired", "prize_claim", c.id);
+      await notifyExpired(db, c);
+    }
     return r.rows.length;
   });
 }

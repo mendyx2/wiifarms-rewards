@@ -1,4 +1,5 @@
 import { audit } from "../audit.ts";
+import { naira, notify } from "./notify.ts";
 import type { Ctx } from "../context.ts";
 import { lockKey, one, withTx, type Db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
@@ -155,6 +156,10 @@ export async function decideRefund(ctx: Ctx, admin: Admin, refundId: string, app
         [order!.user_id, JSON.stringify({ orderId: order!.id })]);
     }
     await audit(db, adminActor(admin), "refund.approved", "order", order!.id, { refundId: rf.id, amountKobo: rf.amount_kobo, forfeitedKobo });
+    await notify(db, { userId: order!.user_id, kind: "REFUND", urgent: true, link: "#/me", dedupeKey: `refund:${rf.id}`,
+      title: `${naira(rf.amount_kobo)} refunded`,
+      body: `A purchase of yours was refunded (${naira(rf.amount_kobo)}) to the payment it came from, and its cards were cancelled.` + (forfeitedKobo ? ` Prizes won on those cards (${naira(forfeitedKobo)}) are no longer yours.` : "") + " Contact support if you have questions.",
+      sms: `A purchase of ${naira(rf.amount_kobo)} was refunded to the payment it came from and its cards were cancelled. Details are in the app.` });
     return { status: "CONFIRMED" };
   });
 }
@@ -216,7 +221,12 @@ export async function decideVoid(ctx: Ctx, admin: Admin, cycleId: string, approv
       `SELECT o.id, o.amount_kobo, p.id AS payment_id FROM orders o JOIN payments p ON p.order_id = o.id AND p.status = 'SUCCEEDED'
        WHERE o.cycle_id = $1 AND o.status = 'FULFILLED' ORDER BY o.created_at FOR NO KEY UPDATE OF o`, [cycleId]);
     let refundedKobo = 0;
+    const cycleName = (await one<{ name: string }>(db, "SELECT name FROM cycles WHERE id = $1", [cycleId]))!.name;
     for (const o of orders.rows) {
+      const owner = (await one<{ user_id: string }>(db, "SELECT user_id FROM orders WHERE id = $1", [o.id]))!.user_id;
+      await notify(db, { userId: owner, kind: "CYCLE_CANCELLED", urgent: true, link: "#/me", dedupeKey: `void:${cycleId}:${o.id}`,
+        title: `${cycleName} was cancelled`, body: `${cycleName} was cancelled. Your purchase of ${naira(o.amount_kobo)} has been refunded in full to the payment it came from. Instant prizes you already revealed are yours to keep.`,
+        sms: `${cycleName} was cancelled. Your ${naira(o.amount_kobo)} has been refunded in full. Instant prizes already revealed are yours to keep.` });
       const r = await db.query<{ id: string }>(
         `INSERT INTO refunds (payment_id, order_id, amount_kobo, reason, status, requested_by, approved_by, decided_at, provider_ref)
          VALUES ($1, $2, $3, 'CYCLE_VOID', 'CONFIRMED', $4, $5, now(), $6) RETURNING id`,

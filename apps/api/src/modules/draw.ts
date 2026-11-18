@@ -1,4 +1,5 @@
 import { canonicalEntries, deriveDrawSeed, entriesHash, runDraw, verifySecretCommitment } from "@wiifarm/game-core";
+import { notify } from "./notify.ts";
 import { audit } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { open } from "../crypto.ts";
@@ -107,6 +108,30 @@ export async function executeDraw(ctx: Ctx, admin: Admin, cycleId: string): Prom
         `INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at)
          VALUES ($1, 'FINAL_DRAW', $2, $3, $4, now() + make_interval(days => $5))`,
         [ticket.id, w.prizeId, ticket.owner_id, tier.kind === "CASH" ? "PAID" : "ENTITLED", cycle.claim_window_days]);
+    }
+
+    // Tell every winner, and tell everyone else who took part that the draw has happened.
+    const winnerOwners = new Set<string>();
+    for (const w of winners) {
+      const ticket = bySerial.get(w.serial)!;
+      const tier = tiers.rows.find((t) => t.id === w.prizeId)!;
+      winnerOwners.add(ticket.owner_id);
+      const title = (await one<{ title: string }>(db, "SELECT title FROM prize_tiers WHERE id = $1", [w.prizeId]))!.title;
+      await notify(db, {
+        userId: ticket.owner_id, kind: "DRAW_WIN", link: tier.kind === "CASH" ? "#/wallet" : "#/wallet", dedupeKey: `draw:${cycleId}:win:${ticket.id}`,
+        title: `You won ${title}!`,
+        body: tier.kind === "CASH"
+          ? `Your card ${w.serial} won ${title} in the ${cycle.name} final draw. It has been added to your winnings.`
+          : `Your card ${w.serial} won ${title} in the ${cycle.name} final draw. Claim it in the app within ${cycle.claim_window_days} days.`,
+        sms: tier.kind === "CASH"
+          ? `Congratulations! Card ${w.serial} won ${title} in the ${cycle.name} draw. It is in your winnings in the app.`
+          : `Congratulations! Card ${w.serial} won ${title} in the ${cycle.name} draw. Claim it in the app within ${cycle.claim_window_days} days.`,
+      });
+    }
+    for (const owner of new Set(entries.rows.map((e) => e.owner_id))) {
+      if (winnerOwners.has(owner)) continue;
+      await notify(db, { userId: owner, kind: "DRAW_RESULT", link: "#/draw", dedupeKey: `draw:${cycleId}:result:${owner}`,
+        title: `${cycle.name}: the draw has taken place`, body: "Your cards did not win in the final draw this time. You can see the winners and check the draw yourself." });
     }
 
     await db.query("UPDATE cycles SET status = 'DRAWN' WHERE id = $1", [cycleId]);

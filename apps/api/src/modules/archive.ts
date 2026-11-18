@@ -1,4 +1,5 @@
 import { audit } from "../audit.ts";
+import { notifyExpired } from "./inventory.ts";
 import type { Ctx } from "../context.ts";
 import { open } from "../crypto.ts";
 import { one, withTx, type Db } from "../db.ts";
@@ -23,9 +24,10 @@ const TZ = "Africa/Lagos";
 
 /** Claims whose published claim window has ended are closed before checking. */
 async function expireCycleClaims(db: Db, cycleId: string): Promise<number> {
-  const r = await db.query(
+  const r = await db.query<{ id: string; user_id: string; prize_tier_id: string }>(
     `UPDATE prize_claims SET status = 'EXPIRED' WHERE status = 'ENTITLED' AND expires_at < now()
-     AND prize_tier_id IN (SELECT id FROM prize_tiers WHERE cycle_id = $1)`, [cycleId]);
+     AND prize_tier_id IN (SELECT id FROM prize_tiers WHERE cycle_id = $1) RETURNING id, user_id, prize_tier_id`, [cycleId]);
+  for (const c of r.rows) await notifyExpired(db, c);
   return r.rowCount ?? 0;
 }
 

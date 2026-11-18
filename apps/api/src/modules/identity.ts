@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { notify } from "./notify.ts";
 import { audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { hashPin, keyedHash, newOtp, newToken, sha256, verifyPin } from "../crypto.ts";
@@ -65,6 +66,12 @@ export async function requestOtp(ctx: Ctx, phoneInput: string): Promise<{ phone:
     );
   });
   // In simulation there is no SMS provider, so the code is returned to the caller.
+  // Sent straight to the provider and never stored: not in the outbox, not in logs.
+  try {
+    await ctx.messenger.send(phone, `${code} is your WiiFarm Rewards code. It expires in ${OTP_TTL_MINUTES} minutes. Never share it: we will never ask for it.`);
+  } catch {
+    throw new AppError(503, "SMS_UNAVAILABLE", "We could not send the code just now. Please try again in a minute.");
+  }
   return ctx.config.simulated ? { phone, devCode: code } : { phone };
 }
 
@@ -107,6 +114,9 @@ export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string
       // A PIN reset signs out every other device.
       await db.query("UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL", [userId]);
       await audit(db, { type: "PLAYER", id: userId, ip }, "player.pin_reset", "user", userId);
+      await notify(db, { userId, kind: "SECURITY", urgent: true, link: "#/me", dedupeKey: `pin-reset:${userId}:${Date.now()}`,
+        title: "Your PIN was changed", body: "Your PIN was changed and you were signed out on other devices. If this was not you, contact support at once.",
+        sms: "Your PIN was just changed. If this was not you, contact support at once." });
     } else {
       const created = await db.query<{ id: string }>("INSERT INTO users (phone_e164, pin_hash) VALUES ($1, $2) RETURNING id", [phone, pinHash]);
       userId = created.rows[0]!.id;
@@ -348,6 +358,10 @@ export async function addBankAccount(ctx: Ctx, actor: Actor, user: User, input: 
        RETURNING id, usable_from`,
       [user.id, input.bankCode, wrappedNumber, accountHash, input.accountName, nameMatch, ctx.config.bankCoolingOffHours]);
     await audit(db, actor, "player.bank_account_added", "bank_account", r.rows[0]!.id, { nameMatch });
+    // Warns the real owner if someone else has got into the account and is trying to divert winnings.
+    await notify(db, { userId: user.id, kind: "SECURITY", urgent: true, link: "#/wallet", dedupeKey: `bank-added:${r.rows[0]!.id}:${Date.now()}`,
+      title: "Bank account added", body: `A bank account ending ${input.accountNumber.slice(-4)} was added to your account. If this was not you, contact support before it can receive winnings.`,
+      sms: `A bank account ending ${input.accountNumber.slice(-4)} was added to your account. If this was not you, contact support now.` });
     return { id: r.rows[0]!.id, nameMatch, usableFrom: r.rows[0]!.usable_from.toISOString() };
   });
 }

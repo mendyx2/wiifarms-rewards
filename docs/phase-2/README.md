@@ -1,6 +1,6 @@
 # Phase 2 — minimum viable platform (simulated money only)
 
-Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Notifications remain.
+Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, refunds, finance, close-out and notifications, and tested end to end.**
 
 Nothing in this phase can take real money. There is no payment-gateway integration, every cycle is created in `SIMULATED` mode, the API has no setting that changes this, and the database separately refuses to open a real-money cycle without a licence and certification record.
 
@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 19 tests, run repeatedly without failure, including twice with the processor saturated:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 20 tests, run repeatedly without failure, including twice with the processor saturated:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -168,6 +168,27 @@ The published list is public. On the Draw page, players can tap **Check the whol
 
 A cancelled (void) cycle is not archived and its card list is not published; that could be added if the regulator wants it.
 
+## Notifications
+
+Messages are written into an outbox **in the same database transaction as the event** they report, each with a unique key. So a message exists exactly when its event does — never for something that was rolled back, never twice for a retry. In-app messages appear at once; text messages are sent by a background worker.
+
+| Event | In the app | Text message |
+|-------|-----------|--------------|
+| Final-draw win | ✓ | ✓ |
+| Draw has happened (did not win) | ✓ | — (no texts to people who did not win) |
+| Withdrawal sent / held for checking / rejected | ✓ | sent and rejected |
+| Prize on its way or ready to collect | ✓ | ✓ (the handover code stays in the app) |
+| Prize handed over; claim period ended | ✓ | — |
+| Purchase refunded; cycle cancelled | ✓ | ✓ |
+| PIN changed; bank account added | ✓ | ✓ at once — warns the real owner of a possible account takeover |
+| Unclaimed prize at 7, 30, 60 and 80 days | ✓ | ✓ (only the latest due, each once) |
+
+- **Daytime only for texts that can wait:** sent between 08:00 and 20:00 Nigerian time; security and money texts go at once.
+- **Retries:** a provider failure is retried after 1, 2, 4 and 8 minutes, then marked failed for Support to follow up.
+- **Nothing secret in a text:** no PIN, no handover code; one-time sign-in codes go straight to the provider and are stored nowhere. Every text ends "We will never ask for your PIN." Texts use only standard SMS characters ("N" for naira), which keeps each message to one part and the cost down.
+- **Screens:** the player app has a message bell with an unread count and an inbox whose messages open the right screen; the admin app's Audit & compliance page shows every text with its status for Support and Compliance.
+- *Not yet:* WhatsApp, languages other than English, and a real SMS provider (the simulated one keeps messages in memory).
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -192,9 +213,9 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking, next-of-kin claims.
 5. ~~Voiding a cycle with refunds; manual refunds with two-person approval~~ — done (see above).
 6. ~~Publishing the full ticket list when a cycle is archived; settling and archiving steps~~ — done (see above).
-7. Notifications (SMS/WhatsApp/in-app) and support tickets.
+7. ~~Notifications (SMS/in-app)~~ — done (see above). Remaining: WhatsApp, support tickets.
 8. ~~Reconciliation report and financial reports; operating-expense records~~ — done (see above).
-9. Unclaimed-prize reminders, expiry and the next-of-kin claim process.
+9. ~~Unclaimed-prize reminders and expiry~~ — done. Remaining: the next-of-kin claim process.
 10. Tier 2 checks (liveness) before major-prize claims; fraud rules beyond the staff register.
 
 ## Before any real money (Phase 3 and later — unchanged)

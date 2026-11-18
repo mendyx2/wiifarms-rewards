@@ -13,6 +13,7 @@ import * as inventory from "./modules/inventory.ts";
 import * as refunds from "./modules/refunds.ts";
 import * as finance from "./modules/finance.ts";
 import * as archive from "./modules/archive.ts";
+import * as notifications from "./modules/notify.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -235,6 +236,9 @@ export function buildServer(ctx: Ctx): FastifyInstance {
 
   // ---- Winnings ------------------------------------------------------------------------------
   app.get("/v1/wallet", async (req) => wallet.getWallet(ctx, (await player(req)).id));
+  app.get("/v1/notifications", async (req) => notifications.inbox(ctx, (await player(req)).id));
+  app.post<{ Body: { ids?: string[] } }>("/v1/notifications/read", { schema: body({ ids: { type: "array", maxItems: 100, items: uuid } }, ["ids"]) },
+    async (req) => notifications.markRead(ctx, (await player(req)).id, req.body.ids));
   app.get("/v1/orders", async (req) => ({ orders: await refunds.listMyOrders(ctx, (await player(req)).id) }));
   app.get("/v1/claims", async (req) => ({ claims: await inventory.listClaims(ctx, (await player(req)).id) }));
   app.post<{ Params: { id: string }; Body: { method: "DELIVERY" | "COLLECTION"; address?: string; pin: string } }>("/v1/claims/:id/redeem", {
@@ -336,6 +340,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { code: string; photoRef: string; warrantyDocumentRef?: string } }>("/v1/admin/fulfilment/:id/handover", {
     schema: { ...idParam, ...body({ code: str(6), photoRef: str(200), warrantyDocumentRef: str(200) }, ["warrantyDocumentRef"]) },
   }, async (req) => { authLimit(req.ip); return inventory.confirmHandover(ctx, await staff(req), req.params.id, req.body); });
+  app.get("/v1/admin/messages", async (req) => notifications.messageLog(ctx, await staff(req)));
   app.get("/v1/admin/compliance", async (req) => admin.compliance(ctx, await staff(req)));
   app.get("/v1/admin/cycles", async (req) => ({ cycles: await cycles.listAdminCycles(ctx, await staff(req)) }));
   app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id", { schema: idParam }, async (req) => cycles.getAdminCycle(ctx, await staff(req), req.params.id));
