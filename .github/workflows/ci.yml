@@ -29,6 +29,12 @@ jobs:
         run: pnpm test
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      - name: Install Chromium for the browser tests
+        run: pnpm --filter @wiifarm/browser-tests exec playwright install --with-deps chromium
+      - name: Browser tests (both web apps in real Chromium, each file with its own database)
+        run: pnpm test:browser
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       - name: Apply database schema and run constraint tests
         env:
           PGPASSWORD: postgres

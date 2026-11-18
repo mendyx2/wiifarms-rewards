@@ -209,6 +209,20 @@ New **Access & licences** page in the admin app.
 - Records cannot be edited or deleted. Revoking takes effect at once, needs a reason and raises a Compliance alert.
 - The page shows whether the Niger State licence is in force and whether the exact engine version is certified. Real-money sales stay unavailable in Phase 2 regardless, because no payment provider is connected.
 
+## Browser tests in the automated suite
+
+`apps/browser-tests` — the manual browser checks used while building are now permanent tests that run on every change, locally (`pnpm test:browser`) and in GitHub's automated checks. Each test file starts its own fresh database, the real API and both web apps on a random port, seeds the demo data, and drives real Chromium. Every page fails the test on any script error, any server error, or sideways scrolling.
+
+| File | What it proves |
+|------|----------------|
+| `player.test.ts` | Demo card pays nothing; sign-up (weak PIN refused), verification, purchase, scratching with a finger, the phone's check of each card, revisiting a card shows the same result, winnings equal the sum of wins, withdrawal needs the right PIN, limits (lower now, raise later, buying stops), the security message in the inbox; the session cookie is unreadable by page scripts, forged cross-site changes are refused, the app never turns text into HTML, sign-out ends the session; every player screen fits a 320 px phone |
+| `lifecycle.test.ts` | A cycle from draft to archive: drafter cannot approve, escrow ₦1 short refused, locked after approval; the draw needs two operators and the appointed auditor, the auditor cannot execute, it runs once; the player is told, verifies the draw on the phone, adds next of kin, claims with PIN; fulfilment dispatches, staff never see the handover code, a wrong code is refused; Finance reconciles and signs off; close-out by two people publishes every card; the player checks the whole cycle; every admin screen fits a phone |
+| `operations.test.ts` | Refund requested by Compliance and approved by Finance, seen by the player; cycle cancellation requested by a manager, approved by Compliance, seen by players; reconciliation against a statement, sign-off with an explanation, expenses recorded and reversed, spreadsheet with formulas neutralised; auditors see but cannot act; staff access granted by two security administrators, disabling immediate; a licence recorded by one person and verified by another |
+
+The whole browser suite takes about a minute and passed four runs in a row, one with the processor saturated.
+
+**Found by turning the checks into tests:** the player app's message bell only refreshed when the app was first opened, so a player who had the app open during the draw saw no badge until they reloaded. It now refreshes on every screen change.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |

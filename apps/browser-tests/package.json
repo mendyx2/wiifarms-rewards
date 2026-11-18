@@ -1,0 +1,17 @@
+{
+  "name": "@wiifarm/browser-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:browser": "node --test --test-concurrency=1 --test-timeout=600000 test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@wiifarm/api": "workspace:*",
+    "@wiifarm/game-core": "workspace:*",
+    "playwright": "1.63.0",
+    "pg": "^8.13.0",
+    "@types/pg": "^8.11.10"
+  }
+}

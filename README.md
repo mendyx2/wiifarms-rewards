@@ -28,6 +28,12 @@ pnpm typecheck
 pnpm test
 ```
 
+Browser tests drive both web apps in real Chromium (a whole cycle from draft to archive, the player journey, refunds, cancellation, finance, staff access and licences). They need the same database server and a Chromium for Playwright (`pnpm --filter @wiifarm/browser-tests exec playwright install chromium` the first time):
+
+```bash
+pnpm test:browser
+```
+
 `pnpm test` includes the API's end-to-end tests, which need PostgreSQL 16. They create and drop their own database on the server named by `TEST_DATABASE_URL` (default `postgres://postgres:postgres@127.0.0.1:5432/postgres`).
 
 The schema's own safety tests run against an empty database:

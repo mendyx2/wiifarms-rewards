@@ -741,6 +741,8 @@ async function render() {
     const nodes = await route.screen(arg);
     if (mine !== renderId) return; // a newer navigation has taken over
     view.replaceChildren(...nodes.flat().filter(Boolean));
+    // Keep the message badge current on every screen change (a win can arrive at any time).
+    if (state.me) refreshBell().catch(() => {});
   } catch (err) {
     if (mine !== renderId) return;
     if (err.status === 401) { state.me = null; location.hash = "#/login"; return; }
