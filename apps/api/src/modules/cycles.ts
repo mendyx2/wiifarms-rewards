@@ -310,8 +310,10 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
     `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.financial_model_ref, c.rules_document_ref,
             encode(c.rules_sha256, 'hex') AS rules_sha256, c.escrow_reference, c.escrow_funded_kobo,
-            c.auditor_admin_id, au.full_name AS auditor_name, c.created_by, cb.full_name AS created_by_name
+            c.auditor_admin_id, au.full_name AS auditor_name, c.created_by, cb.full_name AS created_by_name,
+            c.archive_requested_by, ar.full_name AS archive_requested_by_name, c.archive_requested_at, ab.full_name AS archived_by_name, c.archived_at
      FROM cycles c JOIN admin_users cb ON cb.id = c.created_by LEFT JOIN admin_users au ON au.id = c.auditor_admin_id
+     LEFT JOIN admin_users ar ON ar.id = c.archive_requested_by LEFT JOIN admin_users ab ON ab.id = c.archived_by
      WHERE c.id = $1`, [cycleId]);
   if (!c) throw notFound("Cycle not found.");
   const q = (sql: string) => ctx.pool.query(sql, [cycleId]).then((r) => r.rows);

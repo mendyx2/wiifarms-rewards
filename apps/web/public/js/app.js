@@ -2,7 +2,7 @@
 // download on a slow connection, and nothing here builds HTML from text, so
 // content from the server can never run as script.
 import { api, clearKey, stableKey } from "/js/api.js";
-import { verifyDraw, verifyTicket } from "/js/verify.js";
+import { verifyCycle, verifyDraw, verifyTicket } from "/js/verify.js";
 
 const view = document.getElementById("view");
 const state = { me: null, cycles: [], cycleId: null, cycle: null };
@@ -619,6 +619,25 @@ async function draw() {
         checks.replaceChildren(...r.checks.map((k) => el("div", { class: "check" }, el("span", { class: "tick" + (k.ok ? "" : " no") }, k.ok ? "✓" : "!"), k.label)),
           el("div", { class: "note" + (r.ok ? "" : " bad") }, r.ok ? "Verified: the published winners are exactly what the rules produce." : "The published result does not match. Please report this."));
       }) }, "Verify the draw"), checks));
+  if (c.status === "ARCHIVED") {
+    // After close-out every card is published: the phone can check the whole cycle.
+    const result = el("div");
+    nodes.push(el("div", { class: "card" }, el("b", {}, "Check the whole cycle"),
+      el("p", { class: "muted" }, `Every one of the ${c.total_tickets.toLocaleString("en-NG")} cards — sold or not — has now been published with its result. Your phone rebuilds the fingerprint published before sales opened and counts every prize.`),
+      el("button", { class: "btn ghost", onclick: action(async () => {
+        const cards = [];
+        while (cards.length < c.total_tickets) {
+          const page = await api.get(`/v1/cycles/${c.id}/tickets?offset=${cards.length}&limit=5000`);
+          if (!page.tickets.length) break;
+          cards.push(...page.tickets);
+          result.replaceChildren(el("p", { class: "muted" }, `Downloaded ${cards.length.toLocaleString("en-NG")} of ${c.total_tickets.toLocaleString("en-NG")} cards…`));
+        }
+        const r = await verifyCycle(c, cards);
+        result.replaceChildren(...r.checks.map((k) => el("div", { class: "check" }, el("span", { class: "tick" + (k.ok ? "" : " no") }, k.ok ? "✓" : "!"), k.label)),
+          r.unsoldWins ? el("p", { class: "muted" }, `${r.unsoldWins} instant prize${r.unsoldWins === 1 ? " was" : "s were"} on cards nobody bought — they were real, just not sold.`) : null,
+          el("div", { class: "note" + (r.ok ? "" : " bad") }, r.ok ? "Verified: the whole cycle is exactly what was promised before sales opened." : "Something does not match. Please report this."));
+      }) }, "Check the whole cycle"), result));
+  }
   return nodes;
 }
 

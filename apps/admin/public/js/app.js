@@ -454,6 +454,39 @@ async function cycle(id) {
         el("p", { class: "sub" }, "The public results page lets anyone re-run this draw from the published data.")));
     }
   }
+
+  // Close-out and archive (two people)
+  if (["DRAWN", "SETTLING", "ARCHIVED"].includes(c.status)) {
+    const box = el("div", { class: "card" });
+    if (c.status === "ARCHIVED") {
+      box.append(el("div", { class: "check yes" }, el("i", {}, "✓"), el("div", {}, "Archived",
+        el("small", {}, `Requested by ${c.archive_requested_by_name} on ${when(c.archive_requested_at)} · confirmed by ${c.archived_by_name} on ${when(c.archived_at)}`))),
+        el("p", { class: "sub" }, `All ${num(c.total_tickets)} cards — sold, unsold and cancelled — are published with their outcomes. Anyone can rebuild the fingerprint and count the prizes; players can do it from the Draw page of the app.`),
+        el("div", { class: "actions" }, el("a", { class: "btn ghost", href: `/v1/cycles/${id}/tickets`, target: "_blank", rel: "noopener" }, "Open the published card list")));
+    } else {
+      const checks = (await get(`/v1/admin/cycles/${id}/archive`)).checks;
+      const ready = checks.every((x) => x.ok);
+      box.append(el("p", { class: "sub" }, "When every prize is resolved and the money is reconciled, the cycle is closed out: every card's outcome is published so anyone can check the whole cycle, and merchandise from prizes that lapsed unclaimed goes back into stock. A cycle manager or Compliance requests it; someone in Finance confirms."),
+        ...checks.map((x) => el("div", { class: "check" + (x.ok ? " yes" : "") }, el("i", {}, x.ok ? "✓" : "·"), el("div", {}, x.label, el("small", {}, x.detail)))));
+      if (c.status === "DRAWN" && can("CYCLE_MANAGER", "COMPLIANCE")) {
+        box.append(el("div", { class: "actions" }, el("button", { class: "btn", disabled: !ready, onclick: action(async () => {
+          const r = await post(`/v1/admin/cycles/${id}/archive/request`);
+          return "Close-out requested." + (r.expiredClaims ? ` ${r.expiredClaims} unclaimed prize${r.expiredClaims === 1 ? "" : "s"} closed as expired.` : "") + " Finance must confirm.";
+        }) }, "Request close-out")));
+      }
+      if (c.status === "SETTLING") {
+        box.prepend(el("div", { class: "note" }, `Close-out requested by ${c.archive_requested_by_name} on ${when(c.archive_requested_at)}.`));
+        if (can("FINANCE") && c.archive_requested_by !== me.id) {
+          box.append(el("div", { class: "actions" }, el("button", { class: "btn", disabled: !ready, onclick: action(async () => {
+            if (!confirm("Archive this cycle and publish every card? This is permanent.")) return;
+            const r = await post(`/v1/admin/cycles/${id}/archive/confirm`);
+            return `Archived. ${num(r.published)} cards published` + (r.stockReleased ? `; ${r.stockReleased} merchandise unit${r.stockReleased === 1 ? "" : "s"} back in stock.` : ".");
+          }) }, "Confirm and archive")));
+        } else box.append(el("p", { class: "sub" }, c.archive_requested_by === me.id ? "Waiting for someone in Finance to confirm." : "Waiting for Finance to confirm."));
+      }
+    }
+    nodes.push(el("h2", {}, "Close-out"), box);
+  }
   return nodes;
 }
 

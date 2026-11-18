@@ -56,3 +56,24 @@ test("draw: browser re-run matches game-core for many random draws", async () =>
     assert.equal((await web.verifyDraw(published, core.commitSecret(randomBytes(32)).toString("hex"))).ok, false);
   }
 });
+
+test("whole cycle: browser rebuilds the fingerprint and prize counts from a published card list, and spots any change", async () => {
+  const cycleId = "cycle-archive";
+  const tiers = [{ outcome: "CASH:1000000", count: 1 }, { outcome: "CASH:50000", count: 6 }];
+  for (const n of [1, 7, 40]) {
+    const t = n === 1 ? [{ outcome: "CASH:50000", count: 1 }] : tiers;
+    const outcomes = core.generateOutcomes(n, t, bytes("arch" + n));
+    const cards = outcomes.map((outcome, i) => ({ leaf_index: i, serial: `WR-${i}`, outcome, salt: bytes(`s${n}-${i}`, 16).toString("hex"), sale_status: i % 3 ? "SOLD" : "UNSOLD" }));
+    const root = new core.MerkleTree(cards.map((c) => core.ticketLeafHash({ cycleId, serial: c.serial, outcome: c.outcome, salt: Buffer.from(c.salt, "hex") }))).root.toString("hex");
+    const cycle = { id: cycleId, total_tickets: n, commitment: { ticket_merkle_root: root },
+      prizes: t.map((x) => ({ stage: "INSTANT", cash_kobo: Number(x.outcome.slice(5)), quantity: x.count })).concat([{ stage: "FINAL_DRAW", cash_kobo: 1, quantity: 1 }] as any) };
+    assert.equal((await web.verifyCycle(cycle, cards)).ok, true, `n=${n}`);
+    // Any tampering is caught: a changed outcome, a missing card, swapped order, or an advertised prize that was not there.
+    const changed = cards.map((c, i) => (i === 0 ? { ...c, outcome: c.outcome === "NONE" ? "CASH:50000" : "NONE" } : c));
+    assert.equal((await web.verifyCycle(cycle, changed)).ok, false);
+    assert.equal((await web.verifyCycle(cycle, cards.slice(1))).ok, false);
+    if (n > 1) assert.equal((await web.verifyCycle(cycle, [cards[1]!, cards[0]!, ...cards.slice(2)])).ok, false);
+    const inflated = { ...cycle, prizes: cycle.prizes.map((p: any, i: number) => (i === 0 ? { ...p, quantity: p.quantity + 1 } : p)) };
+    assert.equal((await web.verifyCycle(inflated, cards)).ok, false);
+  }
+});

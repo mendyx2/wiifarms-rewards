@@ -12,6 +12,7 @@ import * as identity from "./modules/identity.ts";
 import * as inventory from "./modules/inventory.ts";
 import * as refunds from "./modules/refunds.ts";
 import * as finance from "./modules/finance.ts";
+import * as archive from "./modules/archive.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -208,6 +209,9 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.get("/v1/cycles", async () => ({ cycles: await cycles.listPublicCycles(ctx) }));
   app.get<{ Params: { id: string } }>("/v1/cycles/:id", { schema: idParam }, async (req) => cycles.getPublicCycle(ctx, req.params.id));
   app.get<{ Params: { id: string } }>("/v1/cycles/:id/draw", { schema: idParam }, async (req) => draw.getPublicDraw(ctx, req.params.id));
+  app.get<{ Params: { id: string }; Querystring: { offset?: string; limit?: string } }>("/v1/cycles/:id/tickets", {
+    schema: { ...idParam, querystring: { type: "object", additionalProperties: false, properties: { offset: { type: "string", pattern: "^[0-9]{1,9}$" }, limit: { type: "string", pattern: "^[0-9]{1,5}$" } } } },
+  }, async (req) => archive.publishedTickets(ctx, req.params.id, Number(req.query.offset ?? 0), Number(req.query.limit ?? 5000)));
 
   // ---- Buying and scratching --------------------------------------------------------------
   app.post<{ Body: { cycleId: string; quantity: number } }>("/v1/orders", { schema: body({ cycleId: uuid, quantity: int(1, 20) }) }, async (req) => {
@@ -359,6 +363,9 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   step("open", (a, id) => cycles.openCycle(ctx, a, id));
   step("draw/sign", (a, id) => draw.signDraw(ctx, a, id));
   step("draw/execute", (a, id) => draw.executeDraw(ctx, a, id));
+  step("archive/request", (a, id) => archive.requestArchive(ctx, a, id));
+  step("archive/confirm", (a, id) => archive.confirmArchive(ctx, a, id));
+  app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id/archive", { schema: idParam }, async (req) => ({ checks: await archive.archiveReadiness(ctx, await staff(req), req.params.id) }));
 
   app.get("/v1/admin/payouts/pending", async (req) => ({ payouts: await wallet.listPendingPayouts(ctx, await staff(req)) }));
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/payouts/:id/decision", {

@@ -56,6 +56,37 @@ export async function verifyTicket(proof, publishedRootHex) {
   return equal(acc, fromHex(publishedRootHex));
 }
 
+/**
+ * Checks a whole archived cycle from its published card list: rebuilds the
+ * fingerprint from every card and compares it with the one published before
+ * sales opened, and counts every instant prize against the published prize
+ * table. `cycle` is GET /v1/cycles/:id; `cards` is every card from
+ * GET /v1/cycles/:id/tickets, in order.
+ */
+export async function verifyCycle(cycle, cards) {
+  let level = [];
+  for (const c of cards) level.push(await ticketLeafHash({ cycleId: cycle.id, serial: c.serial, outcome: c.outcome, salt: fromHex(c.salt) }));
+  while (level.length > 1) {
+    const next = [];
+    for (let i = 0; i < level.length; i += 2) next.push(i + 1 < level.length ? await sha256(Uint8Array.of(1), level[i], level[i + 1]) : level[i]);
+    level = next;
+  }
+  const rootOk = level.length === 1 && toHex(level[0]) === cycle.commitment.ticket_merkle_root;
+  const inOrder = cards.every((c, i) => c.leaf_index === i);
+  const counted = new Map();
+  for (const c of cards) counted.set(c.outcome, (counted.get(c.outcome) ?? 0) + 1);
+  const instant = cycle.prizes.filter((p) => p.stage === "INSTANT");
+  const prizesOk = instant.every((p) => counted.get("CASH:" + p.cash_kobo) === p.quantity)
+    && [...counted.keys()].every((o) => o === "NONE" || instant.some((p) => "CASH:" + p.cash_kobo === o));
+  const unsoldWins = cards.filter((c) => c.sale_status === "UNSOLD" && c.outcome !== "NONE").length;
+  const checks = [
+    { label: `All ${cards.length.toLocaleString("en-NG")} cards published, in order`, ok: cards.length === cycle.total_tickets && inOrder },
+    { label: "They rebuild exactly the fingerprint published before sales opened", ok: rootOk },
+    { label: `Every advertised instant prize was on a card (${instant.reduce((n, p) => n + p.quantity, 0)} prizes)`, ok: prizesOk },
+  ];
+  return { ok: checks.every((c) => c.ok), checks, unsoldWins };
+}
+
 // --- Final draw ------------------------------------------------------------------
 
 const sorted = (serials) => [...serials].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));

@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
-import { deriveDrawSeed, entriesHash, runDraw, verifySecretCommitment, verifyTicket } from "@wiifarm/game-core";
+import { MerkleTree, deriveDrawSeed, entriesHash, runDraw, ticketLeafHash, verifySecretCommitment, verifyTicket } from "@wiifarm/game-core";
 import { SimulatedBeacon } from "../src/beacon.ts";
 import type { Config } from "../src/config.ts";
 import type { Ctx } from "../src/context.ts";
@@ -870,4 +870,68 @@ test("finance: expenses by reversal only, daily reconciliation catches a ledger 
   assert.ok(ex.body.includes("'=cmd|"), "payee formula neutralised");
   assert.ok(ex.body.includes(",-50000,"), "reversal shown as a negative amount");
   assert.equal((await app.inject({ method: "GET", url: "/v1/admin/finance/expenses.csv", headers: { authorization: `Bearer ${admins.approver!.token}` } })).statusCode, 403);
+});
+
+test("close-out: blocked until every prize is resolved, two people, then every card is published and anyone can rebuild the fingerprint", async () => {
+  const mt = admins.manager!.token, fin = admins.finance!.token;
+  const b = (await pool.query("SELECT id FROM cycles WHERE name = 'Cycle B'")).rows[0].id as string;
+  const readiness = async (id: string) => ok(await api("GET", `/v1/admin/cycles/${id}/archive`, { token: mt })).checks as { key: string; ok: boolean; detail: string }[];
+
+  // One freezer prize is still waiting for its winner, inside the 90-day window.
+  const before = await readiness(b);
+  assert.deepEqual(before.map((c) => [c.key, c.ok]), [["drawn", true], ["claims", false], ["reconciled", true], ["alerts", true]]);
+  const refused = await api("POST", `/v1/admin/cycles/${b}/archive/request`, { token: mt });
+  fails(refused, 409, "NOT_READY");
+  assert.match(refused.body.error.message, /waiting for the winner/);
+  fails(await api("GET", `/v1/cycles/${b}/tickets`), 404, "NOT_FOUND"); // nothing published before archiving
+
+  // Ninety days later, the unclaimed prize has lapsed.
+  await pool.query(`UPDATE prize_claims SET expires_at = now() - interval '1 minute' WHERE status = 'ENTITLED'
+    AND prize_tier_id IN (SELECT id FROM prize_tiers WHERE cycle_id = $1)`, [b]);
+  const lapsed = await readiness(b);
+  assert.ok(lapsed.every((c) => c.ok));
+  assert.match(lapsed.find((c) => c.key === "claims")!.detail, /will be closed as expired/);
+
+  fails(await api("POST", `/v1/admin/cycles/${b}/archive/request`, { token: fin }), 403, "ROLE_REQUIRED");
+  assert.deepEqual(ok(await api("POST", `/v1/admin/cycles/${b}/archive/request`, { token: mt })), { status: "SETTLING", expiredClaims: 1 });
+  fails(await api("POST", `/v1/admin/cycles/${b}/archive/request`, { token: mt }), 409, "NOT_DRAWN");
+  fails(await api("POST", `/v1/admin/cycles/${b}/archive/confirm`, { token: mt }), 403, "ROLE_REQUIRED");
+  fails(await api("POST", `/v1/admin/cycles/${b}/archive/confirm`, { token: admins.compliance!.token }), 403, "ROLE_REQUIRED");
+  // Not even directly in the database can a cycle be archived without its cards published and a second person.
+  await assert.rejects(pool.query("UPDATE cycles SET status = 'ARCHIVED', archived_by = archive_requested_by, archived_at = now() WHERE id = $1", [b]));
+
+  const done = ok(await api("POST", `/v1/admin/cycles/${b}/archive/confirm`, { token: fin }));
+  assert.deepEqual(done, { status: "ARCHIVED", published: 30, stockReleased: 2 });
+  fails(await api("POST", `/v1/admin/cycles/${b}/archive/confirm`, { token: fin }), 409, "NOT_REQUESTED");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM stock_units WHERE reserved_cycle_id = $1", [b])).rows[0].n, 0);
+  assert.equal(ok(await api("GET", `/v1/cycles/${b}`)).status, "ARCHIVED");
+
+  // Anyone, without signing in, can fetch every card and rebuild the fingerprint published before sales.
+  const pub = ok(await api("GET", `/v1/cycles/${b}/tickets`));
+  assert.equal(pub.total, 30); assert.equal(pub.tickets.length, 30);
+  const leaves = pub.tickets.map((t: any) => ticketLeafHash({ cycleId: b, serial: t.serial, outcome: t.outcome, salt: Buffer.from(t.salt, "hex") }));
+  assert.equal(new MerkleTree(leaves).root.toString("hex"), ok(await api("GET", `/v1/cycles/${b}`)).commitment.ticket_merkle_root);
+  const count = (o: string) => pub.tickets.filter((t: any) => t.outcome === o).length;
+  assert.deepEqual([count("CASH:1000000"), count("CASH:50000"), count("NONE")], [1, 10, 19]); // exactly the advertised prizes
+  assert.deepEqual([pub.tickets.filter((t: any) => t.sale_status === "UNSOLD").length, pub.tickets.filter((t: any) => t.sale_status === "REVEALED").length], [25, 5]);
+  // Cards revealed during the cycle match what was published at the end.
+  for (const t of (await pool.query("SELECT serial, revealed_outcome FROM tickets WHERE cycle_id = $1 AND status = 'REVEALED'", [b])).rows) {
+    assert.equal(pub.tickets.find((p: any) => p.serial === t.serial).outcome, t.revealed_outcome);
+  }
+  const page = ok(await api("GET", `/v1/cycles/${b}/tickets?offset=10&limit=5`));
+  assert.deepEqual(page.tickets.map((t: any) => t.leaf_index), [10, 11, 12, 13, 14]);
+  fails(await api("GET", `/v1/cycles/${b}/tickets?limit=9999`), 400, "INVALID_RANGE");
+
+  // The record is permanent.
+  await assert.rejects(pool.query("UPDATE published_tickets SET outcome = 'NONE' WHERE cycle_id = $1", [b]), /append-only/);
+  await assert.rejects(pool.query("UPDATE cycles SET archived_by = $2 WHERE id = $1", [b, admins.compliance!.id]), /cannot be changed/);
+
+  // cycleA still has a prize out for delivery (and its handover was locked), so it cannot be closed out.
+  const a = await readiness(cycleA.id);
+  assert.equal(a.find((c) => c.key === "claims")!.ok, false);
+  assert.equal(a.find((c) => c.key === "alerts")!.ok, false);
+  fails(await api("POST", `/v1/admin/cycles/${cycleA.id}/archive/request`, { token: mt }), 409, "NOT_READY");
+
+  const actions = (await pool.query("SELECT action FROM audit_log WHERE entity_id = $1", [b])).rows.map((r: any) => r.action);
+  assert.ok(actions.includes("cycle.archive_requested") && actions.includes("cycle.archived"));
 });

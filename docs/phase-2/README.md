@@ -1,6 +1,6 @@
 # Phase 2 — minimum viable platform (simulated money only)
 
-Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Notifications and archiving remain.
+Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Notifications remain.
 
 Nothing in this phase can take real money. There is no payment-gateway integration, every cycle is created in `SIMULATED` mode, the API has no setting that changes this, and the database separately refuses to open a real-money cycle without a licence and certification record.
 
@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 17 tests, run repeatedly without failure:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 18 tests, run repeatedly without failure:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -151,6 +151,21 @@ New **Finance** page in the admin app (Finance can act; auditors and Compliance 
 
 *Not included yet:* payment provider fees (recorded as expenses until a real provider is connected), tax, and escrow account statements.
 
+## Closing out a cycle
+
+After the draw, a cycle is closed out once four checks pass, shown on the cycle page:
+
+1. the final draw has taken place;
+2. every prize is claimed, delivered or expired (claims past their 90-day window are closed as expired at this point);
+3. every day on which the cycle's money moved is reconciled and signed off;
+4. no Compliance alert about the cycle or its prize claims is open.
+
+A cycle manager or Compliance requests the close-out; someone in Finance — a different person — confirms it. The checks run again at confirmation. Then, in one transaction, **every card's outcome and salt is published** — sold, unsold and cancelled — merchandise held for prizes that lapsed unclaimed goes back to stock, and the cycle is archived. The database refuses to archive a cycle without a second person or without every card published, and the published list can never be changed.
+
+The published list is public. On the Draw page, players can tap **Check the whole cycle**: the phone downloads every card, rebuilds the fingerprint published before sales opened, counts every instant prize against the advertised table, and says how many prizes were on cards nobody bought. This completes the promise in the brief that outcomes are fixed, independently verifiable and that every advertised prize existed.
+
+A cancelled (void) cycle is not archived and its card list is not published; that could be added if the regulator wants it.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -174,7 +189,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 3. **Public verifier page**: check a card, re-run a draw.
 4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking, next-of-kin claims.
 5. ~~Voiding a cycle with refunds; manual refunds with two-person approval~~ — done (see above).
-6. Publishing the full ticket list when a cycle is archived; settling and archiving steps.
+6. ~~Publishing the full ticket list when a cycle is archived; settling and archiving steps~~ — done (see above).
 7. Notifications (SMS/WhatsApp/in-app) and support tickets.
 8. ~~Reconciliation report and financial reports; operating-expense records~~ — done (see above).
 9. Unclaimed-prize reminders, expiry and the next-of-kin claim process.
