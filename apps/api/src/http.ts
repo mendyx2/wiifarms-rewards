@@ -10,6 +10,7 @@ import * as cycles from "./modules/cycles.ts";
 import * as draw from "./modules/draw.ts";
 import * as identity from "./modules/identity.ts";
 import * as inventory from "./modules/inventory.ts";
+import * as refunds from "./modules/refunds.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -229,6 +230,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
 
   // ---- Winnings ------------------------------------------------------------------------------
   app.get("/v1/wallet", async (req) => wallet.getWallet(ctx, (await player(req)).id));
+  app.get("/v1/orders", async (req) => ({ orders: await refunds.listMyOrders(ctx, (await player(req)).id) }));
   app.get("/v1/claims", async (req) => ({ claims: await inventory.listClaims(ctx, (await player(req)).id) }));
   app.post<{ Params: { id: string }; Body: { method: "DELIVERY" | "COLLECTION"; address?: string; pin: string } }>("/v1/claims/:id/redeem", {
     schema: { ...idParam, ...body({ method: { enum: ["DELIVERY", "COLLECTION"] }, address: str(400), pin: str(6) }, ["address"]) },
@@ -279,6 +281,26 @@ export function buildServer(ctx: Ctx): FastifyInstance {
       serialNumbers: { type: "array", maxItems: 5000, items: str(80) }, acquisitionCostKobo: int(0), landedCostKobo: int(0) }, ["documentRef", "quantity", "serialNumbers"]),
   }, async (req) => inventory.receiveStock(ctx, await staff(req), req.body));
   app.post<{ Params: { id: string } }>("/v1/admin/cycles/:id/reserve-stock", { schema: idParam }, async (req) => inventory.reserveStock(ctx, await staff(req), req.params.id));
+  // ---- Refunds and cancelled cycles (each needs two different people) ----
+  app.get<{ Querystring: { phone?: string; cycleId?: string } }>("/v1/admin/orders", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { phone: str(20), cycleId: uuid } } },
+  }, async (req) => ({ orders: await refunds.searchOrders(ctx, await staff(req), req.query) }));
+  app.get<{ Querystring: { status?: string } }>("/v1/admin/refunds", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { status: { enum: ["AWAITING_APPROVAL", "CONFIRMED", "REJECTED"] } } } },
+  }, async (req) => ({ refunds: await refunds.listRefunds(ctx, await staff(req), req.query.status) }));
+  app.post<{ Params: { id: string }; Body: { reason: "INELIGIBLE_PURCHASE" | "DISPUTED_PAYMENT"; note: string } }>("/v1/admin/orders/:id/refund", {
+    schema: { ...idParam, ...body({ reason: { enum: ["INELIGIBLE_PURCHASE", "DISPUTED_PAYMENT"] }, note: str(1000) }) },
+  }, async (req) => refunds.requestRefund(ctx, await staff(req), req.params.id, req.body));
+  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/refunds/:id/decision", {
+    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
+  }, async (req) => refunds.decideRefund(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+  app.post<{ Params: { id: string }; Body: { reason: string } }>("/v1/admin/cycles/:id/void", {
+    schema: { ...idParam, ...body({ reason: str(1000) }) },
+  }, async (req) => refunds.requestVoid(ctx, await staff(req), req.params.id, req.body.reason));
+  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/cycles/:id/void/decision", {
+    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
+  }, async (req) => refunds.decideVoid(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+
   app.get("/v1/admin/fulfilment", async (req) => ({ claims: await inventory.fulfilmentQueue(ctx, await staff(req)) }));
   app.post<{ Params: { id: string }; Body: { carrier?: string; trackingRef?: string } }>("/v1/admin/fulfilment/:id/dispatch", {
     schema: { ...idParam, ...body({ carrier: str(80), trackingRef: str(80) }, ["carrier", "trackingRef"]) },

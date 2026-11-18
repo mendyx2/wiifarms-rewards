@@ -1,6 +1,6 @@
 # Phase 2 — minimum viable platform (simulated money only)
 
-Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Refunds/voids, notifications and reports remain.
+Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Notifications, reports and archiving remain.
 
 Nothing in this phase can take real money. There is no payment-gateway integration, every cycle is created in `SIMULATED` mode, the API has no setting that changes this, and the database separately refuses to open a real-money cycle without a licence and certification record.
 
@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 15 tests, run repeatedly without failure:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 16 tests, run repeatedly without failure:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -99,7 +99,7 @@ Buttons appear only for roles that may use them, but that is convenience: every 
 
 Checked in a real browser with six administrators signing in turn: draft through the form; drafter refused when approving their own cycle; finance refused without evidence and with escrow ₦1 short; locked after approval; tickets generated and sales opened; a player bought; sign-off buttons absent before close; execute disabled with one sign-off; payout approver offered no draw buttons; auditor could countersign but not execute; draw executed once and the button disappeared; a ₦20,000 payout held, rejected (money returned), re-requested and approved by the payout approver while finance was offered no approve button; exclusion register entry added by compliance and hidden from the auditor; audit trail intact; no script errors; no sideways scrolling at phone width. As with the player app, this browser run is a manual check script, not yet in the automated suite.
 
-Still missing from the admin app: refunds and voiding, reconciliation and financial reports, recording licences and certifications, managing administrators and roles (currently set up directly in the database), customer support views. In production it must be served from its own restricted address rather than alongside the player app.
+Still missing from the admin app: reconciliation and financial reports, recording licences and certifications, managing administrators and roles (currently set up directly in the database), customer support views. In production it must be served from its own restricted address rather than alongside the player app.
 
 ## Merchandise
 
@@ -118,6 +118,20 @@ Stricter than the earlier decision: the plan allowed prizes that were "received 
 Screens: the admin app has a Merchandise page (stock position and value, redemption queue with dispatch and handover, receiving stock, items, suppliers, warehouses, every unit with its costs) and the cycle page shows whether prizes are secured. The player app lists "My prizes" under Winnings, shows a banner on the home page when a prize is waiting, and leads a winner to the draw of the cycle they played.
 
 Checked in real browsers with a player and several administrators: stock received through the form (refused without serial numbers for a tracked item); a player won, was told on the home page, added next of kin, claimed with an address and PIN; dispatch refused without a carrier; the code appeared on the player's phone and nowhere on the admin page; a wrong code was refused; the right code completed the handover; the player then saw "Received" with serial number and warranty. Finance could view but had no action forms; the payout approver could not open the page.
+
+## Refunds and cancelled cycles
+
+Both need two different people, and the database itself refuses anything else.
+
+**Refunding one purchase** (buyer turned out to be ineligible, or the payment is disputed): Compliance finds the purchase by phone number and requests the refund with a reason and note; Finance approves or rejects it. On approval, in one transaction: the purchase's cards are cancelled and leave the final draw, any prize they won is forfeited (cash taken back out of the player's winnings), the price goes back to the original payment, and the order is marked refunded. If the prize had already been withdrawn, the player's account shows the amount owed, further withdrawals are blocked, and Compliance gets an alert to recover it. A refund cannot be approved while merchandise from that purchase is already being delivered. An order can only be refunded once.
+
+**Cancelling a cycle** (regulator instruction, prize cannot be delivered, integrity problem): a cycle manager or Compliance requests it with a reason; someone else in Finance or Compliance approves or rejects it. Possible from approval up to the closing of sales — never after the draw. On approval, in one transaction: every paid purchase is refunded in full to its original payment, every card is cancelled, instant prizes already revealed stay with their winners (as the refund policy says), open refund requests are superseded, reserved merchandise returns to stock, and a Compliance alert is raised for reporting to the regulator. A payment that arrives after cancellation is refunded automatically.
+
+Players see cancelled cards marked "Cancelled · price refunded", a "My purchases" list with each refund and its reason, and a plain notice on the home and draw pages of a cancelled cycle. Staff have a Refunds page, cancellation controls on the cycle page, and both kinds of request on the Approvals page.
+
+**Fixed along the way:** a database rule made it impossible to cancel a card that had already been revealed, contradicting the ticket rules. Found by the new test; corrected in `db/migrations/005_voids_and_refunds.sql`.
+
+Checked in real browsers: Compliance found a purchase by phone and requested a refund and was not offered the approve button; Finance saw the badge, approved from the Approvals page; the player saw three cancelled cards, the explanation and "Refunded — not eligible to buy". A cycle manager requested cancellation and was not offered approval; a payout approver was not offered it either; Compliance approved; the cycle page, the player's home page and draw page all showed the cancellation. No script errors, no sideways scrolling at phone width.
 
 ## Differences from the Phase 1 plan
 
@@ -141,7 +155,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 2. ~~Admin web app connected to the API~~ — done for cycles, approvals, draw, payouts, audit and compliance (see above).
 3. **Public verifier page**: check a card, re-run a draw.
 4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking, next-of-kin claims.
-5. Voiding a cycle with refunds; manual refunds (ineligible purchase, disputed payment) with two-person approval.
+5. ~~Voiding a cycle with refunds; manual refunds with two-person approval~~ — done (see above).
 6. Publishing the full ticket list when a cycle is archived; settling and archiving steps.
 7. Notifications (SMS/WhatsApp/in-app) and support tickets.
 8. Reconciliation report and financial reports; operating-expense records.

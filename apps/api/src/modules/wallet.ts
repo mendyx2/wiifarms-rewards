@@ -21,7 +21,9 @@ export async function getWallet(ctx: Ctx, userId: string): Promise<unknown> {
        FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id JOIN ledger_accounts a ON a.id = e.account_id
        WHERE a.code = $1 ORDER BY e.id DESC LIMIT 100`, [accounts.playerWinnings(userId).code]);
     const payouts = await db.query("SELECT id, amount_kobo, status, created_at FROM payouts WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50", [userId]);
-    return { balanceKobo: await winningsBalance(db, userId), history: history.rows, payouts: payouts.rows };
+    // If a refunded purchase's prize had already been withdrawn, the player owes it back.
+    const b = await winningsBalance(db, userId);
+    return { balanceKobo: Math.max(0, b), owedKobo: Math.max(0, -b), history: history.rows, payouts: payouts.rows };
   } finally {
     db.release();
   }

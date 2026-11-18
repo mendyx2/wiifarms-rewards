@@ -661,3 +661,118 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
   assert.equal(await expireClaims(ctx), 1);
   assert.equal((await pool.query("SELECT status FROM prize_claims WHERE id = $1", [late.id])).rows[0].status, "EXPIRED");
 });
+
+test("refunds and cancelled cycles: two people, original payment only, prizes forfeited or honoured as the rules say", async () => {
+  const ft = admins.fulfilment!.token, ct = admins.compliance!.token, fin = admins.finance!.token, mt = admins.manager!.token;
+  // Two more freezers so a new cycle's merchandise prizes can be secured.
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-3", serialNumbers: ["SN-7", "SN-8"], acquisitionCostKobo: 38_000_000, landedCostKobo: 42_000_000 } }));
+  // 11 cards and 11 instant prizes: every card wins, so the prize rules are easy to check.
+  const v = await openCycle({ total: 11, closeInMs: 3600_000, cap: 11, name: "Void check" });
+  const [p1, p2, p3, p4] = [await newPlayer(), await newPlayer(), await newPlayer(), await newPlayer()];
+  await buy(p1, v.id, 4); await buy(p2, v.id, 3); await buy(p3, v.id, 2);
+  const cards = async (p: Player) => ok(await api("GET", `/v1/tickets?cycleId=${v.id}`, { token: p.token })).tickets;
+  const reveal = async (p: Player, id: string) => ok(await api("POST", `/v1/tickets/${id}/reveal`, { token: p.token })).ticket.result.cashKobo as number;
+  const p1Cards = await cards(p1);
+  const w1 = (await reveal(p1, p1Cards[0].id)) + (await reveal(p1, p1Cards[1].id));
+  const p3Cards = await cards(p3);
+  const w3 = await reveal(p3, p3Cards[0].id);
+  const wallet = async (p: Player) => ok(await api("GET", "/v1/wallet", { token: p.token }));
+  const orderOf = async (p: Player) => (await pool.query("SELECT id FROM orders WHERE user_id = $1 AND cycle_id = $2 AND status = 'FULFILLED'", [p.id, v.id])).rows[0].id as string;
+  const revenue = async () => 0 - (await pool.query("SELECT coalesce(sum(e.amount_kobo),0)::bigint AS b FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id WHERE a.code = $1", [`TICKET_REVENUE:${v.id}`])).rows[0].b;
+  assert.equal(await revenue(), 9 * N200);
+
+  // p3 withdraws the prize before anyone notices the purchase was not allowed.
+  const name3 = ok(await api("GET", "/v1/me", { token: p3.token })).fullName;
+  const acct3 = ok(await api("POST", "/v1/me/bank-accounts", { token: p3.token, body: { bankCode: "058", accountNumber: "0987654321", accountName: name3 } }));
+  ok(await api("POST", "/v1/payouts", { token: p3.token, key: key(), body: { amountKobo: w3, bankAccountId: acct3.id, pin: p3.pin } }));
+  assert.equal((await wallet(p3)).balanceKobo, 0);
+
+  // --- Manual refund: Compliance asks, Finance decides. ---
+  const order3 = await orderOf(p3);
+  const search = ok(await api("GET", `/v1/admin/orders?phone=${p3.phone}`, { token: ct })).orders;
+  assert.equal(search.length, 1); assert.equal(search[0].id, order3); assert.match(search[0].player_phone, /^…\d{4}$/);
+  fails(await api("GET", "/v1/admin/orders", { token: ct }), 400, "SEARCH_REQUIRED");
+  fails(await api("POST", `/v1/admin/orders/${order3}/refund`, { token: fin, body: { reason: "INELIGIBLE_PURCHASE", note: "x" } }), 403, "ROLE_REQUIRED");
+  const rq3 = ok(await api("POST", `/v1/admin/orders/${order3}/refund`, { token: ct, body: { reason: "INELIGIBLE_PURCHASE", note: "Buyer is a staff relative" } }));
+  assert.equal(rq3.status, "AWAITING_APPROVAL");
+  fails(await api("POST", `/v1/admin/orders/${order3}/refund`, { token: ct, body: { reason: "INELIGIBLE_PURCHASE", note: "again" } }), 409, "ALREADY_REFUNDED");
+  fails(await api("POST", `/v1/admin/refunds/${rq3.id}/decision`, { token: ct, body: { approve: true } }), 403, "ROLE_REQUIRED");
+  // Nothing has happened yet: cards still valid, money not moved.
+  assert.equal((await cards(p3)).filter((t: any) => t.status !== "CANCELLED").length, 2);
+  // Even directly in the database, the requester cannot approve their own refund.
+  await assert.rejects(pool.query("UPDATE refunds SET status = 'CONFIRMED', approved_by = requested_by WHERE id = $1", [rq3.id]), /refunds_check/);
+  assert.equal(ok(await api("GET", "/v1/admin/refunds?status=AWAITING_APPROVAL", { token: fin })).refunds.length, 1);
+  assert.equal(ok(await api("POST", `/v1/admin/refunds/${rq3.id}/decision`, { token: fin, body: { approve: true } })).status, "CONFIRMED");
+  fails(await api("POST", `/v1/admin/refunds/${rq3.id}/decision`, { token: fin, body: { approve: true } }), 409, "ALREADY_DECIDED");
+  // Cards cancelled, prize forfeited, and because it was already withdrawn the player now owes it.
+  assert.ok((await cards(p3)).every((t: any) => t.status === "CANCELLED" && !t.enteredInFinalDraw));
+  fails(await api("POST", `/v1/tickets/${p3Cards[1].id}/reveal`, { token: p3.token }), 409, "CARD_CANCELLED");
+  const w = await wallet(p3);
+  assert.equal(w.balanceKobo, 0); assert.equal(w.owedKobo, w3);
+  fails(await api("POST", "/v1/payouts", { token: p3.token, key: key(), body: { amountKobo: 50_000, bankAccountId: acct3.id, pin: p3.pin } }), 409, "INSUFFICIENT_WINNINGS");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'PRIZE_RECOVERY_REQUIRED' AND entity_id = $1", [p3.id])).rows[0].n, 1);
+  const mine3 = ok(await api("GET", "/v1/orders", { token: p3.token })).orders;
+  assert.equal(mine3[0].status, "REFUNDED"); assert.equal(mine3[0].refund_reason, "INELIGIBLE_PURCHASE");
+  assert.equal(await revenue(), 7 * N200);
+  // Refunds are permanent records.
+  await assert.rejects(pool.query("DELETE FROM refunds WHERE id = $1", [rq3.id]), /append-only/);
+  await assert.rejects(pool.query("UPDATE refunds SET amount_kobo = 1 WHERE id = $1", [rq3.id]), /cannot be changed/);
+
+  // A rejected request leaves everything as it was, and can be raised again.
+  const order2 = await orderOf(p2);
+  const rq2 = ok(await api("POST", `/v1/admin/orders/${order2}/refund`, { token: ct, body: { reason: "DISPUTED_PAYMENT", note: "Card holder disputes" } }));
+  fails(await api("POST", `/v1/admin/refunds/${rq2.id}/decision`, { token: fin, body: { approve: false } }), 400, "REASON_REQUIRED");
+  assert.equal(ok(await api("POST", `/v1/admin/refunds/${rq2.id}/decision`, { token: fin, body: { approve: false, reason: "Dispute withdrawn" } })).status, "REJECTED");
+  assert.ok((await cards(p2)).every((t: any) => t.status === "SOLD"));
+  const rq2b = ok(await api("POST", `/v1/admin/orders/${order2}/refund`, { token: ct, body: { reason: "DISPUTED_PAYMENT", note: "Raised again" } }));
+
+  // p4 starts paying just before the cycle is cancelled.
+  const late = ok(await api("POST", "/v1/orders", { token: p4.token, key: key(), body: { cycleId: v.id, quantity: 1 } }));
+
+  // --- Cancelling the cycle: one person asks, a different person decides. ---
+  const url = `/v1/admin/cycles/${v.id}/void`;
+  fails(await api("POST", url, { token: fin, body: { reason: "x" } }), 403, "ROLE_REQUIRED");
+  ok(await api("POST", url, { token: mt, body: { reason: "Supplier failed to deliver" } }));
+  fails(await api("POST", url, { token: ct, body: { reason: "duplicate" } }), 409, "VOID_ALREADY_REQUESTED");
+  fails(await api("POST", `${url}/decision`, { token: mt, body: { approve: true } }), 403, "ROLE_REQUIRED");
+  fails(await api("POST", `${url}/decision`, { token: admins.approver!.token, body: { approve: true } }), 403, "ROLE_REQUIRED");
+  await assert.rejects(pool.query("UPDATE cycles SET status = 'VOID' WHERE id = $1", [v.id]), /approved void request/);
+  fails(await api("POST", `${url}/decision`, { token: ct, body: { approve: false } }), 400, "REASON_REQUIRED");
+  assert.equal(ok(await api("POST", `${url}/decision`, { token: ct, body: { approve: false, reason: "Replacement stock found" } })).status, "REJECTED");
+  assert.equal(ok(await api("GET", `/v1/cycles/${v.id}`)).status, "OPEN");
+  ok(await api("POST", url, { token: ct, body: { reason: "Regulator instruction" } }));
+  fails(await api("POST", `${url}/decision`, { token: ct, body: { approve: true } }), 403, "SAME_PERSON");
+  const voided = ok(await api("POST", `${url}/decision`, { token: fin, body: { approve: true } }));
+  assert.deepEqual(voided, { status: "VOID", refunds: 2, refundedKobo: 7 * N200 });
+
+  // Every remaining purchase refunded once; revenue back to zero; the books still balance.
+  assert.equal(ok(await api("GET", `/v1/cycles/${v.id}`)).status, "VOID");
+  assert.equal(await revenue(), 0);
+  assert.equal((await pool.query("SELECT balance_kobo AS b FROM ledger_balances WHERE code = 'REFUNDS_PAYABLE'")).rows[0].b, 0);
+  assert.equal((await pool.query("SELECT coalesce(sum(amount_kobo),0)::bigint AS s FROM ledger_entries")).rows[0].s, 0);
+  assert.equal((await pool.query("SELECT status FROM refunds WHERE id = $1", [rq2b.id])).rows[0].status, "REJECTED"); // superseded
+  for (const p of [p1, p2]) {
+    const o = ok(await api("GET", "/v1/orders", { token: p.token })).orders[0];
+    assert.equal(o.status, "REFUNDED"); assert.equal(o.refund_reason, "CYCLE_VOID");
+  }
+  // Instant prizes already revealed are honoured; unscratched cards can no longer be revealed.
+  assert.equal((await wallet(p1)).balanceKobo, w1);
+  fails(await api("POST", `/v1/tickets/${p1Cards[2].id}/reveal`, { token: p1.token }), 409, "CARD_CANCELLED");
+  // The payment that arrives after cancellation is refunded automatically.
+  assert.equal(ok(await api("POST", "/v1/simulated-gateway/pay", { token: p4.token, body: { paymentRef: late.paymentRef } })).status, "REFUNDED");
+  // Merchandise goes back into stock for future cycles.
+  assert.deepEqual((await pool.query("SELECT status, reserved_cycle_id FROM stock_units WHERE serial_number IN ('SN-7','SN-8') ORDER BY serial_number")).rows,
+    [{ status: "IN_STOCK", reserved_cycle_id: null }, { status: "IN_STOCK", reserved_cycle_id: null }]);
+  // Nothing more can happen on the cycle, and the regulator report is flagged.
+  fails(await api("POST", "/v1/orders", { token: p4.token, key: key(), body: { cycleId: v.id, quantity: 1 } }), 409, "SALES_CLOSED");
+  fails(await api("POST", `/v1/admin/cycles/${v.id}/draw/sign`, { token: mt }), 409, "NOT_CLOSED");
+  const alert = (await pool.query("SELECT details FROM compliance_alerts WHERE kind = 'CYCLE_VOIDED' AND entity_id = $1", [v.id])).rows[0];
+  assert.equal(alert.details.reportToRegulator, true); assert.equal(alert.details.reason, "Regulator instruction");
+  const dash = ok(await api("GET", "/v1/admin/dashboard", { token: fin })).cycles.find((c: any) => c.id === v.id);
+  assert.equal(dash.outstanding_instant_liability_kobo, 0); assert.equal(dash.final_draw_cash_commitment_kobo, 0);
+  // A cycle whose draw has happened cannot be cancelled.
+  fails(await api("POST", `/v1/admin/cycles/${cycleA.id}/void`, { token: mt, body: { reason: "too late" } }), 409, "NOT_VOIDABLE");
+  // Every step is on the audit trail. (The chain was deliberately broken by an earlier test to prove tampering is detected.)
+  const actions = (await pool.query("SELECT action FROM audit_log WHERE entity_id = ANY($1)", [[v.id, order2, order3]])).rows.map((r: any) => r.action);
+  for (const a of ["refund.requested", "refund.approved", "refund.rejected", "cycle.void_requested", "cycle.void_rejected", "cycle.voided"]) assert.ok(actions.includes(a), a);
+});

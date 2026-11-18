@@ -156,7 +156,8 @@ function scratchSurface(resultNode, { onStart, onDone }) {
 // --- Screens ----------------------------------------------------------------------------
 
 const PRIZE_ICON = (title) => /motor|bike|vehicle/i.test(title) ? "🏍️" : /freez|fridge/i.test(title) ? "🧊" : /solar|batter/i.test(title) ? "🔋" : /phone/i.test(title) ? "📱" : /rice|vita/i.test(title) ? "🌾" : /cash|₦/i.test(title) ? "💵" : "🎁";
-const STATUS_TEXT = { COMMITTED: "Opening soon", OPEN: "On sale", CLOSED: "Sales closed", DRAWN: "Draw complete", SETTLING: "Draw complete", ARCHIVED: "Finished" };
+const STATUS_TEXT = { COMMITTED: "Opening soon", OPEN: "On sale", CLOSED: "Sales closed", DRAWN: "Draw complete", SETTLING: "Draw complete", ARCHIVED: "Finished", VOID: "Cancelled" };
+const VOID_TEXT = "This cycle was cancelled. Every card was refunded in full to the payment it came from. Instant prizes already revealed have been kept.";
 
 async function home() {
   const c = await loadCycle();
@@ -186,6 +187,7 @@ async function home() {
     el("div", { class: "stack" },
       c.status === "OPEN"
         ? el("a", { class: "btn gold", href: "#/" + nextStep() }, "Buy scratch cards")
+        : c.status === "VOID" ? el("div", { class: "note warn" }, VOID_TEXT)
         : el("a", { class: "btn gold", href: "#/draw" }, c.status === "CLOSED" ? "Sales closed — see the draw" : "See the draw"),
       el("a", { class: "btn ghost", href: "#/demo" }, "Try a free demo card")),
     el("h2", {}, "Final-draw prizes"),
@@ -373,6 +375,10 @@ async function cards() {
   for (const cycleId of [...new Set(tickets.map((t) => t.cycleId))]) {
     nodes.push(el("h2", {}, names.get(cycleId) ?? "Earlier cycle"), el("div", { class: "tickets" }, tickets.filter((t) => t.cycleId === cycleId).map((t) => {
       const cash = t.result?.cashKobo ?? 0;
+      if (t.status === "CANCELLED") {
+        return el("a", { class: "ticket done", href: "#/card/" + t.id }, el("code", {}, t.serial),
+          el("b", {}, "Cancelled"), el("span", {}, "Price refunded" + (cash ? ` · ${naira(cash)} prize` : "")));
+      }
       return el("a", { class: "ticket" + (t.result ? (cash ? " win" : " done") : ""), href: "#/card/" + t.id },
         el("code", {}, t.serial),
         el("b", {}, t.result ? (cash ? "Won " + naira(cash) : "No instant win") : "Tap to scratch"),
@@ -393,6 +399,13 @@ async function card(id) {
   const tickets = (await api.get("/v1/tickets")).tickets;
   const ticket = tickets.find((t) => t.id === id);
   if (!ticket) return [el("h1", {}, "Card not found"), el("a", { class: "btn", href: "#/cards" }, "My cards")];
+  if (ticket.status === "CANCELLED") {
+    const why = (await api.get("/v1/cycles/" + ticket.cycleId)).status === "VOID" ? "CYCLE_VOID" : null;
+    return [el("a", { href: "#/cards" }, "← My cards"), el("h1", {}, "Cancelled card"), el("p", { class: "muted" }, "Card ", el("code", {}, ticket.serial)),
+      el("div", { class: "note warn" }, why === "CYCLE_VOID" ? VOID_TEXT : "This card was cancelled and its price refunded to the payment it came from. A cancelled card is not in the final draw."),
+      ticket.result ? el("p", { class: "muted" }, ticket.result.cashKobo ? `It had revealed an instant prize of ${naira(ticket.result.cashKobo)}.` : "It had been scratched: no instant win.") : null,
+      el("a", { class: "btn ghost", href: "#/me" }, "See my purchases")];
+  }
   // The fingerprint and draw date come from the public page of the card's own cycle.
   const cycle = await api.get("/v1/cycles/" + ticket.cycleId);
 
@@ -505,6 +518,7 @@ async function wallet() {
   await loadMe();
   const usable = bank.accounts.filter((a) => a.name_match);
   const nodes = [el("h1", {}, "Winnings"),
+    w.owedKobo ? el("div", { class: "note bad" }, `A purchase of yours was refunded after you had withdrawn ${naira(w.owedKobo)} that its cards had won. That prize was forfeited, so this amount is owed back; new winnings will go towards it first. Our team will contact you.`) : null,
     el("div", { class: "card" }, el("span", { class: "muted" }, "Available to withdraw"), el("div", { class: "balance" }, naira(w.balanceKobo)),
       el("p", { class: "muted" }, "Paid only to a bank account in your own verified name."))];
 
@@ -569,6 +583,12 @@ async function draw() {
   const mine = all.filter((t) => t.cycleId === c.id);
   const drawn = ["DRAWN", "SETTLING", "ARCHIVED"].includes(c.status);
   const nodes = [el("h1", {}, "Final draw")];
+  if (c.status === "VOID") {
+    if (state.cycles.length > 1) nodes.push(el("div", { class: "chips" }, state.cycles.map((x) =>
+      el("button", { class: x.id === c.id ? "on" : "", onclick: () => { state.drawCycleId = x.id; render(); } }, x.name))));
+    nodes.push(el("div", { class: "card" }, el("span", { class: "pill grey" }, "Cancelled"), el("p"), el("p", {}, c.name), el("p", { class: "muted" }, VOID_TEXT + " There is no final draw.")));
+    return nodes;
+  }
   if (state.cycles.length > 1) {
     nodes.push(el("div", { class: "chips" }, state.cycles.map((x) =>
       el("button", { class: x.id === c.id ? "on" : "", onclick: () => { state.drawCycleId = x.id; render(); } }, x.name))));
@@ -602,6 +622,16 @@ async function draw() {
   return nodes;
 }
 
+const REFUND_TEXT = { CYCLE_VOID: "cycle cancelled", INELIGIBLE_PURCHASE: "not eligible to buy", DISPUTED_PAYMENT: "payment disputed", NO_TICKET_ISSUED: "cards sold out while paying", DUPLICATE_CHARGE: "charged twice" };
+
+async function purchasesSection() {
+  const orders = (await api.get("/v1/orders")).orders;
+  if (!orders.length) return null;
+  return el("details", { class: "card" }, el("summary", {}, `My purchases (${orders.length})`), orders.map((o) =>
+    el("div", { class: "row" }, el("div", {}, el("b", {}, `${plural(o.quantity, "card")} · ${o.cycle}`), el("small", {}, when(o.created_at))),
+      el("div", {}, el("b", {}, naira(o.amount_kobo)), el("small", {}, o.status === "REFUNDED" ? "Refunded — " + (REFUND_TEXT[o.refund_reason] ?? "refunded") : "Paid")))));
+}
+
 async function me() {
   await loadMe();
   const m = state.me;
@@ -622,6 +652,7 @@ async function me() {
         m.kycTier >= 1 ? el("span", { class: "pill" }, "Verified") : el("a", { class: "btn small", href: "#/verify" }, "Verify")),
       el("div", { class: "row" }, el("div", {}, el("b", {}, "Next of kin"), el("small", {}, m.nextOfKin ? `${m.nextOfKin.full_name} · ${m.nextOfKin.relationship}` : "Not added — needed before a big prize is claimed")))),
     el("details", { class: "card" }, el("summary", {}, m.nextOfKin ? "Change next of kin" : "Add next of kin"), nok),
+    await purchasesSection(),
     el("h2", {}, "Play within your limits"),
     el("div", { class: "card" },
       m.exclusion ? el("div", { class: "note warn" }, m.exclusion.endsAt ? "You are on a break until " + when(m.exclusion.endsAt) + "." : "You have excluded yourself from play.") : null,

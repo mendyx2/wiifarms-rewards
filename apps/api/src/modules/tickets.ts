@@ -166,7 +166,7 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
       // Paid, but the cards are gone (sold out or closed meanwhile): refund in full, automatically.
       await post(db, { kind: "REFUND", reference: `order:${order.id}:refund-due`, cycleId: order.cycle_id, debit: accounts.gatewayClearing(), credit: accounts.refundsPayable(), amountKobo: order.amount_kobo });
       const refund = await db.query<{ id: string }>(
-        "INSERT INTO refunds (payment_id, amount_kobo, reason, status) VALUES ($1, $2, 'NO_TICKET_ISSUED', 'CONFIRMED') RETURNING id", [payment.id, order.amount_kobo]);
+        "INSERT INTO refunds (payment_id, order_id, amount_kobo, reason, status) VALUES ($1, $2, $3, 'NO_TICKET_ISSUED', 'CONFIRMED') RETURNING id", [payment.id, order.id, order.amount_kobo]);
       // The simulated gateway refunds instantly; a real one confirms later by webhook.
       await post(db, { kind: "REFUND", reference: `refund:${refund.rows[0]!.id}`, cycleId: order.cycle_id, debit: accounts.refundsPayable(), credit: accounts.gatewayClearing(), amountKobo: order.amount_kobo });
       await db.query("UPDATE orders SET status = 'REFUNDED' WHERE id = $1", [order.id]);

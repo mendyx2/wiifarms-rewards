@@ -256,7 +256,8 @@ export async function listPublicCycles(ctx: Ctx): Promise<unknown[]> {
     `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days,
             (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'UNSOLD')::int AS tickets_remaining
-     FROM cycles c WHERE c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') ORDER BY c.sales_open_at DESC`);
+     FROM cycles c WHERE c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id))
+     ORDER BY c.sales_open_at DESC`);
   return r.rows;
 }
 
@@ -266,7 +267,7 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
     `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.rules_document_ref, encode(c.rules_sha256, 'hex') AS rules_sha256,
             (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'UNSOLD')::int AS tickets_remaining
-     FROM cycles c WHERE c.id = $1 AND c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED')`, [cycleId]);
+     FROM cycles c WHERE c.id = $1 AND (c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id)))`, [cycleId]);
   if (!c) throw notFound("Cycle not found.");
   const tiers = await ctx.pool.query<{ stage: string; kind: string; title: string; cash_kobo: number | null; quantity: number; draw_order: number | null }>(
     "SELECT stage, kind, title, cash_kobo, quantity, draw_order FROM prize_tiers WHERE cycle_id = $1 ORDER BY stage DESC, draw_order NULLS LAST, cash_kobo DESC", [cycleId]);
@@ -296,7 +297,8 @@ export async function listAdminCycles(ctx: Ctx, admin: Admin): Promise<unknown[]
   return (await ctx.pool.query(
     `SELECT c.id, c.name, c.status, c.mode, c.ticket_price_kobo, c.total_tickets, c.sales_open_at, c.sales_close_at, c.draw_at,
             (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status IN ('SOLD','REVEALED'))::int AS sold,
-            (SELECT count(*) FROM cycle_approvals a WHERE a.cycle_id = c.id)::int AS approvals
+            (SELECT count(*) FROM cycle_approvals a WHERE a.cycle_id = c.id)::int AS approvals,
+            EXISTS (SELECT 1 FROM cycle_void_requests v WHERE v.cycle_id = c.id AND v.status = 'PENDING') AS void_pending
      FROM cycles c ORDER BY c.created_at DESC`)).rows;
 }
 
@@ -331,6 +333,12 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
     ...c, tiers, approvals, signoffs, commitment: commitment[0] ?? null, counts: counts[0], draw: drawn[0] ?? null,
     cashCoverRequiredKobo: cashCover,
     stockCover: await stockCover(ctx, cycleId),
+    voidRequests: (await ctx.pool.query(
+      `SELECT v.id, v.reason, v.status, v.requested_at, v.requested_by, rq.full_name AS requested_by_name, v.decided_at, dc.full_name AS decided_by_name, v.decision_reason
+       FROM cycle_void_requests v JOIN admin_users rq ON rq.id = v.requested_by LEFT JOIN admin_users dc ON dc.id = v.decided_by
+       WHERE v.cycle_id = $1 ORDER BY v.requested_at DESC`, [cycleId])).rows,
+    refunds: (await one<{ n: number; kobo: number }>(ctx.pool,
+      "SELECT count(*)::int AS n, coalesce(sum(rf.amount_kobo), 0)::bigint AS kobo FROM refunds rf JOIN orders o ON o.id = rf.order_id WHERE o.cycle_id = $1 AND rf.status = 'CONFIRMED'", [cycleId]))!,
     drawTimeReached: c.draw_at.getTime() <= Date.now(),
     editable: c.status === "DRAFT" || c.status === "SUBMITTED",
   };

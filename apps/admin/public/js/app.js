@@ -167,7 +167,12 @@ async function cycle(id) {
     el("p", { class: "sub" }, `${c.mode === "SIMULATED" ? "Simulated" : c.mode} · ${num(c.total_tickets)} tickets at ${naira(c.ticket_price_kobo)} · drafted by ${c.created_by_name}`),
     el("div", { class: "flow" }, FLOW.map((s, i) => el("span", { class: i < at ? "done" : i === at ? "now" : "" }, s.charAt(0) + s.slice(1).toLowerCase()))),
   ];
-  if (!c.editable) nodes.push(el("div", { class: "lock" }, "🔒 Locked. Price, quantities, prizes, odds and dates were fixed at approval and cannot be changed by anyone."));
+  if (c.status === "VOID") {
+    const v = c.voidRequests.find((x) => x.status === "APPROVED");
+    nodes.push(el("div", { class: "note bad" }, `This cycle was cancelled${v ? ` on ${when(v.decided_at)} (requested by ${v.requested_by_name}, approved by ${v.decided_by_name}): ${v.reason}` : ""}. ` +
+      `${num(c.refunds.n)} purchases refunded in full (${naira(c.refunds.kobo)}). Instant prizes already revealed were honoured.`));
+  }
+  if (!c.editable && c.status !== "VOID") nodes.push(el("div", { class: "lock" }, "🔒 Locked. Price, quantities, prizes, odds and dates were fixed at approval and cannot be changed by anyone."));
 
   // Key facts
   nodes.push(el("div", { class: "tiles" },
@@ -267,6 +272,36 @@ async function cycle(id) {
       el("div", {}, `randomness: ${c.commitment.beacon_source}, round ${c.commitment.beacon_round} · engine ${c.commitment.game_core_version} · published ${when(c.commitment.published_at)}`)));
   }
 
+  // Cancelling the cycle (two people)
+  if (["APPROVED", "COMMITTED", "OPEN", "CLOSED"].includes(c.status)) {
+    const pending = c.voidRequests.find((x) => x.status === "PENDING");
+    const box = el("div", { class: "card" }, el("b", {}, "Cancel this cycle"),
+      el("p", { class: "sub" }, "Only for serious reasons (regulator instruction, a prize that cannot be delivered, an integrity problem). Every purchase is refunded in full to the payment it came from; instant prizes already revealed stay with their winners; reserved merchandise goes back into stock. It needs two different people and is reported to Compliance."));
+    if (pending) {
+      box.append(el("div", { class: "note bad" }, `Cancellation requested by ${pending.requested_by_name} on ${when(pending.requested_at)}: ${pending.reason}`));
+      if (can("FINANCE", "COMPLIANCE") && pending.requested_by !== me.id) {
+        box.append(el("div", { class: "actions" },
+          el("button", { class: "btn danger", onclick: action(async () => {
+            if (!confirm(`Cancel "${c.name}" and refund every purchase? This cannot be undone.`)) return;
+            const r = await post(`/v1/admin/cycles/${id}/void/decision`, { approve: true });
+            return `Cycle cancelled. ${r.refunds} purchase${r.refunds === 1 ? "" : "s"} refunded (${naira(r.refundedKobo)}).`;
+          }) }, "Approve cancellation"),
+          el("button", { class: "btn ghost", onclick: action(async () => {
+            const reason = prompt("Why should the cycle continue?"); if (!reason) return;
+            await post(`/v1/admin/cycles/${id}/void/decision`, { approve: false, reason }); return "Cancellation rejected. The cycle continues.";
+          }) }, "Reject")));
+      } else box.append(el("p", { class: "sub" }, pending.requested_by === me.id ? "Waiting for someone else in Finance or Compliance to decide." : "Waiting for Finance or Compliance to decide."));
+    } else if (can("CYCLE_MANAGER", "COMPLIANCE")) {
+      const form = el("form", { onsubmit: action(async () => { await post(`/v1/admin/cycles/${id}/void`, { reason: v(form, "reason") }); return "Cancellation requested. A second person must approve it."; }) },
+        el("div", { class: "form" }, input("Reason", { name: "reason", required: true, maxlength: 1000 }, true)),
+        el("div", { class: "actions" }, el("button", { class: "btn danger", type: "submit" }, "Request cancellation")));
+      box.append(form);
+    }
+    const past = c.voidRequests.filter((x) => x.status === "REJECTED");
+    if (past.length) box.append(el("p", { class: "sub" }, past.map((x) => `Earlier request by ${x.requested_by_name} rejected by ${x.decided_by_name}: ${x.decision_reason}`).join(" · ")));
+    nodes.push(el("h2", {}, "Cancellation"), box);
+  }
+
   // Draw console
   if (at >= FLOW.indexOf("COMMITTED")) {
     const closed = at >= FLOW.indexOf("CLOSED"), drawn = Boolean(c.draw);
@@ -301,13 +336,83 @@ async function cycle(id) {
 async function approvals() {
   const [list, pending] = await Promise.all([get("/v1/admin/cycles"), can("FINANCE", "PAYOUT_APPROVER", "COMPLIANCE", "AUDITOR") ? get("/v1/admin/payouts/pending") : { payouts: [] }]);
   const waiting = list.cycles.filter((c) => c.status === "SUBMITTED");
+  const voids = list.cycles.filter((c) => c.void_pending);
+  const refundReqs = can("FINANCE", "COMPLIANCE", "AUDITOR") ? (await get("/v1/admin/refunds?status=AWAITING_APPROVAL")).refunds : [];
   return [el("h1", {}, "Approvals"), el("p", { class: "sub" }, "Every sensitive action needs a second person. You cannot approve something you raised."),
     el("h2", {}, "Cycles awaiting approval"),
     el("div", { class: "card" }, waiting.length ? table(["Cycle", "#Tickets", "#Price", "Approvals so far", ""], waiting.map((c) =>
       el("tr", {}, td(el("b", {}, c.name)), td(num(c.total_tickets), true), td(naira(c.ticket_price_kobo), true), td(`${c.approvals} of 2`), td(el("a", { class: "btn ghost", href: "#/cycle/" + c.id }, "Review")))))
       : el("p", { class: "sub" }, "Nothing waiting.")),
     el("h2", {}, "Payouts awaiting approval"),
-    el("div", { class: "card" }, payoutsTable(pending.payouts))];
+    el("div", { class: "card" }, payoutsTable(pending.payouts)),
+    el("h2", {}, "Refunds awaiting approval"),
+    el("div", { class: "card" }, refundsTable(refundReqs)),
+    el("h2", {}, "Cycle cancellations awaiting approval"),
+    el("div", { class: "card" }, voids.length ? table(["Cycle", "Status", ""], voids.map((c) => el("tr", {}, td(el("b", {}, c.name)), td(pill(c.status, STATUS_TONE[c.status])), td(el("a", { class: "btn ghost", href: "#/cycle/" + c.id }, "Review")))))
+      : el("p", { class: "sub" }, "Nothing waiting."))];
+}
+
+const REFUND_REASON = { INELIGIBLE_PURCHASE: "Not eligible to buy", DISPUTED_PAYMENT: "Disputed payment", CYCLE_VOID: "Cycle cancelled", NO_TICKET_ISSUED: "Paid, no card issued", DUPLICATE_CHARGE: "Charged twice" };
+const REFUND_TONE = { AWAITING_APPROVAL: "gold", CONFIRMED: "", REJECTED: "grey" };
+
+function refundsTable(rows) {
+  if (!rows.length) return el("p", { class: "sub" }, "Nothing waiting.");
+  const decide = (r, approve) => action(async () => {
+    const body = { approve };
+    if (approve && !confirm(`Refund ${naira(r.amount_kobo)} and cancel ${r.quantity} card(s)? Any prizes they won are forfeited.`)) return;
+    if (!approve) { const reason = prompt("Reason for rejecting the refund:"); if (!reason) return; body.reason = reason; }
+    await post(`/v1/admin/refunds/${r.id}/decision`, body);
+    return approve ? "Refunded to the original payment. Cards cancelled." : "Refund rejected. The purchase stands.";
+  });
+  return table(["Player", "Cycle", "#Amount", "Reason", "Requested", "Status", ""], rows.map((r) =>
+    el("tr", {}, td(`${r.player_name ?? "—"} (${r.player_phone})`), td(`${r.cycle} · ${r.quantity} card${r.quantity === 1 ? "" : "s"}`), td(naira(r.amount_kobo), true),
+      td([REFUND_REASON[r.reason] ?? r.reason, r.note ? el("div", { class: "sub" }, r.note) : null]),
+      td(r.requested_by_name ? `${r.requested_by_name} · ${when(r.created_at)}` : "Automatic · " + when(r.created_at)),
+      td([pill(r.status === "AWAITING_APPROVAL" ? "Awaiting approval" : r.status.toLowerCase(), REFUND_TONE[r.status]), r.decision_reason ? el("div", { class: "sub" }, r.decision_reason) : null]),
+      td(r.status === "AWAITING_APPROVAL" && can("FINANCE") && r.requested_by !== me.id
+        ? el("div", { class: "actions" }, el("button", { class: "btn", onclick: decide(r, true) }, "Approve"), el("button", { class: "btn danger", onclick: decide(r, false) }, "Reject"))
+        : r.status === "AWAITING_APPROVAL" ? pill("Needs Finance", "gold") : ""))));
+}
+
+let lastSearch = "";
+async function refunds() {
+  if (!can("COMPLIANCE", "FINANCE", "AUDITOR", "SUPPORT")) return [el("h1", {}, "Refunds"), el("p", { class: "sub" }, "Your role does not include refunds.")];
+  const nodes = [el("h1", {}, "Refunds"),
+    el("p", { class: "sub" }, "Compliance requests a refund; Finance approves it. Money only ever goes back to the payment it came from. The purchase's cards are cancelled and any prizes they won are forfeited.")];
+  const results = el("div");
+  const search = el("form", { class: "card", onsubmit: action(async () => {
+    lastSearch = v(search, "phone");
+    const r = await get("/v1/admin/orders?phone=" + encodeURIComponent(lastSearch));
+    results.replaceChildren(ordersTable(r.orders));
+  }, false) }, el("b", {}, "Find a purchase"),
+    el("div", { class: "form" }, input("Player's phone number", { name: "phone", inputmode: "tel", required: true, value: lastSearch }), el("button", { class: "btn ghost", type: "submit" }, "Search")), results);
+  nodes.push(search);
+  if (can("COMPLIANCE", "FINANCE", "AUDITOR")) {
+    const all = (await get("/v1/admin/refunds")).refunds;
+    nodes.push(el("h2", {}, "Awaiting approval"), el("div", { class: "card" }, refundsTable(all.filter((r) => r.status === "AWAITING_APPROVAL"))),
+      el("h2", {}, "History"), el("div", { class: "card" }, refundsTable(all.filter((r) => r.status !== "AWAITING_APPROVAL"))));
+  }
+  if (lastSearch) get("/v1/admin/orders?phone=" + encodeURIComponent(lastSearch)).then((r) => results.replaceChildren(ordersTable(r.orders))).catch(() => {});
+  return nodes;
+}
+
+function ordersTable(orders) {
+  if (!orders.length) return el("p", { class: "sub" }, "No purchases found for that number.");
+  return table(["When", "Player", "Cycle", "#Cards", "#Amount", "Status", ""], orders.map((o) => {
+    let actionCell = "";
+    if (o.status === "FULFILLED" && !o.refund_status && can("COMPLIANCE")) {
+      const form = el("form", { onsubmit: action(async () => {
+        await post(`/v1/admin/orders/${o.id}/refund`, { reason: v(form, "reason"), note: v(form, "note") });
+        return "Refund requested. Finance must approve it before any money moves.";
+      }) }, el("div", { class: "form" },
+        select("Reason", "reason", [["INELIGIBLE_PURCHASE", "Not eligible to buy"], ["DISPUTED_PAYMENT", "Disputed payment"]]),
+        input("Note (required)", { name: "note", required: true, maxlength: 1000 }),
+        el("button", { class: "btn danger", type: "submit" }, "Request refund")));
+      actionCell = form;
+    }
+    return el("tr", {}, td(when(o.created_at)), td(`${o.player_name ?? "—"} (${o.player_phone})`), td(o.cycle), td(num(o.quantity), true), td(naira(o.amount_kobo), true),
+      td([pill(o.status.toLowerCase(), o.status === "FULFILLED" ? "" : "grey"), o.refund_status ? el("div", { class: "sub" }, `refund: ${o.refund_status.toLowerCase().replace("_", " ")}`) : null]), td(actionCell));
+  }));
 }
 
 function payoutsTable(payouts) {
@@ -467,7 +572,7 @@ async function auditPage() {
 
 // --- Router ------------------------------------------------------------------------------------
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, merchandise, audit: auditPage };
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, merchandise, audit: auditPage };
 let renderId = 0;
 
 async function render() {
@@ -495,7 +600,8 @@ async function render() {
   }
   // Badge: things waiting for a second person.
   get("/v1/admin/cycles").then(async (l) => {
-    let n = l.cycles.filter((c) => c.status === "SUBMITTED").length;
+    let n = l.cycles.filter((c) => c.status === "SUBMITTED" || c.void_pending).length;
+    if (can("FINANCE", "COMPLIANCE", "AUDITOR")) n += (await get("/v1/admin/refunds?status=AWAITING_APPROVAL")).refunds.length;
     if (can("FINANCE", "PAYOUT_APPROVER", "COMPLIANCE", "AUDITOR")) n += (await get("/v1/admin/payouts/pending")).payouts.length;
     const badge = document.getElementById("apCount");
     badge.hidden = n === 0; badge.textContent = n;
