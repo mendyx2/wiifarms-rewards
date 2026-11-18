@@ -14,6 +14,7 @@ import * as refunds from "./modules/refunds.ts";
 import * as finance from "./modules/finance.ts";
 import * as archive from "./modules/archive.ts";
 import * as notifications from "./modules/notify.ts";
+import * as governance from "./modules/governance.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -340,6 +341,33 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { code: string; photoRef: string; warrantyDocumentRef?: string } }>("/v1/admin/fulfilment/:id/handover", {
     schema: { ...idParam, ...body({ code: str(6), photoRef: str(200), warrantyDocumentRef: str(200) }, ["warrantyDocumentRef"]) },
   }, async (req) => { authLimit(req.ip); return inventory.confirmHandover(ctx, await staff(req), req.params.id, req.body); });
+  // ---- Staff access (two security administrators) ----
+  app.get("/v1/admin/staff", async (req) => governance.listStaff(ctx, await staff(req)));
+  app.post<{ Body: { email: string; fullName: string } }>("/v1/admin/staff", { schema: body({ email: str(200), fullName: str(120) }) },
+    async (req) => governance.createStaff(ctx, await staff(req), req.body));
+  app.post<{ Body: { adminUserId: string; action: "GRANT_ROLE" | "REVOKE_ROLE" | "ENABLE"; role?: admin.Role; reason: string } }>("/v1/admin/staff/requests", {
+    schema: body({ adminUserId: uuid, action: { enum: ["GRANT_ROLE", "REVOKE_ROLE", "ENABLE"] }, role: { enum: governance.ROLES }, reason: str(500) }, ["role"]),
+  }, async (req) => governance.requestAccessChange(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/staff/requests/:id/decision", {
+    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
+  }, async (req) => governance.decideAccessChange(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+  app.post<{ Params: { id: string }; Body: { reason: string } }>("/v1/admin/staff/:id/disable", { schema: { ...idParam, ...body({ reason: str(500) }) } },
+    async (req) => governance.disableStaff(ctx, await staff(req), req.params.id, req.body.reason));
+
+  // ---- Licences and certifications (recorded by one person, verified by another) ----
+  app.get("/v1/admin/licensing", async (req) => governance.listRecords(ctx, await staff(req)));
+  app.post<{ Body: governance.NewLicence }>("/v1/admin/licences", {
+    schema: body({ stateCode: { enum: ["NG-NI"] }, authority: str(200), licenceNumber: str(80), validFrom: str(10), validTo: str(10), documentRef: str(200) }),
+  }, async (req) => governance.recordLicence(ctx, await staff(req), req.body));
+  app.post<{ Body: governance.NewCertification }>("/v1/admin/certifications", {
+    schema: body({ component: { enum: ["GAME_CORE", "DRAW", "PLATFORM_SECURITY"] }, componentVersion: str(80), lab: str(200), certificateRef: str(200), validFrom: str(10), validTo: str(10) }, ["validTo"]),
+  }, async (req) => governance.recordCertification(ctx, await staff(req), req.body));
+  for (const table of ["licences", "certifications"] as const) {
+    app.post<{ Params: { id: string } }>(`/v1/admin/${table}/:id/verify`, { schema: idParam }, async (req) => governance.verifyRecord(ctx, await staff(req), table, req.params.id));
+    app.post<{ Params: { id: string }; Body: { reason: string } }>(`/v1/admin/${table}/:id/revoke`, { schema: { ...idParam, ...body({ reason: str(500) }) } },
+      async (req) => governance.revokeRecord(ctx, await staff(req), table, req.params.id, req.body.reason));
+  }
+
   app.get("/v1/admin/messages", async (req) => notifications.messageLog(ctx, await staff(req)));
   app.get("/v1/admin/compliance", async (req) => admin.compliance(ctx, await staff(req)));
   app.get("/v1/admin/cycles", async (req) => ({ cycles: await cycles.listAdminCycles(ctx, await staff(req)) }));

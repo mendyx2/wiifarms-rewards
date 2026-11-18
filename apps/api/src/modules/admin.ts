@@ -153,7 +153,7 @@ export async function compliance(ctx: Ctx, admin: Admin): Promise<unknown> {
   const exclusions = await one<{ n: number }>(ctx.pool, "SELECT count(DISTINCT user_id)::int AS n FROM self_exclusions WHERE starts_at <= now() AND (ends_at IS NULL OR ends_at > now())");
   const gate = await one<{ licences: number; certifications: number }>(
     ctx.pool,
-    `SELECT (SELECT count(*) FROM licences WHERE current_date BETWEEN valid_from AND valid_to)::int AS licences,
-            (SELECT count(*) FROM certifications WHERE current_date >= valid_from AND (valid_to IS NULL OR current_date <= valid_to))::int AS certifications`);
+    `SELECT (SELECT count(*) FROM licences WHERE status = 'VERIFIED' AND current_date BETWEEN valid_from AND valid_to)::int AS licences,
+            (SELECT count(*) FROM certifications WHERE status = 'VERIFIED' AND current_date >= valid_from AND (valid_to IS NULL OR current_date <= valid_to))::int AS certifications`);
   return { alerts: alerts.rows, register: register.rows, activeSelfExclusions: exclusions!.n, realMoneyGate: gate };
 }

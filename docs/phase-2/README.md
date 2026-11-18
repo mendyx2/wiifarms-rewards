@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 20 tests, run repeatedly without failure, including twice with the processor saturated:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 21 tests, run repeatedly without failure, including twice with the processor saturated:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -101,7 +101,7 @@ Buttons appear only for roles that may use them, but that is convenience: every 
 
 Checked in a real browser with six administrators signing in turn: draft through the form; drafter refused when approving their own cycle; finance refused without evidence and with escrow ₦1 short; locked after approval; tickets generated and sales opened; a player bought; sign-off buttons absent before close; execute disabled with one sign-off; payout approver offered no draw buttons; auditor could countersign but not execute; draw executed once and the button disappeared; a ₦20,000 payout held, rejected (money returned), re-requested and approved by the payout approver while finance was offered no approve button; exclusion register entry added by compliance and hidden from the auditor; audit trail intact; no script errors; no sideways scrolling at phone width. As with the player app, this browser run is a manual check script, not yet in the automated suite.
 
-Still missing from the admin app: reconciliation and financial reports, recording licences and certifications, managing administrators and roles (currently set up directly in the database), customer support views. In production it must be served from its own restricted address rather than alongside the player app.
+Still missing from the admin app: customer support views. In production it must be served from its own restricted address rather than alongside the player app.
 
 ## Merchandise
 
@@ -188,6 +188,26 @@ Messages are written into an outbox **in the same database transaction as the ev
 - **Nothing secret in a text:** no PIN, no handover code; one-time sign-in codes go straight to the provider and are stored nowhere. Every text ends "We will never ask for your PIN." Texts use only standard SMS characters ("N" for naira), which keeps each message to one part and the cost down.
 - **Screens:** the player app has a message bell with an unread count and an inbox whose messages open the right screen; the admin app's Audit & compliance page shows every text with its status for Support and Compliance.
 - *Not yet:* WhatsApp, languages other than English, and a real SMS provider (the simulated one keeps messages in memory).
+
+## Staff access, licences and certifications
+
+New **Access & licences** page in the admin app.
+
+**Staff access** (security administrators act; Compliance and auditors can see who has what):
+- A security administrator creates a staff account. It starts with **no roles**.
+- Giving or removing a role, or re-enabling an account, is a request that **a different security administrator** approves. Nobody can request or approve a change to their own access — the database refuses it too.
+- Roles that would let one person both do and approve the same thing (finance with payout approval; auditor or security administrator with anything else) are refused with a plain explanation.
+- **Disabling** an account needs one person and takes effect at once: every session ends immediately. This is for a lost laptop, a leaver or a suspected compromise.
+- There must always be **at least two security administrators**, or the two-person rule could no longer work; the system refuses any change that would break this.
+- Every request and decision is kept, with reasons.
+
+*Bootstrap:* the first two security administrators are created once, directly in the database, when an environment is set up (the demo seed does this). Everything after that goes through the page.
+
+**Licences and certifications** (Compliance records; Compliance or Finance verifies; auditors can see):
+- Compliance records each licence (authority, number, dates, document) and each certificate (component, exact version, lab, dates).
+- **Someone else** checks the original document and verifies it. Only verified, in-date, unrevoked records count towards the real-money gate — and the database now enforces exactly that, so a record that is merely typed in cannot open real-money sales.
+- Records cannot be edited or deleted. Revoking takes effect at once, needs a reason and raises a Compliance alert.
+- The page shows whether the Niger State licence is in force and whether the exact engine version is certified. Real-money sales stay unavailable in Phase 2 regardless, because no payment provider is connected.
 
 ## Differences from the Phase 1 plan
 

@@ -1059,3 +1059,109 @@ test("notifications: every event tells the right person once, texts respect dayt
   assert.equal(log.failed, 1);
   fails(await api("GET", "/v1/admin/messages", { token: admins.finance!.token }), 403, "ROLE_REQUIRED");
 });
+
+test("staff access and licensing: two security administrators for any change, verified records only for the real-money gate", async () => {
+  const sec = admins.security!.token, sec2 = admins.security2!.token;
+  fails(await api("GET", "/v1/admin/staff", { token: admins.finance!.token }), 403, "ROLE_REQUIRED");
+  assert.ok(ok(await api("GET", "/v1/admin/staff", { token: admins.auditor!.token })).staff.length >= 10); // auditors can see who has access
+
+  // A new account starts with no roles at all.
+  fails(await api("POST", "/v1/admin/staff", { token: admins.compliance!.token, body: { email: "new@example.test", fullName: "New Person" } }), 403, "ROLE_REQUIRED");
+  const newbie = ok(await api("POST", "/v1/admin/staff", { token: sec, body: { email: "New@Example.test", fullName: "New Person" } }));
+  fails(await api("POST", "/v1/admin/staff", { token: sec, body: { email: "new@example.test", fullName: "Again" } }), 409, "EMAIL_IN_USE");
+  const signIn = async (email: string) => api("POST", "/v1/admin/dev-login", { body: { email } });
+  let nt = ok(await signIn("new@example.test")).token;
+  fails(await api("GET", "/v1/admin/dashboard", { token: nt }), 403, "ROLE_REQUIRED");
+
+  // Granting a role: one security administrator asks, another decides.
+  const req = (token: string, b: object) => api("POST", "/v1/admin/staff/requests", { token, body: b });
+  const decide = (token: string, id: string, b: object) => api("POST", `/v1/admin/staff/requests/${id}/decision`, { token, body: b });
+  const g = ok(await req(sec, { adminUserId: newbie.id, action: "GRANT_ROLE", role: "FINANCE", reason: "New finance officer" }));
+  fails(await req(sec, { adminUserId: newbie.id, action: "GRANT_ROLE", role: "FINANCE", reason: "again" }), 409, "ALREADY_REQUESTED");
+  fails(await decide(sec, g.id, { approve: true }), 403, "SAME_PERSON");
+  assert.deepEqual(ok(await api("GET", "/v1/admin/me", { token: nt })).roles, []); // nothing yet
+  assert.equal(ok(await decide(sec2, g.id, { approve: true })).status, "APPROVED");
+  fails(await decide(sec2, g.id, { approve: true }), 409, "ALREADY_DECIDED");
+  assert.deepEqual(ok(await api("GET", "/v1/admin/me", { token: nt })).roles, ["FINANCE"]);
+  // Separation of duties holds: finance cannot also approve payouts.
+  const clash = await req(sec, { adminUserId: newbie.id, action: "GRANT_ROLE", role: "PAYOUT_APPROVER", reason: "help out" });
+  fails(clash, 409, "ROLE_CONFLICT");
+  assert.match(clash.body.error.message, /cannot be held together with finance/);
+  // Nobody can change their own access, even directly in the database.
+  fails(await req(sec, { adminUserId: admins.security!.id, action: "GRANT_ROLE", role: "COMPLIANCE", reason: "me" }), 403, "OWN_ACCESS");
+  await assert.rejects(pool.query("INSERT INTO admin_access_requests (admin_user_id, action, role, reason, requested_by) VALUES ($1, 'GRANT_ROLE', 'FINANCE', 'x', $1)", [admins.security!.id]));
+  // A rejected request changes nothing.
+  const rv = ok(await req(sec, { adminUserId: newbie.id, action: "REVOKE_ROLE", role: "FINANCE", reason: "Moved team" }));
+  fails(await decide(sec2, rv.id, { approve: false }), 400, "REASON_REQUIRED");
+  assert.equal(ok(await decide(sec2, rv.id, { approve: false, reason: "Still needed this quarter" })).status, "REJECTED");
+  assert.deepEqual(ok(await api("GET", "/v1/admin/me", { token: nt })).roles, ["FINANCE"]);
+
+  // There must always be two security administrators.
+  fails(await api("POST", `/v1/admin/staff/${admins.security2!.id}/disable`, { token: sec, body: { reason: "test" } }), 409, "LAST_SECURITY_ADMINS");
+  fails(await api("POST", `/v1/admin/staff/${admins.security!.id}/disable`, { token: sec, body: { reason: "test" } }), 403, "OWN_ACCESS");
+
+  // Disabling is immediate and needs one person; it ends every session at once. Re-enabling needs two.
+  fails(await api("POST", `/v1/admin/staff/${newbie.id}/disable`, { token: sec, body: { reason: " " } }), 400, "REASON_REQUIRED");
+  ok(await api("POST", `/v1/admin/staff/${newbie.id}/disable`, { token: sec, body: { reason: "Laptop reported stolen" } }));
+  fails(await api("GET", "/v1/admin/me", { token: nt }), 401, "UNAUTHENTICATED");
+  fails(await signIn("new@example.test"), 401, "UNAUTHENTICATED");
+  const en = ok(await req(sec, { adminUserId: newbie.id, action: "ENABLE", reason: "New laptop issued" }));
+  fails(await decide(sec, en.id, { approve: true }), 403, "SAME_PERSON");
+  ok(await decide(sec2, en.id, { approve: true }));
+  nt = ok(await signIn("new@example.test")).token;
+  assert.deepEqual(ok(await api("GET", "/v1/admin/me", { token: nt })).roles, ["FINANCE"]);
+  const actions = (await pool.query("SELECT action FROM audit_log WHERE entity_id = $1", [newbie.id])).rows.map((r: any) => r.action);
+  for (const a of ["access.staff_created", "access.change_requested", "access.change_approved", "access.change_rejected", "access.staff_disabled"]) assert.ok(actions.includes(a), a);
+
+  // --- Licences and certifications: recorded by Compliance, verified by someone else ---
+  const ct = admins.compliance!.token, fin = admins.finance!.token;
+  fails(await api("POST", "/v1/admin/licences", { token: fin, body: { stateCode: "NG-NI", authority: "x", licenceNumber: "x", validFrom: "2026-01-01", validTo: "2027-01-01", documentRef: "x" } }), 403, "ROLE_REQUIRED");
+  fails(await api("POST", "/v1/admin/licences", { token: ct, body: { stateCode: "NG-NI", authority: "x", licenceNumber: "x", validFrom: "2027-01-01", validTo: "2026-01-01", documentRef: "x" } }), 400, "INVALID_DATE");
+  const today = new Date().toISOString().slice(0, 10), nextYear = new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10);
+  const lic = ok(await api("POST", "/v1/admin/licences", { token: ct, body: { stateCode: "NG-NI", authority: "Niger State lottery authority (test)", licenceNumber: "NSL-TEST-1", validFrom: today, validTo: nextYear, documentRef: "docs/licence-test.pdf" } }));
+  const cert = ok(await api("POST", "/v1/admin/certifications", { token: ct, body: { component: "GAME_CORE", componentVersion: "game-core@0.1.0", lab: "Test lab", certificateRef: "CERT-1", validFrom: today } }));
+  let gate = ok(await api("GET", "/v1/admin/licensing", { token: admins.auditor!.token })).gate;
+  assert.deepEqual(gate, { state: "NG-NI", licenceInForce: false, engineCertified: false, realMoneyAvailable: false }); // recorded is not enough
+
+  // Even working directly in the database, a real-money cycle cannot open until both records are verified.
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const cy = (await db.query(`INSERT INTO cycles (name, mode, ticket_price_kobo, total_tickets, max_tickets_per_account, sales_open_at, sales_close_at, draw_at, created_by)
+      VALUES ('Real money test', 'REAL_MONEY', 20000, 10, 5, now() - interval '1 minute', now() + interval '1 day', now() + interval '1 day', $1) RETURNING id`, [admins.manager!.id])).rows[0].id;
+    await db.query("UPDATE cycles SET status = 'SUBMITTED' WHERE id = $1", [cy]);
+    await db.query("INSERT INTO cycle_approvals (cycle_id, approver_id, capacity) VALUES ($1, $2, 'OPERATIONS'), ($1, $3, 'FINANCE')", [cy, admins.manager2!.id, admins.finance!.id]);
+    await db.query(`UPDATE cycles SET status = 'APPROVED', financial_model_ref = 'fm', rules_document_ref = 'r', rules_sha256 = sha256('r'), auditor_admin_id = $2,
+      escrow_reference = 'E', escrow_funded_kobo = 0 WHERE id = $1`, [cy, admins.auditor!.id]);
+    await db.query("INSERT INTO cycle_commitments (cycle_id, game_core_version, ticket_merkle_root, prize_table_sha256, draw_secret_commitment, kms_key_ref) VALUES ($1, 'game-core@0.1.0', sha256('a'), sha256('b'), sha256('c'), 'k')", [cy]);
+    await db.query("UPDATE cycles SET status = 'COMMITTED' WHERE id = $1", [cy]);
+    const tryOpen = async () => {
+      await db.query("SAVEPOINT s");
+      try { await db.query("UPDATE cycles SET status = 'OPEN' WHERE id = $1", [cy]); return "OPEN"; }
+      catch (e) { return (e as Error).message; }
+      finally { await db.query("ROLLBACK TO SAVEPOINT s"); }
+    };
+    assert.match(await tryOpen(), /no verified licence/);
+
+    fails(await api("POST", `/v1/admin/licences/${lic.id}/verify`, { token: ct }), 403, "SAME_PERSON");
+    fails(await api("POST", `/v1/admin/licences/${lic.id}/verify`, { token: admins.approver!.token }), 403, "ROLE_REQUIRED");
+    ok(await api("POST", `/v1/admin/licences/${lic.id}/verify`, { token: fin }));
+    fails(await api("POST", `/v1/admin/licences/${lic.id}/verify`, { token: fin }), 409, "NOT_PENDING");
+    assert.match(await tryOpen(), /no verified certification/);
+    ok(await api("POST", `/v1/admin/certifications/${cert.id}/verify`, { token: fin }));
+    assert.equal(await tryOpen(), "OPEN"); // both verified: the gate opens (the API still cannot take real money in Phase 2)
+
+    fails(await api("POST", `/v1/admin/licences/${lic.id}/revoke`, { token: ct, body: { reason: " " } }), 400, "REASON_REQUIRED");
+    ok(await api("POST", `/v1/admin/licences/${lic.id}/revoke`, { token: ct, body: { reason: "Authority suspended the licence" } }));
+    assert.match(await tryOpen(), /no verified licence/); // revoked: shut again
+    await db.query("ROLLBACK");
+  } finally { db.release(); }
+
+  gate = ok(await api("GET", "/v1/admin/licensing", { token: ct })).gate;
+  assert.deepEqual([gate.licenceInForce, gate.engineCertified, gate.realMoneyAvailable], [false, true, false]);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'LICENCE_REVOKED' AND entity_id = $1", [lic.id])).rows[0].n, 1);
+  // The records themselves cannot be rewritten or removed.
+  await assert.rejects(pool.query("UPDATE licences SET valid_to = '2099-01-01' WHERE id = $1", [lic.id]), /cannot be changed/);
+  await assert.rejects(pool.query("UPDATE licences SET status = 'VERIFIED' WHERE id = $1", [lic.id]), /cannot be changed/);
+  await assert.rejects(pool.query("DELETE FROM certifications WHERE id = $1", [cert.id]), /cannot be deleted/);
+});

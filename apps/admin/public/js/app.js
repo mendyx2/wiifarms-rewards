@@ -221,6 +221,115 @@ async function finance() {
   return nodes;
 }
 
+const ACCESS_TEXT = { GRANT_ROLE: "Give role", REVOKE_ROLE: "Remove role", ENABLE: "Re-enable account" };
+
+async function access() {
+  const nodes = [el("h1", {}, "Access & licences")];
+  const sec = can("SECURITY_ADMIN");
+
+  // --- Staff access ---
+  if (can("SECURITY_ADMIN", "COMPLIANCE", "AUDITOR")) {
+    const s = await get("/v1/admin/staff");
+    const roleName = (r) => ROLE_TEXT[r] ?? r;
+    nodes.push(el("h2", {}, "Staff access"),
+      el("p", { class: "sub" }, "Changing anyone's access needs two security administrators, and nobody can change their own. Disabling an account is immediate and signs it out everywhere; re-enabling needs two people. There must always be at least two security administrators."));
+    const pending = s.requests.filter((q) => q.status === "PENDING");
+    if (pending.length) {
+      nodes.push(el("div", { class: "card" }, el("b", {}, "Waiting for a decision"), table(["Person", "Change", "Reason", "Requested by", ""], pending.map((q) =>
+        el("tr", {}, td(q.target_name), td(ACCESS_TEXT[q.action] + (q.role ? `: ${roleName(q.role)}` : "")), td(q.reason), td(`${q.requested_by_name} · ${when(q.requested_at)}`),
+          td(sec && q.requested_by !== me.id && q.admin_user_id !== me.id ? el("div", { class: "actions" },
+            el("button", { class: "btn", onclick: action(async () => { await post(`/v1/admin/staff/requests/${q.id}/decision`, { approve: true }); return "Approved. The change is in effect."; }) }, "Approve"),
+            el("button", { class: "btn danger", onclick: action(async () => {
+              const reason = prompt("Reason for rejecting:"); if (!reason) return;
+              await post(`/v1/admin/staff/requests/${q.id}/decision`, { approve: false, reason }); return "Rejected. Nothing changed.";
+            }) }, "Reject")) : pill(q.requested_by === me.id ? "Needs another security admin" : "Needs a security admin", "gold")))))));
+    }
+    nodes.push(el("div", { class: "card" }, table(["Person", "Roles", "Status", "Last sign-in", ""], s.staff.map((a) => {
+      let actions = "";
+      if (sec && a.id !== me.id) {
+        const form = el("form", { onsubmit: action(async () => {
+          const [act, role] = v(form, "change").split(":");
+          await post("/v1/admin/staff/requests", { adminUserId: a.id, action: act, ...(role ? { role } : {}), reason: v(form, "reason") });
+          return "Request made. Another security administrator must approve it.";
+        }) }, el("div", { class: "form" },
+          select("Change", "change", a.status === "DISABLED" ? [["ENABLE", "Re-enable account"]]
+            : [...s.roles.filter((r) => !a.roles.includes(r)).map((r) => [`GRANT_ROLE:${r}`, `Give: ${roleName(r)}`]), ...a.roles.map((r) => [`REVOKE_ROLE:${r}`, `Remove: ${roleName(r)}`])]),
+          input("Reason", { name: "reason", required: true, maxlength: 500 }), el("button", { class: "btn ghost", type: "submit" }, "Request")),
+          a.status === "ACTIVE" ? el("div", { class: "actions" }, el("button", { class: "btn danger", type: "button", onclick: action(async () => {
+            const reason = prompt(`Disable ${a.full_name} now? They are signed out everywhere at once. Reason:`); if (!reason) return;
+            await post(`/v1/admin/staff/${a.id}/disable`, { reason }); return `${a.full_name} disabled and signed out.`;
+          }) }, "Disable now")) : null);
+        actions = el("details", {}, el("summary", {}, "Change access"), form);
+      }
+      return el("tr", {}, td([el("b", {}, a.full_name), el("div", { class: "sub" }, a.email)]), td(a.roles.length ? a.roles.map((r) => pill(roleName(r), r === "SECURITY_ADMIN" ? "gold" : "")) : el("span", { class: "sub" }, "No roles")),
+        td(a.status === "ACTIVE" ? pill("Active") : pill("Disabled", "red")), td(when(a.last_sign_in)), td(a.id === me.id ? el("span", { class: "sub" }, "You") : actions));
+    }))));
+    if (sec) {
+      const form = el("form", { class: "card", onsubmit: action(async () => {
+        await post("/v1/admin/staff", { email: v(form, "email"), fullName: v(form, "name") });
+        return "Account created with no roles. Request the roles it needs above.";
+      }) }, el("b", {}, "New staff account"), el("p", { class: "sub" }, "The account starts with no roles. In the live service it signs in through company single sign-on."),
+        el("div", { class: "form" }, input("Full name", { name: "name", required: true }), input("Work email", { name: "email", type: "email", required: true }), el("button", { class: "btn ghost", type: "submit" }, "Create account")));
+      nodes.push(form);
+    }
+    const decided = s.requests.filter((q) => q.status !== "PENDING");
+    if (decided.length) nodes.push(el("details", { class: "card" }, el("summary", {}, `History of access changes (${decided.length})`), table(["When", "Person", "Change", "Requested by", "Decision"], decided.map((q) =>
+      el("tr", {}, td(when(q.decided_at)), td(q.target_name), td([ACCESS_TEXT[q.action] + (q.role ? `: ${roleName(q.role)}` : ""), el("div", { class: "sub" }, q.reason)]), td(q.requested_by_name),
+        td([pill(q.status.toLowerCase(), q.status === "APPROVED" ? "" : "grey"), el("div", { class: "sub" }, `${q.decided_by_name}${q.decision_reason ? ": " + q.decision_reason : ""}`)]))))));
+  }
+
+  // --- Licences and certifications ---
+  if (can("COMPLIANCE", "FINANCE", "AUDITOR", "SECURITY_ADMIN")) {
+    const L = await get("/v1/admin/licensing");
+    const state = (x) => x.status === "REVOKED" ? pill("Revoked", "red") : x.status === "PENDING" ? pill("Awaiting verification", "gold") : x.in_force ? pill("In force") : pill("Verified, not in date", "grey");
+    const verifyBtn = (kind, x) => x.status === "PENDING" && can("COMPLIANCE", "FINANCE") && x.recorded_by !== me.id
+      ? el("button", { class: "btn", onclick: action(async () => {
+        if (!confirm("Have you checked the original document and its details? Verifying makes this record count towards the real-money gate.")) return;
+        await post(`/v1/admin/${kind}/${x.id}/verify`); return "Verified.";
+      }) }, "Verify") : null;
+    const revokeBtn = (kind, x) => x.status !== "REVOKED" && can("COMPLIANCE") ? el("button", { class: "btn danger", onclick: action(async () => {
+      const reason = prompt("Reason for revoking (takes effect at once):"); if (!reason) return;
+      await post(`/v1/admin/${kind}/${x.id}/revoke`, { reason }); return "Revoked. A Compliance alert has been raised.";
+    }) }, "Revoke") : null;
+    const who = (x) => el("div", { class: "sub" }, `Recorded by ${x.recorded_by_name}` + (x.verified_by_name ? ` · verified by ${x.verified_by_name}` : "") + (x.revoke_reason ? ` · revoked: ${x.revoke_reason}` : ""));
+    nodes.push(el("h2", {}, "Licences and certifications"),
+      el("div", { class: "tiles" },
+        el("div", { class: "tile " + (L.gate.licenceInForce ? "ok" : "warn") }, el("span", {}, "Niger State licence"), el("b", {}, L.gate.licenceInForce ? "In force" : "None in force")),
+        el("div", { class: "tile " + (L.gate.engineCertified ? "ok" : "warn") }, el("span", {}, "Game engine certification"), el("b", {}, L.gate.engineCertified ? "Certified" : "Not certified"), el("small", {}, L.currentEngineVersion)),
+        el("div", { class: "tile warn" }, el("span", {}, "Real-money sales"), el("b", {}, "Not available"), el("small", {}, "Phase 2 is simulation only, whatever the records say"))),
+      el("p", { class: "sub" }, "Compliance records each licence and certificate with its document; someone else in Compliance or Finance checks the original and verifies it. Only verified, in-date, unrevoked records open the real-money gate, and the database enforces this. Records cannot be edited or deleted; revoking takes effect at once."),
+      el("div", { class: "card" }, el("b", {}, "Licences"), L.licences.length ? table(["Licence", "Valid", "Document", "Status", ""], L.licences.map((x) =>
+        el("tr", {}, td([el("b", {}, x.licence_number), el("div", { class: "sub" }, `${x.authority} · ${x.state_code === "NG-NI" ? "Niger State" : x.state_code}`), who(x)]), td(`${x.valid_from} to ${x.valid_to}`), td(el("span", { class: "mono" }, x.document_ref)),
+          td(state(x)), td(el("div", { class: "actions" }, verifyBtn("licences", x), revokeBtn("licences", x))))))
+        : el("p", { class: "sub" }, "No licence recorded.")),
+      el("div", { class: "card" }, el("b", {}, "Certifications"), L.certifications.length ? table(["Certificate", "Component", "Valid", "Status", ""], L.certifications.map((x) =>
+        el("tr", {}, td([el("b", {}, x.certificate_ref), el("div", { class: "sub" }, x.lab), who(x)]), td([x.component.replace("_", " ").toLowerCase(), el("div", { class: "mono" }, x.component_version)]),
+          td(`${x.valid_from} to ${x.valid_to ?? "no end date"}`), td(state(x)), td(el("div", { class: "actions" }, verifyBtn("certifications", x), revokeBtn("certifications", x))))))
+        : el("p", { class: "sub" }, "No certification recorded.")));
+    if (can("COMPLIANCE")) {
+      const lf = el("form", { class: "card", onsubmit: action(async () => {
+        await post("/v1/admin/licences", { stateCode: "NG-NI", authority: v(lf, "authority"), licenceNumber: v(lf, "number"), validFrom: v(lf, "from"), validTo: v(lf, "to"), documentRef: v(lf, "doc") });
+        return "Licence recorded. Someone else must verify it.";
+      }) }, el("b", {}, "Record a licence (Niger State)"), el("div", { class: "form" },
+        input("Issuing authority", { name: "authority", required: true }), input("Licence number", { name: "number", required: true }),
+        input("Valid from", { name: "from", type: "date", required: true }), input("Valid to", { name: "to", type: "date", required: true }),
+        input("Document reference", { name: "doc", required: true }), el("button", { class: "btn ghost", type: "submit" }, "Record licence")));
+      const cf = el("form", { class: "card", onsubmit: action(async () => {
+        const b = { component: v(cf, "component"), componentVersion: v(cf, "version"), lab: v(cf, "lab"), certificateRef: v(cf, "ref"), validFrom: v(cf, "from") };
+        if (v(cf, "to")) b.validTo = v(cf, "to");
+        await post("/v1/admin/certifications", b); return "Certification recorded. Someone else must verify it.";
+      }) }, el("b", {}, "Record a certification"), el("div", { class: "form" },
+        select("Component", "component", [["GAME_CORE", "Game engine"], ["DRAW", "Final draw"], ["PLATFORM_SECURITY", "Platform security"]]),
+        input("Exact version certified", { name: "version", required: true, value: L.currentEngineVersion }), input("Test lab", { name: "lab", required: true }),
+        input("Certificate reference", { name: "ref", required: true }), input("Valid from", { name: "from", type: "date", required: true }), input("Valid to (if any)", { name: "to", type: "date" }),
+        el("button", { class: "btn ghost", type: "submit" }, "Record certification")));
+      nodes.push(el("div", { class: "grid2" }, lf, cf));
+    }
+  }
+  if (nodes.length === 1) nodes.push(el("p", { class: "sub" }, "Your role does not include access or licensing."));
+  return nodes;
+}
+
 async function dashboard() {
   const d = await get("/v1/admin/dashboard");
   const live = d.cycles.find((c) => ["OPEN", "CLOSED", "DRAWN", "SETTLING"].includes(c.status)) ?? d.cycles[0];
@@ -740,7 +849,7 @@ async function auditPage() {
 
 // --- Router ------------------------------------------------------------------------------------
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, finance, merchandise, audit: auditPage };
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, finance, merchandise, audit: auditPage, access };
 let renderId = 0;
 
 async function render() {
