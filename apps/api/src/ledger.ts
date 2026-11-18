@@ -11,6 +11,8 @@ export interface AccountRef {
 
 export const accounts = {
   gatewayClearing: (): AccountRef => ({ code: "GATEWAY_CLEARING", kind: "ASSET" }),
+  companyBank: (): AccountRef => ({ code: "COMPANY_BANK", kind: "ASSET" }),
+  operatingExpense: (category: string): AccountRef => ({ code: `OPEX:${category}`, kind: "EXPENSE" }),
   refundsPayable: (): AccountRef => ({ code: "REFUNDS_PAYABLE", kind: "LIABILITY" }),
   payoutsInTransit: (): AccountRef => ({ code: "PAYOUTS_IN_TRANSIT", kind: "LIABILITY" }),
   ticketRevenue: (cycleId: string): AccountRef => ({ code: `TICKET_REVENUE:${cycleId}`, kind: "REVENUE", cycleId }),
@@ -33,7 +35,7 @@ async function accountId(db: Db, a: AccountRef): Promise<string> {
 }
 
 export interface Posting {
-  kind: "TICKET_SALE" | "INSTANT_PRIZE" | "DRAW_PRIZE" | "PAYOUT" | "PAYOUT_REVERSAL" | "REFUND" | "ADJUSTMENT";
+  kind: "TICKET_SALE" | "INSTANT_PRIZE" | "DRAW_PRIZE" | "PAYOUT" | "PAYOUT_REVERSAL" | "REFUND" | "ADJUSTMENT" | "EXPENSE" | "EXPENSE_REVERSAL";
   /** Unique name of the business event. Posting the same reference twice is rejected by the database. */
   reference: string;
   cycleId?: string | undefined;

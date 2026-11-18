@@ -1,6 +1,6 @@
 # Phase 2 — minimum viable platform (simulated money only)
 
-Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Notifications, reports and archiving remain.
+Status as of 12 November 2026: **backend, player web app and admin web app complete for the core journey, including merchandise, and tested end to end.** Notifications and archiving remain.
 
 Nothing in this phase can take real money. There is no payment-gateway integration, every cycle is created in `SIMULATED` mode, the API has no setting that changes this, and the database separately refuses to open a real-money cycle without a licence and certification record.
 
@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 16 tests, run repeatedly without failure:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 17 tests, run repeatedly without failure:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -133,6 +133,24 @@ Players see cancelled cards marked "Cancelled · price refunded", a "My purchase
 
 Checked in real browsers: Compliance found a purchase by phone and requested a refund and was not offered the approve button; Finance saw the badge, approved from the Approvals page; the player saw three cancelled cards, the explanation and "Refunded — not eligible to buy". A cycle manager requested cancellation and was not offered approval; a payout approver was not offered it either; Compliance approved; the cycle page, the player's home page and draw page all showed the cancellation. No script errors, no sideways scrolling at phone width.
 
+## Finance: reconciliation, expenses and reports
+
+New **Finance** page in the admin app (Finance can act; auditors and Compliance can view).
+
+**Daily reconciliation.** For each day (Nigerian time), money through the payment provider is counted twice, independently: from the payment, refund and payout records, and from the ledger. Finance can also enter the totals from the provider's own statement. Any difference marks the day as a mismatch and raises one Compliance alert. Yesterday is reconciled automatically every hour until signed off; days with money movement that nobody has reconciled are listed. Finance signs each day off; a mismatched day can only be signed off with a written explanation; a signed-off day can never be re-run, changed or deleted. The dashboard shows the reconciliation status.
+
+*Limit to know:* in simulation there is no real provider statement, so the check is records against ledger. It still catches the important failure — money recorded in one place and not the other — as the test shows by slipping a fake "sale" into the ledger: the books still balanced, but reconciliation flagged it.
+
+**Operating expenses.** Finance records expenses by category, date, payee, invoice reference, and either a cycle or company overhead. Each is posted to the ledger. Entries cannot be edited or deleted; a mistake is corrected by a reversal, which must match the original and cannot itself be reversed. Both stay on record.
+
+**Results by cycle.** For every cycle: cards sold, sales, refunds, net revenue, instant and draw cash prizes (from the ledger), forfeited prizes, merchandise at landed cost (from the stock records), expenses, contribution, and prizes as a share of revenue. Merchandise is counted in full from approval, so a cycle still on sale shows a loss until its cards are sold; the share is shown only once sales have closed.
+
+**Period summary.** For any date range: collected, refunded, cash prizes awarded, paid out to winners, expenses by category, result before merchandise, and how many days were signed off or mismatched.
+
+**Spreadsheets.** Cycle results and expenses download as CSV for Excel. Cells that would be read as formulas (for example a cycle or payee name beginning with "=") are neutralised, so opening a downloaded file cannot run anything.
+
+*Not included yet:* payment provider fees (recorded as expenses until a real provider is connected), tax, and escrow account statements.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -158,7 +176,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 5. ~~Voiding a cycle with refunds; manual refunds with two-person approval~~ — done (see above).
 6. Publishing the full ticket list when a cycle is archived; settling and archiving steps.
 7. Notifications (SMS/WhatsApp/in-app) and support tickets.
-8. Reconciliation report and financial reports; operating-expense records.
+8. ~~Reconciliation report and financial reports; operating-expense records~~ — done (see above).
 9. Unclaimed-prize reminders, expiry and the next-of-kin claim process.
 10. Tier 2 checks (liveness) before major-prize claims; fraud rules beyond the staff register.
 

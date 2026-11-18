@@ -24,7 +24,7 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
-const naira = (kobo) => "₦" + ((kobo ?? 0) / 100).toLocaleString("en-NG", { maximumFractionDigits: 2 });
+const naira = (kobo) => ((kobo ?? 0) < 0 ? "−₦" : "₦") + (Math.abs(kobo ?? 0) / 100).toLocaleString("en-NG", { maximumFractionDigits: 2 });
 const num = (n) => Number(n ?? 0).toLocaleString("en-NG");
 const when = (iso) => (iso ? new Date(iso).toLocaleString("en-NG", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
 const can = (...roles) => roles.some((r) => me.roles.includes(r));
@@ -98,6 +98,129 @@ function login() {
   return [form];
 }
 
+/** Latest reconciliation status, for those allowed to see it. */
+async function reconciliationTile() {
+  if (!can("FINANCE", "AUDITOR", "COMPLIANCE")) return null;
+  const r = await get("/v1/admin/finance/reconciliations");
+  const last = r.days[0];
+  const tone = r.notReconciled.length || last?.status === "MISMATCH" ? "bad" : last && !last.signed_off_at ? "warn" : "ok";
+  return el("a", { class: "tile " + tone, href: "#/finance" }, el("span", {}, "Reconciliation"),
+    el("b", {}, r.notReconciled.length ? `${r.notReconciled.length} day${r.notReconciled.length === 1 ? "" : "s"} not reconciled` : last ? (last.status === "MATCHED" ? "Matched" : "Mismatch") : "Nothing to reconcile"),
+    el("small", {}, last ? `${last.day}${last.signed_off_at ? " · signed off" : " · awaiting sign-off"}` : ""));
+}
+
+const EXPENSE_CATEGORIES = [["STAFF", "Staff"], ["TECHNOLOGY", "Technology"], ["MARKETING", "Marketing"], ["LOGISTICS", "Logistics"], ["LICENSING", "Licensing and regulatory"],
+  ["PROFESSIONAL_FEES", "Professional fees"], ["PAYMENT_FEES", "Payment fees"], ["OTHER", "Other"]];
+const catText = (c) => (EXPENSE_CATEGORIES.find((x) => x[0] === c) ?? [c, c])[1];
+let summaryRange = null;
+const SELLING = ["DRAFT", "SUBMITTED", "APPROVED", "COMMITTED", "OPEN"];
+
+async function finance() {
+  if (!can("FINANCE", "AUDITOR", "COMPLIANCE")) return [el("h1", {}, "Finance"), el("p", { class: "sub" }, "Your role does not include finance.")];
+  const f = can("FINANCE");
+  const [rec, results, expenses, cyclesList] = await Promise.all([get("/v1/admin/finance/reconciliations"), get("/v1/admin/finance/cycle-results"),
+    get("/v1/admin/finance/expenses"), get("/v1/admin/cycles")]);
+  if (!summaryRange) summaryRange = { from: rec.today.slice(0, 8) + "01", to: rec.today };
+  const nodes = [el("h1", {}, "Finance"), el("p", { class: "sub" }, "Every figure here is calculated from records that cannot be edited. Days follow Nigerian time.")];
+
+  // Reconciliation
+  const money = (t) => t ? `${naira(t.collectedKobo)} in · ${naira(t.refundedKobo)} refunded · ${naira(t.paidOutKobo)} paid out` : "—";
+  const signOff = (day, status) => action(async () => {
+    const body = { day };
+    if (status !== "MATCHED") { const note = prompt("The figures do not match. Explain the difference:"); if (!note) return; body.note = note; }
+    await post("/v1/admin/finance/reconciliations/sign-off", body);
+    return `${day} signed off.`;
+  });
+  nodes.push(el("h2", {}, "Daily reconciliation"),
+    el("p", { class: "sub" }, "Money through the payment provider each day, counted from the payment, refund and payout records and separately from the ledger — and, once a real provider is connected, against its own statement. Any difference raises a Compliance alert. Yesterday is reconciled automatically; Finance reviews and signs off."));
+  if (rec.notReconciled.length) {
+    nodes.push(el("div", { class: "note bad" }, `Not yet reconciled: ${rec.notReconciled.join(", ")}`,
+      f ? el("div", { class: "actions" }, rec.notReconciled.slice(0, 5).map((day) => el("button", { class: "btn ghost", onclick: action(async () => {
+        const r = await post("/v1/admin/finance/reconciliations", { day }); return `${day}: ${r.status === "MATCHED" ? "matched" : "DOES NOT MATCH — see below"}`;
+      }) }, "Reconcile " + day))) : null));
+  }
+  nodes.push(el("div", { class: "card" }, rec.days.length ? table(["Day", "Payment records", "Ledger", "Provider statement", "Result", ""], rec.days.map((r) =>
+    el("tr", {}, td(el("b", {}, r.day)), td(money(r.figures.records)), td(money(r.figures.ledger)), td(r.figures.statement ? money(r.figures.statement) : el("span", { class: "sub" }, "not entered")),
+      td([pill(r.status === "MATCHED" ? "Matched" : "Mismatch", r.status === "MATCHED" ? "" : "red"), r.note ? el("div", { class: "sub" }, r.note) : null]),
+      td(r.signed_off_at ? el("span", { class: "sub" }, `Signed off by ${r.signed_off_by_name}, ${when(r.signed_off_at)}`)
+        : f ? el("button", { class: "btn" + (r.status === "MATCHED" ? "" : " danger"), onclick: signOff(r.day, r.status) }, "Sign off") : pill("Awaiting sign-off", "gold")))))
+    : el("p", { class: "sub" }, "No days reconciled yet.")));
+  if (f) {
+    const form = el("form", { class: "card", onsubmit: action(async () => {
+      const body = { day: v(form, "day") };
+      if (v(form, "sc") || v(form, "sr") || v(form, "sp")) body.statement = { collectedKobo: toKobo(v(form, "sc") || 0), refundedKobo: toKobo(v(form, "sr") || 0), paidOutKobo: toKobo(v(form, "sp") || 0) };
+      const r = await post("/v1/admin/finance/reconciliations", body);
+      return `${r.day}: ${r.status === "MATCHED" ? "matched" : "DOES NOT MATCH — a Compliance alert has been raised"}`;
+    }) }, el("b", {}, "Reconcile a day"),
+      el("p", { class: "sub" }, "Optionally enter the totals from the payment provider's statement for that day. Leave them empty to compare records with the ledger only."),
+      el("div", { class: "form" }, input("Day", { name: "day", type: "date", required: true, value: rec.today, max: rec.today }),
+        input("Statement: collected (₦)", { name: "sc", type: "number", min: 0, step: "0.01" }), input("Statement: refunded (₦)", { name: "sr", type: "number", min: 0, step: "0.01" }),
+        input("Statement: paid out (₦)", { name: "sp", type: "number", min: 0, step: "0.01" }), el("button", { class: "btn ghost", type: "submit" }, "Reconcile")));
+    nodes.push(form);
+  }
+
+  // Cycle results
+  nodes.push(el("h2", {}, "Results by cycle"),
+    el("div", { class: "card" }, table(["Cycle", "#Net revenue", "#Cash prizes", "#Merchandise (landed cost)", "#Expenses", "#Contribution", "#Prizes / revenue"], results.cycles.filter((c) => c.gross_sales_kobo || c.operating_expenses_kobo || c.merchandise_cost_kobo).map((c) =>
+      el("tr", {}, td([el("b", {}, c.name), " ", pill(c.status, STATUS_TONE[c.status]), el("div", { class: "sub" }, `${num(c.cards_sold)} cards · sales ${naira(c.gross_sales_kobo)} · refunds ${naira(c.refunds_kobo)}`)]),
+        td(naira(c.net_revenue_kobo), true), td([naira(c.instant_prizes_kobo + c.draw_cash_prizes_kobo - c.forfeited_prizes_kobo), c.forfeited_prizes_kobo ? el("div", { class: "sub" }, `after ${naira(c.forfeited_prizes_kobo)} forfeited`) : null], true),
+        td(naira(c.merchandise_cost_kobo), true), td(naira(c.operating_expenses_kobo), true),
+        td([el("b", { class: c.contribution_kobo < 0 ? "neg" : "" }, naira(c.contribution_kobo)), SELLING.includes(c.status) ? el("div", { class: "sub" }, "so far") : null], true),
+        // While cards are still selling, all prizes are already committed but most revenue is still to come.
+        td(c.prize_payout_ratio === null || SELLING.includes(c.status) ? "—" : Math.round(c.prize_payout_ratio * 100) + "%", true)))),
+      el("p", { class: "sub" }, "Cash prizes come from the ledger. Merchandise is the landed cost of the units committed to the cycle, counted in full from approval, so a cycle still on sale shows a loss until its cards are sold. Payment provider fees are not yet included: they are recorded as expenses until a real provider is connected."),
+      el("div", { class: "actions" }, el("a", { class: "btn ghost", href: "/v1/admin/finance/cycle-results.csv", download: "cycle-results.csv" }, "Download spreadsheet (CSV)"))));
+
+  // Period summary
+  const summaryBox = el("div");
+  const showSummary = async () => {
+    const s = await get(`/v1/admin/finance/summary?from=${summaryRange.from}&to=${summaryRange.to}`);
+    summaryBox.replaceChildren(el("div", { class: "tiles" },
+      el("div", { class: "tile" }, el("span", {}, "Collected"), el("b", {}, naira(s.collected_kobo)), el("small", {}, `${num(s.purchases)} purchases`)),
+      el("div", { class: "tile" }, el("span", {}, "Refunded"), el("b", {}, naira(s.refunded_kobo))),
+      el("div", { class: "tile" }, el("span", {}, "Cash prizes awarded"), el("b", {}, naira(s.cash_prizes_kobo))),
+      el("div", { class: "tile" }, el("span", {}, "Paid out to winners"), el("b", {}, naira(s.paid_out_kobo))),
+      el("div", { class: "tile" }, el("span", {}, "Operating expenses"), el("b", {}, naira(s.operating_expenses_kobo))),
+      el("div", { class: "tile " + (s.result_kobo >= 0 ? "ok" : "warn") }, el("span", {}, "Result (before merchandise)"), el("b", {}, naira(s.result_kobo))),
+      el("div", { class: "tile " + (s.days_mismatched ? "bad" : "ok") }, el("span", {}, "Reconciliation"), el("b", {}, `${s.days_signed_off} signed off`), el("small", {}, `${s.days_mismatched} with differences`))),
+      s.expensesByCategory.length ? el("p", { class: "sub" }, "Expenses: " + s.expensesByCategory.map((x) => `${catText(x.category)} ${naira(x.amount_kobo)}`).join(" · ")) : null);
+  };
+  const range = el("form", { class: "form", onsubmit: action(async () => { summaryRange = { from: v(range, "from"), to: v(range, "to") }; await showSummary(); }, false) },
+    input("From", { name: "from", type: "date", value: summaryRange.from }), input("To", { name: "to", type: "date", value: summaryRange.to }), el("button", { class: "btn ghost", type: "submit" }, "Show"));
+  await showSummary();
+  nodes.push(el("h2", {}, "Period summary"), el("div", { class: "card" }, range, el("p"), summaryBox));
+
+  // Operating expenses
+  nodes.push(el("h2", {}, "Operating expenses"));
+  if (f) {
+    const form = el("form", { class: "card", onsubmit: action(async () => {
+      const body = { category: v(form, "category"), description: v(form, "description"), amountKobo: toKobo(v(form, "amount")), incurredOn: v(form, "date") };
+      if (v(form, "cycle")) body.cycleId = v(form, "cycle"); if (v(form, "payee")) body.payee = v(form, "payee"); if (v(form, "doc")) body.documentRef = v(form, "doc");
+      await post("/v1/admin/finance/expenses", body);
+      return "Expense recorded.";
+    }) }, el("b", {}, "Record an expense"), el("p", { class: "sub" }, "Entries cannot be edited or deleted. A mistake is corrected with a reversal, and both stay on record."),
+      el("div", { class: "form" },
+        select("Category", "category", EXPENSE_CATEGORIES), input("Amount (₦)", { name: "amount", type: "number", min: 0.01, step: "0.01", required: true }),
+        input("Date incurred", { name: "date", type: "date", value: rec.today, max: rec.today, required: true }),
+        select("Charge to cycle", "cycle", [["", "Company overhead (no cycle)"], ...cyclesList.cycles.map((c) => [c.id, c.name])]),
+        input("Paid to", { name: "payee" }), input("Invoice / receipt reference", { name: "doc" }),
+        input("Description", { name: "description", required: true, maxlength: 500 }, true)),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Record expense")));
+    nodes.push(form);
+  }
+  const reverse = (e) => action(async () => {
+    const reason = prompt(`Reverse "${e.description}" (${naira(e.amount_kobo)})? Give the reason:`); if (!reason) return;
+    await post(`/v1/admin/finance/expenses/${e.id}/reverse`, { reason }); return "Expense reversed. Both entries stay on record.";
+  });
+  nodes.push(el("div", { class: "card" }, expenses.expenses.length ? table(["Date", "Category", "Description", "Cycle", "#Amount", "Recorded by", ""], expenses.expenses.map((e) =>
+    el("tr", {}, td(e.incurred_on), td(catText(e.category)), td([e.description, e.payee || e.document_ref ? el("div", { class: "sub" }, [e.payee, e.document_ref].filter(Boolean).join(" · ")) : null]),
+      td(e.cycle ?? "Overhead"), td((e.reverses ? "−" : "") + naira(e.amount_kobo), true), td(e.recorded_by_name),
+      td(e.reverses ? pill("Reversal", "grey") : e.reversed_by ? pill("Reversed", "grey") : f ? el("button", { class: "btn ghost", onclick: reverse(e) }, "Reverse") : ""))))
+    : el("p", { class: "sub" }, "No expenses recorded yet."),
+    el("div", { class: "actions" }, el("a", { class: "btn ghost", href: "/v1/admin/finance/expenses.csv", download: "operating-expenses.csv" }, "Download spreadsheet (CSV)"))));
+  return nodes;
+}
+
 async function dashboard() {
   const d = await get("/v1/admin/dashboard");
   const live = d.cycles.find((c) => ["OPEN", "CLOSED", "DRAWN", "SETTLING"].includes(c.status)) ?? d.cycles[0];
@@ -119,7 +242,8 @@ async function dashboard() {
     el("div", { class: "tile" }, el("span", {}, "Payouts in progress"), el("b", {}, naira(d.totals.payouts_in_transit_kobo)), el("small", {}, `${d.pending.payouts} awaiting approval`)),
     el("div", { class: "tile" }, el("span", {}, "Cash held (gateway clearing)"), el("b", {}, naira(d.totals.gateway_clearing_kobo))),
     el("div", { class: "tile " + (d.totals.ledger_balanced ? "ok" : "bad") }, el("span", {}, "Ledger"), el("b", {}, d.totals.ledger_balanced ? "Balanced" : "OUT OF BALANCE"), el("small", {}, "debits equal credits")),
-    el("div", { class: "tile " + (d.pending.alerts ? "bad" : "ok") }, el("span", {}, "Compliance alerts"), el("b", {}, d.pending.alerts + " open"))));
+    el("div", { class: "tile " + (d.pending.alerts ? "bad" : "ok") }, el("span", {}, "Compliance alerts"), el("b", {}, d.pending.alerts + " open")),
+    await reconciliationTile()));
   nodes.push(el("h2", {}, "Prize cycles"), el("div", { class: "card" }, cyclesTable(d.cycles.map((c) => ({ ...c, sold: c.sold })))));
   return nodes;
 }
@@ -572,7 +696,7 @@ async function auditPage() {
 
 // --- Router ------------------------------------------------------------------------------------
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, merchandise, audit: auditPage };
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, finance, merchandise, audit: auditPage };
 let renderId = 0;
 
 async function render() {

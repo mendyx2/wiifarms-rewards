@@ -11,6 +11,7 @@ import * as draw from "./modules/draw.ts";
 import * as identity from "./modules/identity.ts";
 import * as inventory from "./modules/inventory.ts";
 import * as refunds from "./modules/refunds.ts";
+import * as finance from "./modules/finance.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -300,6 +301,29 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/cycles/:id/void/decision", {
     schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
   }, async (req) => refunds.decideVoid(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+
+  // ---- Finance: expenses, reconciliation, reports ----
+  app.get("/v1/admin/finance/expenses", async (req) => ({ expenses: await finance.listExpenses(ctx, await staff(req)) }));
+  app.post<{ Body: finance.NewExpense }>("/v1/admin/finance/expenses", {
+    schema: body({ category: { enum: [...finance.EXPENSE_CATEGORIES] }, description: str(500), amountKobo: int(1), incurredOn: str(10), cycleId: uuid, payee: str(200), documentRef: str(200) },
+      ["cycleId", "payee", "documentRef"]),
+  }, async (req) => finance.recordExpense(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { reason: string } }>("/v1/admin/finance/expenses/:id/reverse", { schema: { ...idParam, ...body({ reason: str(500) }) } },
+    async (req) => finance.reverseExpense(ctx, await staff(req), req.params.id, req.body.reason));
+  app.get("/v1/admin/finance/reconciliations", async (req) => finance.listReconciliations(ctx, await staff(req)));
+  const totals = { type: "object", additionalProperties: false, properties: { collectedKobo: int(), refundedKobo: int(), paidOutKobo: int() }, required: ["collectedKobo", "refundedKobo", "paidOutKobo"] };
+  app.post<{ Body: { day: string; statement?: finance.Statement } }>("/v1/admin/finance/reconciliations", { schema: body({ day: str(10), statement: totals }, ["statement"]) },
+    async (req) => finance.reconcileDay(ctx, await staff(req), req.body.day, req.body.statement));
+  app.post<{ Body: { day: string; note?: string } }>("/v1/admin/finance/reconciliations/sign-off", { schema: body({ day: str(10), note: str(1000) }, ["note"]) },
+    async (req) => finance.signOffDay(ctx, await staff(req), req.body.day, req.body.note));
+  app.get("/v1/admin/finance/cycle-results", async (req) => ({ cycles: await finance.cycleResults(ctx, await staff(req)) }));
+  app.get<{ Querystring: { from: string; to: string } }>("/v1/admin/finance/summary", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { from: str(10), to: str(10) }, required: ["from", "to"] } },
+  }, async (req) => finance.periodSummary(ctx, await staff(req), req.query.from, req.query.to));
+  const csv = (reply: FastifyReply, name: string, body: string) =>
+    reply.header("Content-Type", "text/csv; charset=utf-8").header("Content-Disposition", `attachment; filename="${name}"`).send("\uFEFF" + body);
+  app.get("/v1/admin/finance/cycle-results.csv", async (req, reply) => csv(reply, "cycle-results.csv", await finance.cycleResultsCsv(ctx, await staff(req))));
+  app.get("/v1/admin/finance/expenses.csv", async (req, reply) => csv(reply, "operating-expenses.csv", await finance.expensesCsv(ctx, await staff(req))));
 
   app.get("/v1/admin/fulfilment", async (req) => ({ claims: await inventory.fulfilmentQueue(ctx, await staff(req)) }));
   app.post<{ Params: { id: string }; Body: { carrier?: string; trackingRef?: string } }>("/v1/admin/fulfilment/:id/dispatch", {

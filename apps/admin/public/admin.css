@@ -71,3 +71,5 @@ input, select, textarea { width: 100%; padding: 9px 10px; border-radius: 9px; bo
   .brand { padding: 4px 6px 8px; } .who { margin: 6px 0 0; padding: 8px 6px 0; display: flex; flex-wrap: wrap; gap: 10px; }
   main { padding: 16px; } .grid2 { grid-template-columns: 1fr; }
 }
+a.tile { color: inherit; text-decoration: none; }
+.neg { color: var(--red); }

@@ -776,3 +776,98 @@ test("refunds and cancelled cycles: two people, original payment only, prizes fo
   const actions = (await pool.query("SELECT action FROM audit_log WHERE entity_id = ANY($1)", [[v.id, order2, order3]])).rows.map((r: any) => r.action);
   for (const a of ["refund.requested", "refund.approved", "refund.rejected", "cycle.void_requested", "cycle.void_rejected", "cycle.voided"]) assert.ok(actions.includes(a), a);
 });
+
+test("finance: expenses by reversal only, daily reconciliation catches a ledger that disagrees with the records, results and spreadsheet export", async () => {
+  const fin = admins.finance!.token, mt = admins.manager!.token, aud = admins.auditor!.token;
+  const today = (await pool.query("SELECT (now() AT TIME ZONE 'Africa/Lagos')::date::text AS d")).rows[0].d as string;
+
+  // --- Operating expenses ---
+  const exp = (token: string, b: object) => api("POST", "/v1/admin/finance/expenses", { token, body: b });
+  fails(await exp(mt, { category: "TECHNOLOGY", description: "Hosting", amountKobo: 5_000_000, incurredOn: today }), 403, "ROLE_REQUIRED");
+  fails(await exp(fin, { category: "TECHNOLOGY", description: "Hosting", amountKobo: 5_000_000, incurredOn: "2999-01-01" }), 400, "INVALID_DATE");
+  const wrong = ok(await exp(fin, { category: "TECHNOLOGY", description: "Hosting (wrong cycle)", amountKobo: 5_000_000, incurredOn: today, cycleId: cycleA.id }));
+  const rev = ok(await api("POST", `/v1/admin/finance/expenses/${wrong.id}/reverse`, { token: fin, body: { reason: "Entered against the wrong cycle" } }));
+  fails(await api("POST", `/v1/admin/finance/expenses/${wrong.id}/reverse`, { token: fin, body: { reason: "again" } }), 409, "ALREADY_REVERSED");
+  fails(await api("POST", `/v1/admin/finance/expenses/${rev.id}/reverse`, { token: fin, body: { reason: "undo" } }), 409, "NOT_REVERSIBLE");
+  ok(await exp(fin, { category: "MARKETING", description: "Radio adverts, Minna", payee: "=cmd|' /C calc'!A0", amountKobo: 2_500_000, incurredOn: today, cycleId: cycleA.id, documentRef: "INV-77" }));
+  ok(await exp(fin, { category: "LICENSING", description: "Legal advice on licensing", amountKobo: 3_000_000, incurredOn: today }));
+  await assert.rejects(pool.query("UPDATE operating_expenses SET amount_kobo = 1 WHERE id = $1", [wrong.id]), /append-only/);
+  await assert.rejects(pool.query("DELETE FROM operating_expenses WHERE id = $1", [wrong.id]), /append-only/);
+  const opex = (await pool.query("SELECT code, balance_kobo FROM ledger_balances WHERE code LIKE 'OPEX:%' ORDER BY code")).rows;
+  assert.deepEqual(opex, [{ code: "OPEX:LICENSING", balance_kobo: 3_000_000 }, { code: "OPEX:MARKETING", balance_kobo: 2_500_000 }, { code: "OPEX:TECHNOLOGY", balance_kobo: 0 }]);
+
+  // --- Cycle results agree with the ledger and the stock records ---
+  fails(await api("GET", "/v1/admin/finance/cycle-results", { token: admins.approver!.token }), 403, "ROLE_REQUIRED");
+  const results = ok(await api("GET", "/v1/admin/finance/cycle-results", { token: aud })).cycles;
+  for (const c of results) assert.equal(c.gross_sales_kobo - c.refunds_kobo, c.net_revenue_kobo, `sales less refunds = revenue for ${c.name}`);
+  const a = results.find((c: any) => c.id === cycleA.id);
+  assert.deepEqual([a.cards_sold, a.net_revenue_kobo, a.instant_prizes_kobo, a.draw_cash_prizes_kobo, a.forfeited_prizes_kobo, a.merchandise_cost_kobo, a.operating_expenses_kobo],
+    [60, 60 * N200, 1_500_000, 10_000_000, 0, 2 * 42_000_000, 2_500_000]);
+  assert.equal(a.contribution_kobo, 60 * N200 - 1_500_000 - 10_000_000 - 84_000_000 - 2_500_000);
+  const voidCycle = results.find((c: any) => c.status === "VOID");
+  assert.equal(voidCycle.net_revenue_kobo, 0); assert.equal(voidCycle.merchandise_cost_kobo, 0); assert.ok(voidCycle.refunds_kobo > 0);
+
+  // --- Daily reconciliation ---
+  const recon = (token: string, b: object) => api("POST", "/v1/admin/finance/reconciliations", { token, body: b });
+  fails(await recon(mt, { day: today }), 403, "ROLE_REQUIRED");
+  fails(await recon(fin, { day: "2999-01-01" }), 400, "INVALID_DATE");
+  const r1 = ok(await recon(fin, { day: today }));
+  assert.equal(r1.status, "MATCHED");
+  const rec = r1.figures.records;
+  assert.ok(rec.collectedKobo > 0 && rec.refundedKobo > 0 && rec.paidOutKobo > 0);
+  assert.deepEqual(r1.figures.ledger, rec);
+  // The provider's statement (entered by Finance) disagrees: flagged.
+  const r2 = ok(await recon(fin, { day: today, statement: { ...rec, collectedKobo: rec.collectedKobo + 100 } }));
+  assert.equal(r2.status, "MISMATCH");
+  const alerts = async () => (await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'RECONCILIATION_MISMATCH' AND entity_id = $1", [today])).rows[0].n;
+  assert.equal(await alerts(), 1);
+  assert.equal(ok(await recon(fin, { day: today, statement: rec })).status, "MATCHED");
+  // Someone with database access slips an extra "sale" into the ledger without a payment behind it.
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query("INSERT INTO ledger_accounts (code, kind) VALUES ('TICKET_REVENUE:tamper', 'REVENUE') ON CONFLICT DO NOTHING");
+    const tx = (await c.query("INSERT INTO ledger_transactions (kind, reference) VALUES ('TICKET_SALE', 'tamper-1') RETURNING id")).rows[0].id;
+    await c.query(`INSERT INTO ledger_entries (transaction_id, account_id, amount_kobo)
+      SELECT $1, id, CASE WHEN code = 'GATEWAY_CLEARING' THEN 10000 ELSE -10000 END FROM ledger_accounts WHERE code IN ('GATEWAY_CLEARING', 'TICKET_REVENUE:tamper')`, [tx]);
+    await c.query("COMMIT");
+  } finally { c.release(); }
+  const r4 = ok(await recon(fin, { day: today }));
+  assert.equal(r4.status, "MISMATCH"); // the books still balance, but no longer agree with the payment records
+  assert.equal(r4.figures.ledger.collectedKobo - r4.figures.records.collectedKobo, 10000);
+  assert.equal(await alerts(), 1); // one open alert per day, not one per run
+  fails(await api("POST", "/v1/admin/finance/reconciliations/sign-off", { token: fin, body: { day: today } }), 400, "NOTE_REQUIRED");
+  fails(await api("POST", "/v1/admin/finance/reconciliations/sign-off", { token: mt, body: { day: today, note: "x" } }), 403, "ROLE_REQUIRED");
+  ok(await api("POST", "/v1/admin/finance/reconciliations/sign-off", { token: fin, body: { day: today, note: "₦100 unexplained ledger entry tamper-1; escalated to Compliance" } }));
+  fails(await recon(fin, { day: today }), 409, "SIGNED_OFF");
+  fails(await api("POST", "/v1/admin/finance/reconciliations/sign-off", { token: fin, body: { day: today, note: "again" } }), 409, "SIGNED_OFF");
+  await assert.rejects(pool.query("UPDATE reconciliations SET status = 'MATCHED' WHERE day = $1", [today]), /signed-off/);
+  await assert.rejects(pool.query("DELETE FROM reconciliations WHERE day = $1", [today]), /signed-off/);
+  const list = ok(await api("GET", "/v1/admin/finance/reconciliations", { token: aud }));
+  assert.equal(list.days[0].day, today); assert.equal(list.days[0].status, "MISMATCH"); assert.ok(list.days[0].signed_off_by_name);
+  assert.ok(!list.notReconciled.includes(today));
+
+  // --- Period summary ---
+  const s = ok(await api("GET", `/v1/admin/finance/summary?from=${today}&to=${today}`, { token: fin }));
+  assert.equal(s.collected_kobo, rec.collectedKobo); assert.equal(s.refunded_kobo, rec.refundedKobo); assert.equal(s.paid_out_kobo, rec.paidOutKobo);
+  assert.equal(s.operating_expenses_kobo, 5_500_000);
+  assert.equal(s.result_kobo, s.collected_kobo - s.refunded_kobo - s.cash_prizes_kobo - s.operating_expenses_kobo);
+  assert.equal(s.days_signed_off, 1); assert.equal(s.days_mismatched, 1);
+  fails(await api("GET", `/v1/admin/finance/summary?from=${today}&to=2000-01-01`, { token: fin }), 400, "INVALID_DATE");
+
+  // --- Spreadsheet export is safe to open ---
+  ok(await api("POST", "/v1/admin/cycles", { token: mt, body: { name: '=HYPERLINK("http://evil.example","click")', ticketPriceKobo: N200, totalTickets: 10, maxTicketsPerAccount: 5,
+    salesOpenAt: new Date().toISOString(), salesCloseAt: new Date(Date.now() + 864e5).toISOString(), drawAt: new Date(Date.now() + 864e5).toISOString() } }));
+  const csvRes = await app.inject({ method: "GET", url: "/v1/admin/finance/cycle-results.csv", headers: { authorization: `Bearer ${fin}` } });
+  assert.equal(csvRes.statusCode, 200);
+  assert.match(String(csvRes.headers["content-type"]), /^text\/csv/);
+  assert.match(String(csvRes.headers["content-disposition"]), /attachment; filename="cycle-results.csv"/);
+  const lines = csvRes.body.replace(/^﻿/, "").trim().split("\r\n");
+  assert.match(lines[0]!, /^Cycle,Status,Cards sold,/);
+  assert.ok(lines.some((l) => l.startsWith(`"'=HYPERLINK(""http://evil.example"",""click"")"`)), "formula is neutralised");
+  assert.ok(lines.some((l) => l.includes(String((60 * N200 - 98_000_000) / 100))), "negative contribution stays a number");
+  const ex = await app.inject({ method: "GET", url: "/v1/admin/finance/expenses.csv", headers: { authorization: `Bearer ${fin}` } });
+  assert.ok(ex.body.includes("'=cmd|"), "payee formula neutralised");
+  assert.ok(ex.body.includes(",-50000,"), "reversal shown as a negative amount");
+  assert.equal((await app.inject({ method: "GET", url: "/v1/admin/finance/expenses.csv", headers: { authorization: `Bearer ${admins.approver!.token}` } })).statusCode, 403);
+});
