@@ -77,3 +77,31 @@ test("whole cycle: browser rebuilds the fingerprint and prize counts from a publ
     assert.equal((await web.verifyCycle(inflated, cards)).ok, false);
   }
 });
+
+test("the phone's checker reproduces the engine's published reference cases exactly", async () => {
+  // test-vectors.json is the fixed set of inputs and answers given to the test lab. The checker in the
+  // player app is a second, separate implementation; it must agree with every answer.
+  const { readFileSync } = await import("node:fs");
+  const v = JSON.parse(readFileSync(new URL("../../../packages/game-core/test-vectors.json", import.meta.url), "utf8"));
+  const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
+  for (const t of v.tickets) {
+    assert.equal(hex(await web.ticketLeafHash({ cycleId: t.cycleId, serial: t.serial, outcome: t.outcome, salt: Buffer.from(t.salt, "hex") })), t.leafHash, t.serial);
+  }
+  const t3 = v.tickets[3];
+  const proof = { cycleId: t3.cycleId, serial: t3.serial, outcome: t3.outcome, salt: t3.salt, steps: v.merkle.proofForIndex3 };
+  assert.equal(await web.verifyTicket(proof, v.merkle.root), true);
+  // The whole card list rebuilds the published root.
+  const cycle = { id: v.tickets[0].cycleId, total_tickets: v.tickets.length, commitment: { ticket_merkle_root: v.merkle.root }, prizes: [] as unknown[] };
+  const cards = v.tickets.map((t: any, i: number) => ({ leaf_index: i, serial: t.serial, outcome: t.outcome, salt: t.salt }));
+  assert.equal((await web.verifyCycle(cycle, cards)).checks[1]!.ok, true);
+  // The draw.
+  const d = v.draw;
+  assert.equal(hex(await web.commitSecret(Buffer.from(d.secret, "hex"))), d.secretCommitment);
+  assert.equal(hex(await web.entriesHash(d.cycleId, d.entries)), d.entriesHash);
+  const seed = await web.deriveDrawSeed(Buffer.from(d.secret, "hex"), Buffer.from(d.beaconValue, "hex"), d.cycleId, Buffer.from(d.entriesHash, "hex"));
+  assert.equal(hex(seed), d.seed);
+  assert.deepEqual(await web.runDraw(d.entries, d.prizes, seed), d.winners);
+  const published = { cycle_id: d.cycleId, entries: d.entries, entries_sha256: d.entriesHash, secret: d.secret, beacon_value: d.beaconValue, seed: d.seed,
+    prizes: d.prizes.map((p: any) => ({ prize_id: p.prizeId, quantity: p.quantity })), winners: d.winners.map((w: any) => ({ prize_id: w.prizeId, position: w.position, serial: w.serial })) };
+  assert.equal((await web.verifyDraw(published, d.secretCommitment)).ok, true);
+});

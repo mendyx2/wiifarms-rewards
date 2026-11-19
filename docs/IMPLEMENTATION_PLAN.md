@@ -1,7 +1,7 @@
 # WiiFarm Rewards — Implementation Plan
 
 Response to the CEO's IT Development Brief of 5 November 2026.
-Status: **Phase 2 (minimum viable platform, simulated money only) in progress** — see `docs/phase-2/README.md`. No production system exists yet.
+Status: **Phase 2 (simulated platform) functionally complete; Phase 3 preparation done in-house** — see `docs/phase-2/README.md` and `docs/phase-3/README.md`. Independent certification and security testing have not started. No production system exists yet.
 
 Two priorities drive every decision below, in this order:
 

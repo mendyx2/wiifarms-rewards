@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import type { Server } from "node:http";
+import Fastify, { type FastifyHttpOptions, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { Actor } from "./audit.ts";
 import type { Ctx } from "./context.ts";
 import { withTx } from "./db.ts";
@@ -102,7 +103,14 @@ const idemKey = (req: FastifyRequest): string => {
 };
 
 export function buildServer(ctx: Ctx): FastifyInstance {
-  const app = Fastify({ logger: false, bodyLimit: 32 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
+  const options: FastifyHttpOptions<Server> = {
+    logger: false, bodyLimit: 32 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
+    // Behind a load balancer every request would otherwise appear to come from it, so all players would share one rate limit.
+    // Trust exactly the configured number of proxy hops (counting from this server) and nothing beyond,
+    // so the client's own claims in the header are never believed.
+    trustProxy: ctx.config.trustedProxies ? (_address: string, hop: number) => hop < ctx.config.trustedProxies! : false,
+  };
+  const app = Fastify(options);
   const authLimit = limiter(ctx.config.rateLimits.auth, 60_000);
   const generalLimit = limiter(ctx.config.rateLimits.general, 60_000);
 
@@ -289,6 +297,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Body: { name: string; address: string; stateCode: string } }>("/v1/admin/warehouses", { schema: body({ name: str(120), address: str(300), stateCode: str(8) }) },
     async (req) => inventory.createWarehouse(ctx, await staff(req), req.body));
   app.post<{ Body: inventory.Receipt }>("/v1/admin/stock/receive", {
+    bodyLimit: 1024 * 1024, // up to 5,000 serial numbers in one delivery
     schema: body({ skuId: uuid, supplierId: uuid, warehouseId: uuid, poReference: str(80), documentRef: str(200), quantity: int(1, 5000),
       serialNumbers: { type: "array", maxItems: 5000, items: str(80) }, acquisitionCostKobo: int(0), landedCostKobo: int(0) }, ["documentRef", "quantity", "serialNumbers"]),
   }, async (req) => inventory.receiveStock(ctx, await staff(req), req.body));

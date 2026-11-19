@@ -6,6 +6,7 @@ Digital scratch-card and prize-management platform. **Phase 2 (simulated platfor
 |-------|------|
 | `docs/IMPLEMENTATION_PLAN.md` | Overall plan, decisions and schedule |
 | `docs/phase-1/` | Phase 1 design pack (start with its README) |
+| `docs/phase-3/` | Certification pack for the test lab, internal security review, what remains before real money |
 | `docs/phase-2/` | Phase 2 status: what is built, how to run it, what remains |
 | `apps/api/` | Backend API (simulated payments, identity and randomness beacon) |
 | `apps/web/` | Player web app, served by the API |
@@ -48,7 +49,7 @@ psql -v ON_ERROR_STOP=1 -f db/schema_test.sql
 
 ## Running the API locally (simulation)
 
-It refuses to start unless `WR_SIMULATION=1` is set, because this build has only simulated payments, identity checks and sign-in; it also refuses to listen on anything but this machine unless `WR_ALLOW_PUBLIC_SIMULATION=1` is set for a closed demonstration network. It needs `DATABASE_URL`, plus `MASTER_KEY` and `HASH_KEY` (64 hex characters each, e.g. from `openssl rand -hex 32`). It applies database migrations on start.
+It refuses to start unless `WR_SIMULATION=1` is set, because this build has only simulated payments, identity checks and sign-in; it also refuses to listen on anything but this machine unless `WR_ALLOW_PUBLIC_SIMULATION=1` is set for a closed demonstration network. Behind a load balancer or CDN, set `WR_TRUSTED_PROXIES` to the number of proxies in front of the server, so rate limits count each player separately (left at 0, every player would share the proxy's allowance). It needs `DATABASE_URL`, plus `MASTER_KEY` and `HASH_KEY` (64 hex characters each, e.g. from `openssl rand -hex 32`). It applies database migrations on start.
 
 ```bash
 pnpm --filter @wiifarm/api start

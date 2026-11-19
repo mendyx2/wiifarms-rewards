@@ -21,6 +21,13 @@ export interface Config {
   rateLimits: { auth: number; general: number };
   /** Session cookies are marked Secure (HTTPS only). Only ever false for local development over http. */
   cookieSecure: boolean;
+  /**
+   * How many proxies (load balancer, CDN) sit in front of the server. Rate limits
+   * are counted per real client, read from the X-Forwarded-For header, but only
+   * this many hops of it are trusted, so a client cannot forge its address.
+   * 0 = the server is reached directly; the header is ignored.
+   */
+  trustedProxies?: number;
   /** Folder holding the player web app, served from the same origin as the API. */
   webRoot?: string;
   /** Folder holding the admin web app, served under /admin/. Production serves it from a separate, restricted address. */
@@ -66,6 +73,11 @@ export function loadConfig(): Config {
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 },
     rateLimits: { auth: 20, general: 300 },
     cookieSecure: process.env.COOKIE_SECURE !== "false",
+    trustedProxies: (() => {
+      const v = process.env.WR_TRUSTED_PROXIES ?? "0";
+      if (!/^\d{1,2}$/.test(v)) throw new Error("WR_TRUSTED_PROXIES must be the number of proxies in front of the server (0 if none)");
+      return Number(v);
+    })(),
     // The player web app ships with the API unless WEB_ROOT points elsewhere.
     webRoot: process.env.WEB_ROOT ?? fileURLToPath(new URL("../../web/public", import.meta.url)),
     adminRoot: process.env.ADMIN_ROOT ?? fileURLToPath(new URL("../../admin/public", import.meta.url)),

@@ -1191,3 +1191,33 @@ test("staff access and licensing: two security administrators for any change, ve
   await assert.rejects(pool.query("UPDATE licences SET status = 'VERIFIED' WHERE id = $1", [lic.id]), /cannot be changed/);
   await assert.rejects(pool.query("DELETE FROM certifications WHERE id = $1", [cert.id]), /cannot be deleted/);
 });
+
+test("large deliveries and rate limits behind a load balancer", async () => {
+  // A delivery of 3,000 serial-numbered items fits in one request.
+  const ft = admins.fulfilment!.token;
+  const serials = Array.from({ length: 3000 }, (_, i) => `SN-BULK-${String(i).padStart(6, "0")}`);
+  assert.deepEqual(ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-BULK", serialNumbers: serials, acquisitionCostKobo: 1, landedCostKobo: 1 } })), { received: 3000 });
+
+  const count429 = async (server: FastifyInstance, from: (i: number) => { remoteAddress: string; xff?: string }) => {
+    let n = 0;
+    for (let i = 0; i < 15; i++) {
+      const f = from(i);
+      const r = await server.inject({ method: "GET", url: "/health", remoteAddress: f.remoteAddress, ...(f.xff ? { headers: { "x-forwarded-for": f.xff } } : {}) });
+      if (r.statusCode === 429) n++;
+    }
+    return n;
+  };
+  const limits = { auth: 100, general: 10 };
+  // Behind one load balancer, with the proxy configured: each player has their own allowance.
+  const proxied = buildServer({ ...ctx, config: { ...config, rateLimits: limits, trustedProxies: 1 } });
+  assert.equal(await count429(proxied, (i) => ({ remoteAddress: "10.0.0.1", xff: `41.58.1.${i}` })), 0);
+  // ...and one player sending many requests is still limited.
+  assert.equal(await count429(proxied, () => ({ remoteAddress: "10.0.0.1", xff: "41.58.9.9" })), 5);
+  // ...even if they put invented addresses in front of the one the load balancer adds.
+  assert.equal(await count429(proxied, (i) => ({ remoteAddress: "10.0.0.1", xff: `6.6.6.${i}, 41.58.8.8` })), 5);
+  await proxied.close();
+  // Reached directly, a forged address header is ignored: a client cannot dodge the limit by inventing addresses.
+  const direct = buildServer({ ...ctx, config: { ...config, rateLimits: limits, trustedProxies: 0 } });
+  assert.equal(await count429(direct, (i) => ({ remoteAddress: "41.58.7.7", xff: `1.2.3.${i}` })), 5);
+  await direct.close();
+});
