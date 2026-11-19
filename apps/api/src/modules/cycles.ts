@@ -7,9 +7,16 @@ import { one, withTx, type Db } from "../db.ts";
 import { AppError, badRequest, conflict, notFound } from "../errors.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { stockCover } from "./inventory.ts";
+import { engineVersion } from "@wiifarm/game-core/tools/digest.ts";
 
-/** Identifies the exact engine build that generated a cycle; certification is recorded against it. */
-export const GAME_CORE_VERSION = "game-core@0.1.0";
+/**
+ * Identifies the exact engine code that generates a cycle: release plus a
+ * SHA-256 fingerprint of every engine source file. It is written into each
+ * cycle's published commitment, and a certification only counts if it names
+ * this exact string — so changing the engine without re-certifying shuts the
+ * real-money gate automatically.
+ */
+export const GAME_CORE_VERSION = engineVersion();
 
 export interface CycleRow {
   id: string; name: string; mode: string; state_code: string; status: string;

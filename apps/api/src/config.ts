@@ -33,6 +33,23 @@ function keyFromEnv(name: string): Buffer {
   return Buffer.from(v, "hex");
 }
 
+/**
+ * This build contains only simulated providers: email-only admin sign-in,
+ * sign-in codes returned to the browser, a fake payment button, a local key
+ * and a simulated randomness beacon. It must never be mistaken for a live
+ * service, so it refuses to start unless simulation is explicitly switched on.
+ */
+export function assertSimulationAcknowledged(env: NodeJS.ProcessEnv, host: string): void {
+  if (env.WR_SIMULATION !== "1") {
+    throw new Error("This build runs only as a simulation (no real payments, identity checks, key service or sign-in). Set WR_SIMULATION=1 to run it.");
+  }
+  const local = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  if (!local && env.WR_ALLOW_PUBLIC_SIMULATION !== "1") {
+    throw new Error(`Refusing to serve the simulation on ${host}: anyone who can reach it could sign in as any administrator by email. ` +
+      "Serve it on 127.0.0.1, or set WR_ALLOW_PUBLIC_SIMULATION=1 for a closed demonstration network.");
+  }
+}
+
 export function loadConfig(): Config {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL must be set");

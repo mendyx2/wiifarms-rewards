@@ -122,8 +122,10 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     // The technical detail is for developers; people get a plain sentence.
     if (e.validation) return reply.status(400).send({ error: { code: "INVALID_REQUEST", message: "Some details are missing or not valid. Please check and try again.", detail: e.message } });
     if (e.statusCode && e.statusCode < 500) return reply.status(e.statusCode).send({ error: { code: "INVALID_REQUEST", message: e.message } });
-    // Never leak internals to the caller.
-    console.error(err);
+    // Never leak internals to the caller. The log keeps what a developer needs but not
+    // database "detail" text, which can contain phone numbers or other personal data.
+    const x = err as { name?: string; message?: string; code?: string; constraint?: string; stack?: string };
+    console.error(JSON.stringify({ error: x.name, message: x.message, code: x.code, constraint: x.constraint, stack: x.stack?.split("\n").slice(0, 6).join(" | ") }));
     return reply.status(500).send({ error: { code: "INTERNAL", message: "Something went wrong. Please try again." } });
   });
 
@@ -360,7 +362,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     schema: body({ stateCode: { enum: ["NG-NI"] }, authority: str(200), licenceNumber: str(80), validFrom: str(10), validTo: str(10), documentRef: str(200) }),
   }, async (req) => governance.recordLicence(ctx, await staff(req), req.body));
   app.post<{ Body: governance.NewCertification }>("/v1/admin/certifications", {
-    schema: body({ component: { enum: ["GAME_CORE", "DRAW", "PLATFORM_SECURITY"] }, componentVersion: str(80), lab: str(200), certificateRef: str(200), validFrom: str(10), validTo: str(10) }, ["validTo"]),
+    schema: body({ component: { enum: ["GAME_CORE", "DRAW", "PLATFORM_SECURITY"] }, componentVersion: str(160), lab: str(200), certificateRef: str(200), validFrom: str(10), validTo: str(10) }, ["validTo"]),
   }, async (req) => governance.recordCertification(ctx, await staff(req), req.body));
   for (const table of ["licences", "certifications"] as const) {
     app.post<{ Params: { id: string } }>(`/v1/admin/${table}/:id/verify`, { schema: idParam }, async (req) => governance.verifyRecord(ctx, await staff(req), table, req.params.id));

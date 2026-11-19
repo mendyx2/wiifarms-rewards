@@ -1,5 +1,5 @@
 import { SimulatedBeacon } from "./beacon.ts";
-import { loadConfig } from "./config.ts";
+import { assertSimulationAcknowledged, loadConfig } from "./config.ts";
 import type { Ctx } from "./context.ts";
 import { LocalKeyService } from "./crypto.ts";
 import { createPool } from "./db.ts";
@@ -11,6 +11,8 @@ import { reconcileYesterday } from "./modules/finance.ts";
 import { deliverMessages, sendClaimReminders } from "./modules/notify.ts";
 import { SimulatedMessenger } from "./messenger.ts";
 
+const host = process.env.HOST ?? "127.0.0.1";
+assertSimulationAcknowledged(process.env, host);
 const config = loadConfig();
 await migrate(config.databaseUrl);
 const pool = createPool(config.databaseUrl);
@@ -28,5 +30,5 @@ setInterval(() => { reconcileYesterday(ctx).catch((e) => console.error("reconcil
 
 const app = buildServer(ctx);
 const port = Number(process.env.PORT ?? 3000);
-await app.listen({ port, host: process.env.HOST ?? "127.0.0.1" });
+await app.listen({ port, host });
 console.log(`WiiFarm Rewards API (SIMULATED — no real money) listening on ${port}`);

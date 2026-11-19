@@ -16,7 +16,8 @@ import { buildServer } from "../src/http.ts";
 import { migrate } from "../src/migrate.ts";
 import { SimulatedMessenger } from "../src/messenger.ts";
 import { deliverMessages, nextSendTime, sendClaimReminders } from "../src/modules/notify.ts";
-import { closeDueCycles } from "../src/modules/cycles.ts";
+import { GAME_CORE_VERSION, closeDueCycles } from "../src/modules/cycles.ts";
+import { assertSimulationAcknowledged } from "../src/config.ts";
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/postgres";
 const dbName = "wr_test_" + randomBytes(4).toString("hex");
@@ -145,6 +146,21 @@ test("sign-up: codes, PIN rules, sign-in and lockout", async () => {
   ok(await api("POST", "/v1/auth/login", { body: { phone, pin: "482915" } }));
   for (let i = 0; i < 5; i++) fails(await api("POST", "/v1/auth/login", { body: { phone, pin: "000001" } }), 401, "UNAUTHENTICATED");
   fails(await api("POST", "/v1/auth/login", { body: { phone, pin: "482915" } }), 429, "PIN_LOCKED");
+  let lock = (await pool.query("SELECT pin_locked_until - now() AS left FROM users WHERE phone_e164 = '+2348039990001'")).rows[0].left;
+  assert.ok(lock.minutes >= 14 && !lock.hours, "first lock: 15 minutes");
+  // After the 15 minutes, five more wrong guesses lock the account for a whole day.
+  await pool.query("UPDATE users SET pin_locked_until = now() - interval '1 second' WHERE phone_e164 = '+2348039990001'");
+  for (let i = 0; i < 5; i++) fails(await api("POST", "/v1/auth/login", { body: { phone, pin: "000002" } }), 401, "UNAUTHENTICATED");
+  lock = (await pool.query("SELECT pin_locked_until - now() AS left FROM users WHERE phone_e164 = '+2348039990001'")).rows[0].left;
+  assert.ok(lock.hours >= 23, "second lock: 24 hours");
+  fails(await api("POST", "/v1/auth/login", { body: { phone, pin: "482915" } }), 429, "PIN_LOCKED");
+  // An unknown number takes as long to refuse as a real one, so timing does not reveal who has an account.
+  const real = await newPlayer({ verify: false });
+  const time = async (ph: string) => { const t = performance.now(); await api("POST", "/v1/auth/login", { body: { phone: ph, pin: "000003" } }); return performance.now() - t; };
+  await time("08031239999"); // warm-up
+  const known = Math.min(await time(real.phone), await time(real.phone));
+  const unknown = Math.min(await time("08031239998"), await time("08031239997"));
+  assert.ok(unknown > known * 0.5, `unknown ${unknown.toFixed(0)} ms vs known ${known.toFixed(0)} ms`);
   fails(await api("POST", "/v1/auth/otp", { body: { phone: "12345" } }), 400, "INVALID_PHONE");
   fails(await api("POST", "/v1/auth/otp", { body: { phone, extra: "x" } }), 400, "INVALID_REQUEST");
   // Nothing sensitive is stored in the clear.
@@ -460,6 +476,13 @@ test("books and records: ledger balances, dashboard agrees, audit trail intact",
   // No secrets in the audit trail.
   const dump = JSON.stringify((await pool.query("SELECT details FROM audit_log")).rows);
   assert.ok(!/482915|devCode|pin_hash/.test(dump));
+});
+
+test("the simulation refuses to start unless switched on, and refuses to be reachable from other machines", () => {
+  assert.throws(() => assertSimulationAcknowledged({}, "127.0.0.1"), /Set WR_SIMULATION=1/);
+  assert.doesNotThrow(() => assertSimulationAcknowledged({ WR_SIMULATION: "1" }, "127.0.0.1"));
+  assert.throws(() => assertSimulationAcknowledged({ WR_SIMULATION: "1" }, "0.0.0.0"), /could sign in as any administrator/);
+  assert.doesNotThrow(() => assertSimulationAcknowledged({ WR_SIMULATION: "1", WR_ALLOW_PUBLIC_SIMULATION: "1" }, "0.0.0.0"));
 });
 
 test("rate limiting applies to sign-in endpoints", async () => {
@@ -1119,7 +1142,10 @@ test("staff access and licensing: two security administrators for any change, ve
   fails(await api("POST", "/v1/admin/licences", { token: ct, body: { stateCode: "NG-NI", authority: "x", licenceNumber: "x", validFrom: "2027-01-01", validTo: "2026-01-01", documentRef: "x" } }), 400, "INVALID_DATE");
   const today = new Date().toISOString().slice(0, 10), nextYear = new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10);
   const lic = ok(await api("POST", "/v1/admin/licences", { token: ct, body: { stateCode: "NG-NI", authority: "Niger State lottery authority (test)", licenceNumber: "NSL-TEST-1", validFrom: today, validTo: nextYear, documentRef: "docs/licence-test.pdf" } }));
-  const cert = ok(await api("POST", "/v1/admin/certifications", { token: ct, body: { component: "GAME_CORE", componentVersion: "game-core@0.1.0", lab: "Test lab", certificateRef: "CERT-1", validFrom: today } }));
+  // A certificate for an older build of the engine (here: the bare release label) must not count.
+  const stale = ok(await api("POST", "/v1/admin/certifications", { token: ct, body: { component: "GAME_CORE", componentVersion: "game-core@0.1.0", lab: "Test lab", certificateRef: "CERT-OLD", validFrom: today } }));
+  ok(await api("POST", `/v1/admin/certifications/${stale.id}/verify`, { token: fin }));
+  const cert = ok(await api("POST", "/v1/admin/certifications", { token: ct, body: { component: "GAME_CORE", componentVersion: GAME_CORE_VERSION, lab: "Test lab", certificateRef: "CERT-1", validFrom: today } }));
   let gate = ok(await api("GET", "/v1/admin/licensing", { token: admins.auditor!.token })).gate;
   assert.deepEqual(gate, { state: "NG-NI", licenceInForce: false, engineCertified: false, realMoneyAvailable: false }); // recorded is not enough
 
@@ -1133,7 +1159,7 @@ test("staff access and licensing: two security administrators for any change, ve
     await db.query("INSERT INTO cycle_approvals (cycle_id, approver_id, capacity) VALUES ($1, $2, 'OPERATIONS'), ($1, $3, 'FINANCE')", [cy, admins.manager2!.id, admins.finance!.id]);
     await db.query(`UPDATE cycles SET status = 'APPROVED', financial_model_ref = 'fm', rules_document_ref = 'r', rules_sha256 = sha256('r'), auditor_admin_id = $2,
       escrow_reference = 'E', escrow_funded_kobo = 0 WHERE id = $1`, [cy, admins.auditor!.id]);
-    await db.query("INSERT INTO cycle_commitments (cycle_id, game_core_version, ticket_merkle_root, prize_table_sha256, draw_secret_commitment, kms_key_ref) VALUES ($1, 'game-core@0.1.0', sha256('a'), sha256('b'), sha256('c'), 'k')", [cy]);
+    await db.query("INSERT INTO cycle_commitments (cycle_id, game_core_version, ticket_merkle_root, prize_table_sha256, draw_secret_commitment, kms_key_ref) VALUES ($1, $2, sha256('a'), sha256('b'), sha256('c'), 'k')", [cy, GAME_CORE_VERSION]);
     await db.query("UPDATE cycles SET status = 'COMMITTED' WHERE id = $1", [cy]);
     const tryOpen = async () => {
       await db.query("SAVEPOINT s");

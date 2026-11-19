@@ -81,7 +81,7 @@ pnpm --filter @wiifarm/api seed:demo
 pnpm --filter @wiifarm/api start
 ```
 
-Both need `DATABASE_URL`, `MASTER_KEY` and `HASH_KEY`; over plain http on your own machine also set `COOKIE_SECURE=false`. Then open the address the server prints.
+Both need `WR_SIMULATION=1`, `DATABASE_URL`, `MASTER_KEY` and `HASH_KEY`; over plain http on your own machine also set `COOKIE_SECURE=false`. The server only listens on this machine unless `WR_ALLOW_PUBLIC_SIMULATION=1` is set. Then open the address the server prints.
 
 ## Admin web app
 

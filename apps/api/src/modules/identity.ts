@@ -22,6 +22,7 @@ const OTP_MAX_ATTEMPTS = 5;
 const OTP_MAX_SENDS_PER_HOUR = 5;
 const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCK_MINUTES = 15;
+let DUMMY_PIN_HASH: string | undefined;
 
 /** Accepts 0803…, 234803… or +234803… and returns +234803…. */
 export function normalisePhone(input: string): string {
@@ -132,14 +133,23 @@ export async function login(ctx: Ctx, phoneInput: string, pin: string, ip?: stri
   const wrong = unauthorized("Wrong phone number or PIN.");
   const user = await one<{ id: string; pin_hash: string | null; status: string; pin_locked_until: Date | null }>(
     ctx.pool, "SELECT id, pin_hash, status, pin_locked_until FROM users WHERE phone_e164 = $1", [phone]);
-  if (!user || !user.pin_hash || user.status !== "ACTIVE") throw wrong;
+  if (!user || !user.pin_hash || user.status !== "ACTIVE") {
+    // Do the same slow PIN check as for a real account, so the response time
+    // does not reveal whether this phone number has an account.
+    await verifyPin(pin, DUMMY_PIN_HASH ??= await hashPin("000000"));
+    throw wrong;
+  }
   if (user.pin_locked_until && user.pin_locked_until.getTime() > Date.now()) {
     throw new AppError(429, "PIN_LOCKED", "Too many wrong attempts. Try again in a few minutes or reset your PIN.");
   }
   if (!(await verifyPin(pin, user.pin_hash))) {
     await ctx.pool.query(
       `UPDATE users SET pin_failed_attempts = pin_failed_attempts + 1,
-         pin_locked_until = CASE WHEN pin_failed_attempts + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE pin_locked_until END
+         pin_locked_until = CASE
+           -- After ten wrong PINs in a row the account locks for a day: guessing becomes impractical.
+           WHEN pin_failed_attempts + 1 >= $2 * 2 THEN now() + interval '24 hours'
+           WHEN pin_failed_attempts + 1 >= $2 AND (pin_failed_attempts + 1) % $2 = 0 THEN now() + make_interval(mins => $3)
+           ELSE pin_locked_until END
        WHERE id = $1`,
       [user.id, PIN_MAX_ATTEMPTS, PIN_LOCK_MINUTES]);
     throw wrong;

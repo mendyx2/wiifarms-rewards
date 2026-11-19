@@ -1,7 +1,7 @@
 // Creates demo administrators and one open demo cycle, using the same
 // approval steps as real use (drafter, two approvers, auditor). Simulation only.
 import { SimulatedBeacon } from "./beacon.ts";
-import { loadConfig } from "./config.ts";
+import { assertSimulationAcknowledged, loadConfig } from "./config.ts";
 import type { Ctx } from "./context.ts";
 import { LocalKeyService } from "./crypto.ts";
 import { createPool } from "./db.ts";
@@ -67,6 +67,7 @@ export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number
 }
 
 if (process.argv[1]?.endsWith("seed-demo.ts")) {
+  assertSimulationAcknowledged(process.env, "127.0.0.1");
   const config = loadConfig();
   await migrate(config.databaseUrl);
   const pool = createPool(config.databaseUrl);

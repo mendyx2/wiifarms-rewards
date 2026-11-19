@@ -48,7 +48,7 @@ psql -v ON_ERROR_STOP=1 -f db/schema_test.sql
 
 ## Running the API locally (simulation)
 
-It needs `DATABASE_URL`, plus `MASTER_KEY` and `HASH_KEY` (64 hex characters each, e.g. from `openssl rand -hex 32`). It applies database migrations on start.
+It refuses to start unless `WR_SIMULATION=1` is set, because this build has only simulated payments, identity checks and sign-in; it also refuses to listen on anything but this machine unless `WR_ALLOW_PUBLIC_SIMULATION=1` is set for a closed demonstration network. It needs `DATABASE_URL`, plus `MASTER_KEY` and `HASH_KEY` (64 hex characters each, e.g. from `openssl rand -hex 32`). It applies database migrations on start.
 
 ```bash
 pnpm --filter @wiifarm/api start

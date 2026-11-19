@@ -1,0 +1,232 @@
+{
+  "description": "Known-answer vectors for game-core. Every input is given in full (hex) or as the label it is derived from: fixed(label) = first n bytes of SHA-256(label).",
+  "seededStream": {
+    "seed": "7b3d467781e7fd2d470cdcb2fa437715fe10e0722a7ae04199ac5d8687d1298f",
+    "nextInt1000": [
+      513,
+      796,
+      600,
+      221,
+      372,
+      917,
+      925,
+      564,
+      871,
+      651,
+      228,
+      779
+    ],
+    "nextInt7": [
+      5,
+      0,
+      5,
+      2,
+      1,
+      2,
+      4,
+      0,
+      4,
+      5,
+      5,
+      3
+    ]
+  },
+  "shuffle": {
+    "seed": "7feaa5721459ae89da19e89760c6e4db92c78c031d6dfa9445b21e0164b2ef9a",
+    "input": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "output": [
+      4,
+      3,
+      0,
+      7,
+      9,
+      5,
+      6,
+      8,
+      2,
+      1
+    ]
+  },
+  "inventory": {
+    "totalTickets": 20,
+    "tiers": [
+      {
+        "outcome": "CASH:1000000",
+        "count": 1
+      },
+      {
+        "outcome": "CASH:50000",
+        "count": 4
+      }
+    ],
+    "seed": "2420f2b203ddb3710471bbfbb24d8364c3a77249386ae216b25adfaed7153545",
+    "outcomes": [
+      "CASH:50000",
+      "NONE",
+      "NONE",
+      "NONE",
+      "NONE",
+      "NONE",
+      "NONE",
+      "CASH:50000",
+      "NONE",
+      "NONE",
+      "NONE",
+      "NONE",
+      "NONE",
+      "NONE",
+      "CASH:50000",
+      "NONE",
+      "NONE",
+      "NONE",
+      "CASH:1000000",
+      "CASH:50000"
+    ]
+  },
+  "tickets": [
+    {
+      "cycleId": "vector-cycle",
+      "serial": "WR-VEC-0",
+      "outcome": "CASH:50000",
+      "salt": "c8f2208dcc109dde7a8faaf5388ccbd9",
+      "leafHash": "d4b941887b35e9d0343e7fc72fa75d1a5578a36db94d33128a5e6a1bc09c7b9a"
+    },
+    {
+      "cycleId": "vector-cycle",
+      "serial": "WR-VEC-1",
+      "outcome": "NONE",
+      "salt": "89b24cf71bfce4d177857c0dbcea4ec5",
+      "leafHash": "abfe486694c458c370e184080018b4e4d5bbff81e96a60f588414948e315bd4a"
+    },
+    {
+      "cycleId": "vector-cycle",
+      "serial": "WR-VEC-2",
+      "outcome": "NONE",
+      "salt": "1c84b447ac10fd92ca929932dc91290a",
+      "leafHash": "072bc8ae2ff9792c48a92fb5a1a5ad2b681acb41f09e62c77fea8e616d903483"
+    },
+    {
+      "cycleId": "vector-cycle",
+      "serial": "WR-VEC-3",
+      "outcome": "NONE",
+      "salt": "2f280b0ed9d9528117dd7d29b09e2cfc",
+      "leafHash": "4eb0b4708256e6e14057a656fad1e78b8bcfdabde8c49132c5deaba145ffcea0"
+    },
+    {
+      "cycleId": "vector-cycle",
+      "serial": "WR-VEC-4",
+      "outcome": "NONE",
+      "salt": "7f92ac1a63e9fe248ad746e792121dc5",
+      "leafHash": "9129355c804a2901e9bad4226d1956eafe3788655f704e9615f092752f733139"
+    },
+    {
+      "cycleId": "vector-cycle",
+      "serial": "WR-VEC-5",
+      "outcome": "NONE",
+      "salt": "373b6418a4a6d093ad685137692b5ed7",
+      "leafHash": "9d4912482fe9366fb5fd761eed7660cad88c54ae542fc1837df75c8072a9fac7"
+    },
+    {
+      "cycleId": "vector-cycle",
+      "serial": "WR-VEC-6",
+      "outcome": "NONE",
+      "salt": "0dc09a6be7051fc9aa931c53b0b7f70e",
+      "leafHash": "c3628906b474ffd9a34ea970e17260b4fb2a9055cea75fa9843b07ead9a697ff"
+    }
+  ],
+  "merkle": {
+    "root": "4ef91c910538f94f50ed5f47fedf170d9a201f154111195cd51b112aa651b7ab",
+    "proofForIndex3": [
+      {
+        "hash": "072bc8ae2ff9792c48a92fb5a1a5ad2b681acb41f09e62c77fea8e616d903483",
+        "side": "left"
+      },
+      {
+        "hash": "b885a10e3ecbd1ba04c0277fc8011422f7172907286e7b7afbbbc04333fe3961",
+        "side": "left"
+      },
+      {
+        "hash": "bf41864bd4b0cb6707a3dcb064972977b1b359218693b8da357caebfec5a014e",
+        "side": "right"
+      }
+    ]
+  },
+  "draw": {
+    "cycleId": "vector-cycle",
+    "secret": "fe6db231ab9b059eefc051f80298ccb42e262ef433a37e4a368455b3cba39bae",
+    "secretCommitment": "29afb574bf12c5de825b74965cddf10ed848cb6f97c3323469a26e635f986630",
+    "beaconValue": "ffb3c60e24b59d40723e37f2b7260207be1124ee651abf92cf59f2522e41c3e3",
+    "entries": [
+      "WR-ENTRY-00",
+      "WR-ENTRY-01",
+      "WR-ENTRY-02",
+      "WR-ENTRY-03",
+      "WR-ENTRY-04",
+      "WR-ENTRY-05",
+      "WR-ENTRY-06",
+      "WR-ENTRY-07",
+      "WR-ENTRY-08",
+      "WR-ENTRY-09",
+      "WR-ENTRY-10",
+      "WR-ENTRY-11",
+      "WR-ENTRY-12",
+      "WR-ENTRY-13",
+      "WR-ENTRY-14",
+      "WR-ENTRY-15",
+      "WR-ENTRY-16",
+      "WR-ENTRY-17",
+      "WR-ENTRY-18",
+      "WR-ENTRY-19",
+      "WR-ENTRY-20",
+      "WR-ENTRY-21",
+      "WR-ENTRY-22",
+      "WR-ENTRY-23",
+      "WR-ENTRY-24"
+    ],
+    "entriesHash": "d5b72bf58f08213608421dd209d465902bd7a9123e6a55c87672c4738bc307e9",
+    "seed": "d59b30c4046a20adab9071c2af551872bcad83475fb0dcba018838590210362f",
+    "prizes": [
+      {
+        "prizeId": "first",
+        "quantity": 1
+      },
+      {
+        "prizeId": "second",
+        "quantity": 3
+      }
+    ],
+    "winners": [
+      {
+        "prizeId": "first",
+        "position": 1,
+        "serial": "WR-ENTRY-00"
+      },
+      {
+        "prizeId": "second",
+        "position": 1,
+        "serial": "WR-ENTRY-17"
+      },
+      {
+        "prizeId": "second",
+        "position": 2,
+        "serial": "WR-ENTRY-12"
+      },
+      {
+        "prizeId": "second",
+        "position": 3,
+        "serial": "WR-ENTRY-21"
+      }
+    ]
+  }
+}
