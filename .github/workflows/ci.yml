@@ -29,8 +29,22 @@ jobs:
         run: pnpm test
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      - name: Install Chromium for the browser tests
+      # The browser is kept between runs: it is downloaded again only when the locked
+      # Playwright version changes, so a slow download cannot hold up every run.
+      - name: Restore cached Chromium for the browser tests
+        id: chromium-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Download Chromium (only when not cached)
+        if: steps.chromium-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 15
         run: pnpm --filter @wiifarm/browser-tests exec playwright install --with-deps chromium
+      - name: Install Chromium's system libraries (when cached)
+        if: steps.chromium-cache.outputs.cache-hit == 'true'
+        timeout-minutes: 10
+        run: pnpm --filter @wiifarm/browser-tests exec playwright install-deps chromium
       - name: Browser tests (both web apps in real Chromium, each file with its own database)
         run: pnpm test:browser
         env:
