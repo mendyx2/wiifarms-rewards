@@ -3,7 +3,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { adminSignIn, answerDialogs, apiBuy, apiPlayer, assertClean, newPage, playerSignIn, startStack, toast, visit, type Stack } from "./harness.ts";
+import { adminSignIn, answerDialogs, apiBuy, apiPlayer, assertClean, call, newPage, playerSignIn, startStack, toast, visit, type Stack } from "./harness.ts";
 
 let s: Stack;
 before(async () => { s = await startStack(); });
@@ -174,4 +174,53 @@ test("staff access and licences: two security administrators for a role, immedia
   await a.waitForSelector('.tile:has-text("Niger State licence") b:has-text("In force")');
   assert.equal(await a.locator('.tile:has-text("Real-money sales") b').innerText(), "Not available");
   await assertClean(a, "access and licences");
+});
+
+test("next-of-kin claim: Compliance opens the case, the winner is told, someone else approves after the wait, the claimant sees the prize", async () => {
+  const { seedDemo } = await import("@wiifarm/api/seed-demo.ts");
+  const { cycleId } = await seedDemo(s.ctx, { name: "Kin Cycle" });
+  const winner = await apiPlayer(s, "08037770031", "Musa Bello");
+  const claimant = await apiPlayer(s, "08037770032", "Aisha Bello");
+  await call(s, "PUT", "/v1/me/next-of-kin", { token: winner.token, body: { fullName: "Aisha Bello", relationship: "Daughter", phone: claimant.phone } });
+  await apiBuy(s, winner.token, cycleId, 1);
+  // The winner's card won a freezer in the final draw (set up directly: the draw itself is covered by the lifecycle test).
+  await s.pool.query(`INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at)
+    SELECT t.id, 'FINAL_DRAW', pt.id, t.owner_id, 'ENTITLED', now() + interval '20 days' FROM tickets t
+    JOIN prize_tiers pt ON pt.cycle_id = t.cycle_id AND pt.title = 'Solar freezer 200L' WHERE t.cycle_id = $1 AND t.owner_id IS NOT NULL LIMIT 1`, [cycleId]);
+
+  const a = await newPage(s, "desktop");
+  answerDialogs(a, () => "reason");
+  await adminSignIn(a, s, "compliance");
+  await visit(a, s.base + "/admin#/nok");
+  await a.fill('form:has-text("Find the winner") input[name=phone]', winner.phone);
+  await a.click('button:has-text("Look up")');
+  await a.waitForSelector('.tile:has-text("Next of kin on record") b:has-text("Aisha Bello")');
+  assert.match(await a.innerText(".card:has(th:has-text('Prize waiting'))"), /Solar freezer 200L/);
+  await a.fill("input[name=claimant]", claimant.phone);
+  await a.fill("textarea[name=docs]", "Death certificate NPC/2026/1123\nClaimant NIN slip");
+  await a.fill("textarea[name=note]", "Documents seen at the Minna office");
+  await a.click('button:has-text("Open case")');
+  await toast(a, /Case opened/);
+  await visit(a, s.base + "/admin#/nok");
+  await a.waitForSelector('.pill:has-text("Waiting until")');
+  const w = await call(s, "GET", "/v1/notifications", { token: winner.token });
+  assert.ok(w.items.some((i: any) => i.title === "Someone has asked to claim your prizes"), "the winner is told first");
+
+  // A week passes without the winner signing in.
+  await s.pool.query("UPDATE next_of_kin_cases SET opened_at = now() - interval '8 days'");
+  await s.pool.query("UPDATE sessions SET created_at = now() - interval '9 days' WHERE user_id = (SELECT id FROM users WHERE phone_e164 = '+2348037770031')");
+  await visit(a, s.base + "/admin#/nok");
+  await a.waitForSelector('.pill:has-text("Needs someone else")'); // the person who opened it cannot decide
+  await adminSignIn(a, s, "finance");
+  await visit(a, s.base + "/admin#/nok");
+  await a.click('.card:has(th:has-text("Claimant")) button:has-text("Approve")');
+  assert.match(await toast(a, /Approved/), /1 prize\(s\)/);
+  await assertClean(a, "next-of-kin (admin)");
+
+  const p = await newPage(s);
+  await playerSignIn(p, s, claimant.phone);
+  await visit(p, s.base + "/#/wallet");
+  await p.waitForSelector("text=Passed to you as next of kin");
+  assert.match(await p.innerText('.card:has-text("Solar freezer 200L")'), /Ready to claim/);
+  await assertClean(p, "next-of-kin (claimant)");
 });

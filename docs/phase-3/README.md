@@ -129,4 +129,4 @@ Two design limits to raise with the lab and the testers:
 1. Management confirms the licence route (item 1) and the cloud provider (items 2, 3, 9, 10).
 2. Shortlist and approach two test labs and two security firms, sending them this document, the threat model and the engine specification for quotes.
 3. Open test accounts with the payment, identity and SMS providers; ask payment providers first whether they accept lottery merchants.
-4. In parallel, the team can finish the remaining Phase 2 items: the next-of-kin claim process, support tools, Hausa, and the installable app.
+4. In parallel, the team can finish the remaining Phase 2 items: support tools, Hausa, and the installable app.

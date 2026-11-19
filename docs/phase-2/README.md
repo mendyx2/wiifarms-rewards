@@ -223,6 +223,21 @@ The whole browser suite takes about a minute and passed four runs in a row, one 
 
 **Found by turning the checks into tests:** the player app's message bell only refreshed when the app was first opened, so a player who had the app open during the draw saw no badge until they reloaded. It now refreshes on every screen change.
 
+## Next-of-kin claims
+
+When a winner has died or cannot be reached, the next of kin they recorded may receive the prizes still waiting to be claimed and any winnings not yet withdrawn — never automatically:
+
+1. **Only the recorded next of kin.** The claimant needs their own verified account, and their phone number and verified name must match the next of kin the winner recorded. (A winner cannot change that record while a prize claim is open.) People on the exclusion register cannot be claimants.
+2. **Compliance opens a case** with the reason (died / cannot be reached), the documents seen and notes.
+3. **The winner is told at once**, by text and in the app.
+4. **Seven-day wait.** Nothing can be decided before then. If the winner signs in during the wait, the case cannot be approved — they can be reached.
+5. **A different person decides** (Compliance or Finance), with a reason if rejecting.
+6. **On approval**, in one transaction: the waiting prizes move to the claimant, marked as passed on, with at least 30 days to complete each claim; winnings not withdrawn move through the ledger; for a winner who has died, their account is closed to sign-in. The claimant is told by text and in the app.
+7. **Nothing lapses meanwhile.** While a case is open the database will not let the winner's prizes expire.
+8. Decided cases cannot be changed or deleted, and every step is in the audit trail.
+
+Staff use the new **Next of kin** page (look up the winner, open a case, decide). The claimant sees "Passed to you as next of kin" on the prize.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -244,12 +259,12 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 1. ~~Player web app connected to the API~~ — done (see above). Remaining: offline shell, more languages, automated browser tests in CI.
 2. ~~Admin web app connected to the API~~ — done for cycles, approvals, draw, payouts, audit and compliance (see above).
 3. **Public verifier page**: check a card, re-run a draw.
-4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking, next-of-kin claims.
+4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking.
 5. ~~Voiding a cycle with refunds; manual refunds with two-person approval~~ — done (see above).
 6. ~~Publishing the full ticket list when a cycle is archived; settling and archiving steps~~ — done (see above).
 7. ~~Notifications (SMS/in-app)~~ — done (see above). Remaining: WhatsApp, support tickets.
 8. ~~Reconciliation report and financial reports; operating-expense records~~ — done (see above).
-9. ~~Unclaimed-prize reminders and expiry~~ — done. Remaining: the next-of-kin claim process.
+9. ~~Unclaimed-prize reminders and expiry; the next-of-kin claim process~~ — done.
 10. Tier 2 checks (liveness) before major-prize claims; fraud rules beyond the staff register.
 
 ## Before any real money (Phase 3 and later — unchanged)

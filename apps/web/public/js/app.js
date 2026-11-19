@@ -497,7 +497,8 @@ const CLAIM_TEXT = { ENTITLED: "Ready to claim", ON_HOLD: "Being reviewed", VERI
 function prizeCard(p) {
   const daysLeft = Math.max(0, Math.ceil((new Date(p.expires_at) - Date.now()) / 864e5));
   const card = el("div", { class: "card" },
-    el("div", { class: "row" }, el("div", {}, el("b", {}, p.title), el("small", {}, `${p.cycle} · card ${p.ticket}`)), el("span", { class: "pill" + (p.status === "DELIVERED" ? "" : " gold") }, CLAIM_TEXT[p.status] ?? p.status)));
+    el("div", { class: "row" }, el("div", {}, el("b", {}, p.title), el("small", {}, `${p.cycle} · card ${p.ticket}`), p.claimed_by_next_of_kin ? el("small", {}, "Passed to you as next of kin") : null),
+      el("span", { class: "pill" + (p.status === "DELIVERED" ? "" : " gold") }, CLAIM_TEXT[p.status] ?? p.status)));
   if (p.status === "ENTITLED") {
     if (!state.me.nextOfKin) {
       card.append(el("div", { class: "note warn" }, "Add your next of kin before claiming this prize."), el("a", { class: "btn ghost", href: "#/me" }, "Add next of kin"));

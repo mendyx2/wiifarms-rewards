@@ -160,7 +160,7 @@ export async function inventoryOverview(ctx: Ctx, admin: Admin): Promise<unknown
 // --- Claiming a merchandise prize (player) ------------------------------------------------------------
 
 const CLAIM_SELECT = `
-  SELECT pc.id, pc.status, pc.stage, pc.expires_at, pc.created_at, pc.hold_reason, pt.title, pt.kind, pt.cash_kobo, c.name AS cycle, t.serial AS ticket,
+  SELECT pc.id, pc.status, pc.stage, pc.expires_at, pc.claimed_by_next_of_kin, pc.created_at, pc.hold_reason, pt.title, pt.kind, pt.cash_kobo, c.name AS cycle, t.serial AS ticket,
          sh.method, sh.status AS shipment_status, sh.carrier, sh.tracking_ref, sh.address, sh.handed_over_at, sh.handover_otp_enc, sh.id AS shipment_id,
          u.serial_number, s.warranty_months
   FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id JOIN cycles c ON c.id = pt.cycle_id JOIN tickets t ON t.id = pc.ticket_id

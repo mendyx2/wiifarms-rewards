@@ -330,6 +330,75 @@ async function access() {
   return nodes;
 }
 
+let nokLookup = "";
+async function nokPage() {
+  if (!can("COMPLIANCE", "FINANCE", "AUDITOR", "SUPPORT")) return [el("h1", {}, "Next of kin"), el("p", { class: "sub" }, "Your role does not include next-of-kin claims.")];
+  const nodes = [el("h1", {}, "Next-of-kin claims"),
+    el("p", { class: "sub" }, "When a winner has died or cannot be reached, the next of kin they recorded may receive their waiting prizes and winnings. Compliance opens a case with the documents; the winner is told at once; after a 7-day wait someone else in Compliance or Finance decides. If the winner signs in during the wait, the case cannot go ahead.")];
+
+  // Look up a winner
+  const found = el("div");
+  const showLookup = async (phone) => {
+    const r = await get("/v1/admin/nok/lookup?phone=" + encodeURIComponent(phone));
+    const kids = [
+      el("div", { class: "tiles" },
+        el("div", { class: "tile" }, el("span", {}, "Winner"), el("b", {}, r.winner.name ?? "Not verified"), el("small", {}, `${r.winner.phone} · ${r.winner.status.toLowerCase()}`)),
+        el("div", { class: "tile " + (r.nextOfKin ? "ok" : "warn") }, el("span", {}, "Next of kin on record"), el("b", {}, r.nextOfKin ? r.nextOfKin.name : "None recorded"), el("small", {}, r.nextOfKin ? `${r.nextOfKin.relationship} · ${r.nextOfKin.phone}` : "No one can claim through this process")),
+        el("div", { class: "tile" }, el("span", {}, "Winnings not withdrawn"), el("b", {}, naira(r.winningsKobo)))),
+      r.waitingPrizes.length ? table(["Prize waiting", "Cycle", "Claim by"], r.waitingPrizes.map((p) => el("tr", {}, td(p.title), td(p.cycle), td(when(p.expires_at))))) : el("p", { class: "sub" }, "No prizes waiting to be claimed."),
+    ];
+    if (can("COMPLIANCE") && r.nextOfKin) {
+      const form = el("form", { onsubmit: action(async () => {
+        const docs = v(form, "docs").split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+        const c = await post("/v1/admin/nok/cases", { winnerPhone: phone, claimantPhone: v(form, "claimant"), reason: v(form, "reason"), documents: docs, note: v(form, "note") });
+        return `Case opened. The winner has been told. It can be decided from ${when(c.decideFrom)} by someone else.`;
+      }) }, el("h2", {}, "Open a case"), el("div", { class: "form" },
+        select("Reason", "reason", [["DECEASED", "The winner has died"], ["UNREACHABLE", "The winner cannot be reached"]]),
+        input("Claimant's phone (must be the next of kin on record)", { name: "claimant", inputmode: "tel", required: true }),
+        input("Documents seen (one per line: death certificate, claimant ID, record of attempts to reach the winner)", { name: "docs", rows: 3, required: true }, true),
+        input("Case notes", { name: "note", rows: 2, required: true }, true)),
+        el("p", { class: "sub" }, "The claimant needs their own account with verified identity, matching the recorded name."),
+        el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Open case")));
+      kids.push(form);
+    }
+    found.replaceChildren(el("div", { class: "card" }, ...kids));
+  };
+  const lookup = el("form", { class: "card", onsubmit: action(async () => { nokLookup = v(lookup, "phone"); await showLookup(nokLookup); }, false) },
+    el("b", {}, "Find the winner"), el("div", { class: "form" }, input("Winner's phone number", { name: "phone", inputmode: "tel", required: true, value: nokLookup }), el("button", { class: "btn ghost", type: "submit" }, "Look up")));
+  nodes.push(lookup, found);
+  if (nokLookup) showLookup(nokLookup).catch(() => {});
+
+  // Cases
+  if (can("COMPLIANCE", "FINANCE", "AUDITOR")) {
+    const { cases } = await get("/v1/admin/nok/cases");
+    const decide = (c, approve) => action(async () => {
+      const body = { approve };
+      if (approve && !confirm("Pass the winner's waiting prizes and winnings to the claimant? This cannot be undone.")) return;
+      if (!approve) { const reason = prompt("Reason for rejecting:"); if (!reason) return; body.reason = reason; }
+      const r = await post(`/v1/admin/nok/cases/${c.id}/decision`, body);
+      return approve ? `Approved: ${r.transferred.prizeClaims.length} prize(s) and ${naira(r.transferred.winningsKobo)} passed to the claimant.` : "Rejected. Nothing was passed on.";
+    });
+    nodes.push(el("h2", {}, "Cases"), el("div", { class: "card" }, cases.length ? table(["Winner", "Claimant", "Reason and documents", "Opened", "Status", ""], cases.map((c) => {
+      const ready = new Date(c.decide_from).getTime() <= Date.now();
+      let act = "";
+      if (c.status === "OPEN") {
+        if (c.winner_signed_in_since) act = el("div", {}, pill("Winner signed in — contact them", "red"), can("COMPLIANCE", "FINANCE") && c.opened_by !== me.id ? el("div", { class: "actions" }, el("button", { class: "btn danger", onclick: decide(c, false) }, "Reject")) : null);
+        else if (!ready) act = pill("Waiting until " + when(c.decide_from), "gold");
+        else if (can("COMPLIANCE", "FINANCE") && c.opened_by !== me.id) act = el("div", { class: "actions" }, el("button", { class: "btn", onclick: decide(c, true) }, "Approve"), el("button", { class: "btn danger", onclick: decide(c, false) }, "Reject"));
+        else act = pill(c.opened_by === me.id ? "Needs someone else" : "Needs Compliance or Finance", "gold");
+      }
+      return el("tr", {}, td(`${c.winner_name ?? "—"} (${c.winner_phone})`), td(`${c.claimant_name} (${c.claimant_phone})`),
+        td([c.reason === "DECEASED" ? "Winner has died" : "Winner unreachable", el("div", { class: "sub" }, c.documents.join(", ")), el("div", { class: "sub" }, c.note)]),
+        td(`${c.opened_by_name} · ${when(c.opened_at)}`),
+        td([pill(c.status.toLowerCase(), c.status === "APPROVED" ? "" : c.status === "OPEN" ? "gold" : "grey"),
+          c.decided_by_name ? el("div", { class: "sub" }, `${c.decided_by_name}${c.decision_reason ? ": " + c.decision_reason : ""}`) : null,
+          c.transferred ? el("div", { class: "sub" }, `${c.transferred.prizeClaims.length} prize(s), ${naira(c.transferred.winningsKobo)} passed on`) : null]),
+        td(act));
+    })) : el("p", { class: "sub" }, "No cases.")));
+  }
+  return nodes;
+}
+
 async function dashboard() {
   const d = await get("/v1/admin/dashboard");
   const live = d.cycles.find((c) => ["OPEN", "CLOSED", "DRAWN", "SETTLING"].includes(c.status)) ?? d.cycles[0];
@@ -849,7 +918,7 @@ async function auditPage() {
 
 // --- Router ------------------------------------------------------------------------------------
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, finance, merchandise, audit: auditPage, access };
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, finance, merchandise, audit: auditPage, access };
 let renderId = 0;
 
 async function render() {

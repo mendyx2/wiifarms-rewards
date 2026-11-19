@@ -16,6 +16,7 @@ import * as finance from "./modules/finance.ts";
 import * as archive from "./modules/archive.ts";
 import * as notifications from "./modules/notify.ts";
 import * as governance from "./modules/governance.ts";
+import * as nok from "./modules/nok.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -378,6 +379,18 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     app.post<{ Params: { id: string }; Body: { reason: string } }>(`/v1/admin/${table}/:id/revoke`, { schema: { ...idParam, ...body({ reason: str(500) }) } },
       async (req) => governance.revokeRecord(ctx, await staff(req), table, req.params.id, req.body.reason));
   }
+
+  // ---- Next-of-kin claims (opened by Compliance, decided by someone else after a waiting period) ----
+  app.get<{ Querystring: { phone: string } }>("/v1/admin/nok/lookup", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { phone: str(20) }, required: ["phone"] } },
+  }, async (req) => nok.lookupWinner(ctx, await staff(req), req.query.phone));
+  app.get("/v1/admin/nok/cases", async (req) => ({ cases: await nok.listCases(ctx, await staff(req)), waitingDays: nok.WAITING_DAYS }));
+  app.post<{ Body: { winnerPhone: string; claimantPhone: string; reason: "DECEASED" | "UNREACHABLE"; documents: string[]; note: string } }>("/v1/admin/nok/cases", {
+    schema: body({ winnerPhone: str(20), claimantPhone: str(20), reason: { enum: ["DECEASED", "UNREACHABLE"] }, documents: { type: "array", minItems: 1, maxItems: 20, items: str(300) }, note: str(2000) }),
+  }, async (req) => nok.openCase(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/nok/cases/:id/decision", {
+    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
+  }, async (req) => nok.decideCase(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
 
   app.get("/v1/admin/messages", async (req) => notifications.messageLog(ctx, await staff(req)));
   app.get("/v1/admin/compliance", async (req) => admin.compliance(ctx, await staff(req)));

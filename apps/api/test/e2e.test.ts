@@ -1221,3 +1221,81 @@ test("large deliveries and rate limits behind a load balancer", async () => {
   assert.equal(await count429(direct, (i) => ({ remoteAddress: "41.58.7.7", xff: `1.2.3.${i}` })), 5);
   await direct.close();
 });
+
+test("next-of-kin claims: only the recorded next of kin, the winner told first, a waiting period, two people, then prizes and winnings move", async () => {
+  const ct = admins.compliance!.token, fin = admins.finance!.token;
+  const { expireClaims } = await import("../src/modules/inventory.ts");
+  // A real drawn cycle: the winner holds every entry, so wins the cash prize and both freezers.
+  ok(await api("POST", "/v1/admin/stock/receive", { token: admins.fulfilment!.token, body: { skuId, supplierId, warehouseId, poReference: "PO-NOK", serialNumbers: ["SN-NOK-1", "SN-NOK-2"], acquisitionCostKobo: 1, landedCostKobo: 1 } }));
+  const cyc = await openCycle({ total: 12, closeInMs: 2500, cap: 12, name: "Kin cycle" });
+  const winner = await newPlayer();
+  const claimant = await newPlayer({ name: "Kin Claimant" });
+  const stranger = await newPlayer();
+  ok(await api("PUT", "/v1/me/next-of-kin", { token: winner.token, body: { fullName: "Kin Claimant", relationship: "Brother", phone: claimant.phone } }));
+  await buy(winner, cyc.id, 5);
+  await sleep(Math.max(0, cyc.closeAt - Date.now()) + 2200);
+  await closeDueCycles(ctx);
+  for (const a of ["manager", "finance", "auditor"]) ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/sign`, { token: admins[a]!.token }));
+  ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/execute`, { token: admins.manager!.token }));
+  const winnings = ok(await api("GET", "/v1/wallet", { token: winner.token })).balanceKobo;
+  assert.ok(winnings >= 10_000_000);
+
+  const look = ok(await api("GET", `/v1/admin/nok/lookup?phone=${winner.phone}`, { token: ct }));
+  assert.equal(look.waitingPrizes.length, 2); assert.equal(look.winningsKobo, winnings);
+  assert.deepEqual(look.nextOfKin, { name: "Kin Claimant", relationship: "Brother", phone: "…" + claimant.phone.slice(-4) });
+
+  const open = (token: string, b: object) => api("POST", "/v1/admin/nok/cases", { token, body: { winnerPhone: winner.phone, claimantPhone: claimant.phone, reason: "UNREACHABLE", documents: ["calls-log.pdf", "claimant-id.pdf"], note: "No answer to calls or texts for 60 days", ...b } });
+  fails(await open(fin, {}), 403, "ROLE_REQUIRED");
+  fails(await open(ct, { documents: [" "] }), 400, "DOCUMENTS_REQUIRED");
+  fails(await open(ct, { claimantPhone: stranger.phone }), 409, "NOT_NEXT_OF_KIN");
+  await pool.query("UPDATE next_of_kin SET full_name = 'Someone Else' WHERE user_id = $1", [winner.id]);
+  fails(await open(ct, {}), 409, "NAME_MISMATCH");
+  await pool.query("UPDATE next_of_kin SET full_name = 'Kin Claimant' WHERE user_id = $1", [winner.id]);
+  const c1 = ok(await open(ct, {}));
+  fails(await open(ct, {}), 409, "CASE_ALREADY_OPEN");
+  // The winner is told at once, by text and in the app.
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND kind = 'NOK_CASE_OPENED'", [winner.id])).rows[0].n, 2);
+
+  const decide = (token: string, id: string, b: object) => api("POST", `/v1/admin/nok/cases/${id}/decision`, { token, body: b });
+  fails(await decide(fin, c1.id, { approve: true }), 409, "WAITING_PERIOD");
+  fails(await decide(ct, c1.id, { approve: true }), 403, "SAME_PERSON");
+  // While the case is open the prizes cannot lapse, even past their window.
+  await pool.query("UPDATE prize_claims SET expires_at = now() - interval '1 minute' WHERE user_id = $1 AND status = 'ENTITLED'", [winner.id]);
+  await expireClaims(ctx);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM prize_claims WHERE user_id = $1 AND status = 'ENTITLED'", [winner.id])).rows[0].n, 2);
+  await pool.query("UPDATE prize_claims SET expires_at = now() + interval '5 days' WHERE user_id = $1 AND status = 'ENTITLED'", [winner.id]);
+
+  // A week later — but the winner has signed in, so they are reachable: the case cannot go ahead.
+  await pool.query("UPDATE next_of_kin_cases SET opened_at = now() - interval '8 days' WHERE id = $1", [c1.id]);
+  ok(await api("POST", "/v1/auth/login", { body: { phone: winner.phone, pin: winner.pin } }));
+  fails(await decide(fin, c1.id, { approve: true }), 409, "WINNER_ACTIVE");
+  fails(await decide(fin, c1.id, { approve: false }), 400, "REASON_REQUIRED");
+  assert.equal(ok(await decide(fin, c1.id, { approve: false, reason: "Winner signed in; contacted directly" })).status, "REJECTED");
+  fails(await decide(fin, c1.id, { approve: true }), 409, "ALREADY_DECIDED");
+
+  // A second case, for a winner who has died; no sign-in after it is opened.
+  await pool.query("UPDATE sessions SET created_at = now() - interval '9 days' WHERE user_id = $1", [winner.id]);
+  const c2 = ok(await open(ct, { reason: "DECEASED", documents: ["death-certificate.pdf", "claimant-id.pdf"], note: "Death certificate seen at the Minna office" }));
+  await pool.query("UPDATE next_of_kin_cases SET opened_at = now() - interval '8 days' WHERE id = $1", [c2.id]);
+  const done = ok(await decide(fin, c2.id, { approve: true }));
+  assert.equal(done.status, "APPROVED");
+  assert.equal(done.transferred.prizeClaims.length, 2);
+  assert.equal(done.transferred.winningsKobo, winnings);
+
+  // The prizes and the winnings are now the claimant's, with time to complete the claim.
+  const claims = ok(await api("GET", "/v1/claims", { token: claimant.token })).claims;
+  assert.equal(claims.filter((x: any) => x.claimed_by_next_of_kin && x.status === "ENTITLED").length, 2);
+  assert.ok(claims.every((x: any) => new Date(x.expires_at).getTime() > Date.now() + 29 * 864e5));
+  assert.equal(ok(await api("GET", "/v1/wallet", { token: claimant.token })).balanceKobo, winnings);
+  assert.equal(0 - (await pool.query("SELECT coalesce(sum(e.amount_kobo),0)::bigint AS b FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id WHERE a.code = $1", [`PLAYER_WINNINGS:${winner.id}`])).rows[0].b, 0);
+  // The deceased winner's account is closed to sign-in.
+  fails(await api("GET", "/v1/me", { token: winner.token }), 401, "UNAUTHENTICATED");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND kind = 'NOK_APPROVED'", [claimant.id])).rows[0].n, 2);
+
+  const list = ok(await api("GET", "/v1/admin/nok/cases", { token: admins.auditor!.token })).cases;
+  assert.deepEqual(list.filter((x: any) => [c1.id, c2.id].includes(x.id)).map((x: any) => x.status).sort(), ["APPROVED", "REJECTED"]);
+  await assert.rejects(pool.query("UPDATE next_of_kin_cases SET claimant_user_id = $2 WHERE id = $1", [c2.id, stranger.id]), /cannot be changed/);
+  await assert.rejects(pool.query("DELETE FROM next_of_kin_cases WHERE id = $1", [c1.id]), /cannot be changed/);
+  const actions = (await pool.query("SELECT action FROM audit_log WHERE entity_id = $1", [winner.id])).rows.map((r: any) => r.action);
+  for (const a of ["nok.case_opened", "nok.case_rejected", "nok.case_approved"]) assert.ok(actions.includes(a), a);
+});
