@@ -527,12 +527,12 @@ async function cycles() {
         salesOpenAt: new Date(v(form, "open")).toISOString(), salesCloseAt: new Date(v(form, "close")).toISOString(), drawAt: new Date(v(form, "draw")).toISOString() });
       location.hash = "#/cycle/" + r.id;
     }, false) },
-      el("b", {}, "New cycle"), el("p", { class: "sub" }, "All cycles are simulated. Ticket price must be ₦200–₦500."),
+      el("b", {}, "New cycle"), el("p", { class: "sub" }, "All cycles are simulated. Ticket price must be ₦200–₦500. Company policy fixed on each cycle: prizes are paid from 50% of full sell-out sales, 10% of that is instant cash, and each player can buy at most 10 cards a day. Defaults are the first wave."),
       el("div", { class: "form" },
         input("Name", { name: "name", required: true, maxlength: 120 }),
-        input("Ticket price (₦)", { name: "price", type: "number", min: 200, max: 500, step: 50, value: 200, required: true }),
-        input("Number of tickets", { name: "total", type: "number", min: 1, value: 1000, required: true }),
-        input("Most tickets per player", { name: "cap", type: "number", min: 1, value: 50, required: true }),
+        input("Ticket price (₦)", { name: "price", type: "number", min: 200, max: 500, step: 50, value: 500, required: true }),
+        input("Number of tickets", { name: "total", type: "number", min: 1, value: 400000, required: true }),
+        input("Most tickets per player in the season", { name: "cap", type: "number", min: 1, value: 300, required: true }),
         input("Sales open", { name: "open", type: "datetime-local", value: localInput(new Date(now)), required: true }),
         input("Sales close (or sell-out)", { name: "close", type: "datetime-local", value: localInput(new Date(now + 14 * 864e5)), required: true }),
         input("Final draw", { name: "draw", type: "datetime-local", value: localInput(new Date(now + 14 * 864e5)), required: true })),
@@ -567,6 +567,16 @@ async function cycle(id) {
     el("div", { class: "tile" }, el("span", {}, "Sales window"), el("b", {}, when(c.sales_close_at)), el("small", {}, "opens " + when(c.sales_open_at) + " · closes then or at sell-out")),
     el("div", { class: "tile" }, el("span", {}, "Final draw"), el("b", {}, when(c.draw_at)), el("small", {}, `claims open ${c.claim_window_days} days`)),
     el("div", { class: "tile " + ((c.escrow_funded_kobo ?? 0) >= c.cashCoverRequiredKobo ? "ok" : "warn") }, el("span", {}, "Cash prizes to cover"), el("b", {}, naira(c.cashCoverRequiredKobo)), el("small", {}, c.escrow_reference ? `escrow ${c.escrow_reference}: ${naira(c.escrow_funded_kobo)}` : "escrow not recorded yet"))));
+
+  // Prize budget: company policy, fixed on the cycle when drafted.
+  const b = c.budget;
+  const meter = (label, used, cap, note) => el("div", { class: "tile " + (used > cap ? "warn" : "ok") }, el("span", {}, label),
+    el("b", {}, `${naira(used)} of ${naira(cap)}`), el("small", {}, used > cap ? `${naira(used - cap)} over — approval will be refused` : `${naira(cap - used)} unallocated · ${note}`));
+  nodes.push(el("h2", {}, "Prize budget"), el("div", { class: "tiles" },
+    el("div", { class: "tile" }, el("span", {}, "Prize money"), el("b", {}, naira(b.poolKobo)), el("small", {}, `${b.prizeShareBp / 100}% of ${naira(b.fullSalesKobo)} full sell-out sales`)),
+    meter("Instant cash", b.instantKobo, b.instantBudgetKobo, `${b.instantShareBp / 100}% of prize money`),
+    meter("Final draw (merchandise at advertised value)", b.drawKobo, b.drawBudgetKobo, "the rest of the prize money")),
+    el("p", { class: "sub" }, `If not every card sells, the advertised prizes are still given, so prizes become a larger share of actual sales. Each player can buy at most ${num(c.max_tickets_per_day)} cards a day.`));
 
   // Prize schedule
   const tierRows = c.tiers.map((t) => el("tr", {}, td(t.stage === "INSTANT" ? "Instant" : "Final draw #" + t.draw_order), td(t.title + (t.sku_name && t.sku_name !== t.title ? ` (${t.sku_name})` : "")),

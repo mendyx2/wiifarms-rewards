@@ -12,6 +12,7 @@ import type { Config } from "../src/config.ts";
 import type { Ctx } from "../src/context.ts";
 import { LocalKeyService } from "../src/crypto.ts";
 import { createPool, type Pool } from "../src/db.ts";
+import { POLICY } from "../src/policy.ts";
 import { buildServer } from "../src/http.ts";
 import { migrate } from "../src/migrate.ts";
 import { SimulatedMessenger } from "../src/messenger.ts";
@@ -63,20 +64,34 @@ async function buy(p: Player, cycleId: string, quantity: number): Promise<any> {
 }
 
 /** Creates a cycle and takes it through approval, commitment and opening. */
-async function openCycle(o: { total: number; closeInMs: number; cap: number; name: string }): Promise<{ id: string; closeAt: number }> {
+/**
+ * Standard test season: ₦200 cards and a prize table that fits the real budget
+ * (prizes from 50% of full sell-out sales, 10% of that as instant cash).
+ * 60 cards: one ₦500 instant win; final draw ₦2,000 cash and two freezers.
+ * Under 100 cards there is no room for an instant win; the draw cash is ₦1,000.
+ */
+async function openCycle(o: { total: number; closeInMs: number; cap: number; name: string; priceKobo?: number;
+  tiers?: object[]; escrowKobo?: number }): Promise<{ id: string; closeAt: number }> {
   const now = Date.now();
   const closeAt = now + o.closeInMs;
+  const price = o.priceKobo ?? N200;
   const c = ok(await api("POST", "/v1/admin/cycles", { token: admins.manager!.token, body: {
-    name: o.name, ticketPriceKobo: N200, totalTickets: o.total, maxTicketsPerAccount: o.cap,
+    name: o.name, ticketPriceKobo: price, totalTickets: o.total, maxTicketsPerAccount: o.cap,
     salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: new Date(closeAt).toISOString(), drawAt: new Date(closeAt).toISOString() } }));
   const tier = (b: object) => api("POST", `/v1/admin/cycles/${c.id}/prize-tiers`, { token: admins.manager!.token, body: b });
-  ok(await tier({ stage: "INSTANT", kind: "CASH", title: "₦10,000", cashKobo: 1_000_000, quantity: 1 }));
-  ok(await tier({ stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 10 }));
-  ok(await tier({ stage: "FINAL_DRAW", kind: "CASH", title: "₦100,000 cash", cashKobo: 10_000_000, quantity: 1, drawOrder: 1 }));
-  ok(await tier({ stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Solar freezer", skuId: skuId, quantity: 2, drawOrder: 2 }));
+  const instantBudget = Math.floor(Math.floor(o.total * price / 2) / 10);
+  const instantWins = Math.floor(instantBudget / 50_000);
+  const drawCash = o.total >= 60 ? 200_000 : 100_000;
+  const tiers = o.tiers ?? [
+    ...(instantWins ? [{ stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: instantWins }] : []),
+    { stage: "FINAL_DRAW", kind: "CASH", title: `₦${(drawCash / 100).toLocaleString("en-NG")} cash`, cashKobo: drawCash, quantity: 1, drawOrder: 1 },
+    { stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Solar freezer", skuId: skuId, quantity: 2, drawOrder: 2 },
+  ];
+  for (const t of tiers) ok(await tier(t));
+  const escrow = o.escrowKobo ?? (instantWins * 50_000 + drawCash);
   ok(await api("PUT", `/v1/admin/cycles/${c.id}/evidence`, { token: admins.manager!.token, body: {
     financialModelRef: "fm-1", rulesDocumentRef: "rules-1", rulesText: "Published rules", escrowReference: "ESC-1",
-    escrowFundedKobo: 11_500_000, auditorAdminId: admins.auditor!.id } }));
+    escrowFundedKobo: escrow, auditorAdminId: admins.auditor!.id } }));
   assert.equal(ok(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: admins.fulfilment!.token })).complete, true);
   ok(await api("POST", `/v1/admin/cycles/${c.id}/submit`, { token: admins.manager!.token }));
   ok(await api("POST", `/v1/admin/cycles/${c.id}/approve`, { token: admins.manager2!.token }));
@@ -99,8 +114,10 @@ before(async () => {
   pool = createPool(dbUrl);
   config = {
     databaseUrl: dbUrl, masterKey: randomBytes(32), hashKey: randomBytes(32), simulated: true,
-    payoutApprovalThresholdKobo: 500_000, bankCoolingOffHours: 0, beaconPeriodSeconds: 1, sessionDays: 30,
+    payoutApprovalThresholdKobo: 100_000, bankCoolingOffHours: 0, beaconPeriodSeconds: 1, sessionDays: 30,
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 }, cookieSecure: true,
+    // Real prize shares; a higher daily card limit so the older tests can buy 20 cards at once (the 10-a-day default has its own test).
+    policy: { ...POLICY, cardsPerDay: 30 },
   };
   messenger = new SimulatedMessenger();
   ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds), messenger };
@@ -117,10 +134,10 @@ before(async () => {
   }
   // Merchandise set up by Fulfilment: item, supplier, warehouse, and serial-numbered stock with costs.
   const ft = admins.fulfilment!.token;
-  skuId = ok(await api("POST", "/v1/admin/skus", { token: ft, body: { name: "Solar freezer 200L", advertisedValueKobo: 55_000_000, serialised: true, warrantyMonths: 24 } })).id;
+  skuId = ok(await api("POST", "/v1/admin/skus", { token: ft, body: { name: "Solar freezer 200L", advertisedValueKobo: 50_000, serialised: true, warrantyMonths: 24 } })).id;
   supplierId = ok(await api("POST", "/v1/admin/suppliers", { token: ft, body: { name: "Test Supplier", country: "NG" } })).id;
   warehouseId = ok(await api("POST", "/v1/admin/warehouses", { token: ft, body: { name: "Minna", address: "1 Test Road, Minna", stateCode: "NG-NI" } })).id;
-  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-1", serialNumbers: ["SN-1", "SN-2", "SN-3", "SN-4", "SN-5"], acquisitionCostKobo: 38_000_000, landedCostKobo: 42_000_000 } }));
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-1", serialNumbers: ["SN-1", "SN-2", "SN-3", "SN-4", "SN-5"], acquisitionCostKobo: 30_000, landedCostKobo: 40_000 } }));
 });
 
 after(async () => {
@@ -185,44 +202,97 @@ test("identity: under-18 refused, one account per person", async () => {
 
 test("cycle approval: separation of duties, funding, locking, commitments", async () => {
   const now = Date.now();
-  const mk = (b: object) => api("POST", "/v1/admin/cycles", { token: admins.manager!.token, body: { name: "Rules check", ticketPriceKobo: N200, totalTickets: 20, maxTicketsPerAccount: 5, salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString(), ...b } });
+  const mk = (b: object) => api("POST", "/v1/admin/cycles", { token: admins.manager!.token, body: { name: "Rules check", ticketPriceKobo: N200, totalTickets: 100, maxTicketsPerAccount: 5, salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString(), ...b } });
   fails(await mk({ ticketPriceKobo: 10_000 }), 400, "INVALID_PRICE");
   fails(await api("POST", "/v1/admin/cycles", { token: admins.finance!.token, body: {} }), 400, "INVALID_REQUEST");
   fails(await api("POST", "/v1/admin/cycles", { token: admins.finance!.token, body: { name: "x", ticketPriceKobo: N200, totalTickets: 20, maxTicketsPerAccount: 5, salesOpenAt: "2030-01-01", salesCloseAt: "2030-01-02", drawAt: "2030-01-03" } }), 403, "ROLE_REQUIRED");
   const c = ok(await mk({}));
   const url = `/v1/admin/cycles/${c.id}`;
   fails(await api("POST", `${url}/prize-tiers`, { token: admins.manager!.token, body: { stage: "INSTANT", kind: "CASH", title: "too big", cashKobo: 5_000_000, quantity: 1 } }), 400, "INVALID_PRIZE");
-  ok(await api("POST", `${url}/prize-tiers`, { token: admins.manager!.token, body: { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 4 } }));
+  ok(await api("POST", `${url}/prize-tiers`, { token: admins.manager!.token, body: { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 2 } }));
   fails(await api("POST", `${url}/open`, { token: admins.manager!.token }), 409, "RULE_VIOLATION");
   ok(await api("POST", `${url}/submit`, { token: admins.manager!.token }));
   fails(await api("POST", `${url}/approve`, { token: admins.manager!.token }), 409, "RULE_VIOLATION"); // drafter cannot approve
   ok(await api("POST", `${url}/approve`, { token: admins.manager2!.token }));
   fails(await api("POST", `${url}/approve`, { token: admins.finance!.token }), 409, "RULE_VIOLATION"); // no evidence yet
-  fails(await api("PUT", `${url}/evidence`, { token: admins.manager!.token, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 200_000, auditorAdminId: admins.finance!.id } }), 400, "NOT_AN_AUDITOR");
-  ok(await api("PUT", `${url}/evidence`, { token: admins.manager!.token, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 199_999, auditorAdminId: admins.auditor!.id } }));
+  fails(await api("PUT", `${url}/evidence`, { token: admins.manager!.token, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 100_000, auditorAdminId: admins.finance!.id } }), 400, "NOT_AN_AUDITOR");
+  ok(await api("PUT", `${url}/evidence`, { token: admins.manager!.token, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 99_999, auditorAdminId: admins.auditor!.id } }));
   fails(await api("POST", `${url}/approve`, { token: admins.finance!.token }), 409, "RULE_VIOLATION"); // escrow ₦1 short
-  ok(await api("PUT", `${url}/evidence`, { token: admins.manager!.token, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 200_000, auditorAdminId: admins.auditor!.id } }));
+  ok(await api("PUT", `${url}/evidence`, { token: admins.manager!.token, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 100_000, auditorAdminId: admins.auditor!.id } }));
   assert.equal(ok(await api("POST", `${url}/approve`, { token: admins.finance!.token })).status, "APPROVED");
   // Locked from here on.
   fails(await api("POST", `${url}/prize-tiers`, { token: admins.manager!.token, body: { stage: "INSTANT", kind: "CASH", title: "late", cashKobo: 100_000, quantity: 1 } }), 409, "RULE_VIOLATION");
   fails(await api("PUT", `${url}/evidence`, { token: admins.manager!.token, body: { financialModelRef: "fm2", rulesDocumentRef: "r", rulesText: "new rules", escrowReference: "E", escrowFundedKobo: 0, auditorAdminId: admins.auditor!.id } }), 409, "RULE_VIOLATION");
   fails(await api("GET", `/v1/cycles/${c.id}`), 404, "NOT_FOUND"); // not public until committed
   const committed = ok(await api("POST", `${url}/commit`, { token: admins.manager!.token }));
-  assert.equal(committed.tickets, 20);
+  assert.equal(committed.tickets, 100);
   fails(await api("POST", `${url}/commit`, { token: admins.manager!.token }), 409, "NOT_APPROVED");
   const pub = ok(await api("GET", `/v1/cycles/${c.id}`));
   assert.equal(pub.commitment.ticket_merkle_root, committed.merkleRoot);
-  assert.deepEqual(pub.instantWinOdds, { winners: 4, outOf: 20 });
+  assert.deepEqual(pub.instantWinOdds, { winners: 2, outOf: 100 });
   assert.equal(pub.mode, "SIMULATED");
   // Outcomes are not readable in the database before a card is revealed.
   const rows = (await pool.query("SELECT outcome_ciphertext, revealed_outcome FROM tickets WHERE cycle_id = $1", [c.id])).rows;
-  assert.equal(rows.length, 20);
+  assert.equal(rows.length, 100);
   for (const r of rows) {
     assert.equal(r.revealed_outcome, null);
     assert.ok(!r.outcome_ciphertext.toString("latin1").includes("CASH") && !r.outcome_ciphertext.toString("latin1").includes("NONE"));
   }
   // Even with direct database access, a real-money cycle cannot be opened without licence and certification.
   await assert.rejects(pool.query("UPDATE cycles SET mode = 'REAL_MONEY' WHERE id = $1", [c.id]), /locked/);
+});
+
+test("season economics: the prize budget is enforced at approval, and each player can buy at most 10 cards a day", async () => {
+  const policy = config.policy!;
+  config.policy = { ...POLICY }; // company defaults: 50% to prizes, 10% of that instant, 10 cards a day
+  try {
+    const now = Date.now(), mt = admins.manager!.token;
+    const draft = async (name: string) => ok(await api("POST", "/v1/admin/cycles", { token: mt, body: { name, ticketPriceKobo: 50_000, totalTickets: 400, maxTicketsPerAccount: 50,
+      salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString() } })).id as string;
+    const tier = async (id: string, b: object) => ok(await api("POST", `/v1/admin/cycles/${id}/prize-tiers`, { token: mt, body: b }));
+    const approveAll = async (id: string, escrow: number) => {
+      ok(await api("PUT", `/v1/admin/cycles/${id}/evidence`, { token: mt, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: escrow, auditorAdminId: admins.auditor!.id } }));
+      ok(await api("POST", `/v1/admin/cycles/${id}/submit`, { token: mt }));
+      ok(await api("POST", `/v1/admin/cycles/${id}/approve`, { token: admins.manager2!.token }));
+      return api("POST", `/v1/admin/cycles/${id}/approve`, { token: admins.finance!.token });
+    };
+    // 400 cards at ₦500: ₦200,000 at sell-out, so ₦100,000 of prizes, of which ₦10,000 instant cash.
+    const over = await draft("Over budget");
+    await tier(over, { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 21 });
+    await tier(over, { stage: "FINAL_DRAW", kind: "CASH", title: "₦90,000", cashKobo: 9_000_000, quantity: 1, drawOrder: 1 });
+    const b = ok(await api("GET", `/v1/admin/cycles/${over}`, { token: mt })).budget;
+    assert.deepEqual([b.fullSalesKobo, b.poolKobo, b.instantBudgetKobo, b.drawBudgetKobo, b.instantKobo], [20_000_000, 10_000_000, 1_000_000, 9_000_000, 1_050_000]);
+    const refused = await approveAll(over, 10_050_000);
+    fails(refused, 409, "PRIZE_BUDGET");
+    assert.match(refused.body.error.message, /Instant cash prizes total ₦10,500, above the ₦10,000 allowed \(10% of the ₦100,000 prize money\)/);
+    const overDraw = await draft("Draw over budget");
+    await tier(overDraw, { stage: "FINAL_DRAW", kind: "CASH", title: "₦90,001", cashKobo: 9_000_100, quantity: 1, drawOrder: 1 });
+    fails(await approveAll(overDraw, 9_000_100), 409, "PRIZE_BUDGET");
+
+    // Exactly on budget is approved.
+    const fits = await draft("On budget");
+    await tier(fits, { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 20 });
+    await tier(fits, { stage: "FINAL_DRAW", kind: "CASH", title: "₦90,000", cashKobo: 9_000_000, quantity: 1, drawOrder: 1 });
+    assert.equal(ok(await approveAll(fits, 10_000_000)).status, "APPROVED");
+    ok(await api("POST", `/v1/admin/cycles/${fits}/commit`, { token: mt }));
+    ok(await api("POST", `/v1/admin/cycles/${fits}/open`, { token: mt }));
+    const pub = ok(await api("GET", `/v1/cycles/${fits}`));
+    assert.deepEqual([pub.max_tickets_per_day, pub.prize_share_bp, pub.instant_share_bp], [10, 5000, 1000]);
+
+    // At most 10 cards a day, however they are split.
+    const p = await newPlayer();
+    await buy(p, fits, 7);
+    const left = await api("POST", "/v1/orders", { token: p.token, key: key(), body: { cycleId: fits, quantity: 5 } });
+    fails(left, 403, "DAILY_CARD_LIMIT");
+    assert.equal(left.body.error.message, "You can buy 3 more cards today (at most 10 a day).");
+    await buy(p, fits, 3);
+    const none = await api("POST", "/v1/orders", { token: p.token, key: key(), body: { cycleId: fits, quantity: 1 } });
+    fails(none, 403, "DAILY_CARD_LIMIT");
+    assert.match(none.body.error.message, /most cards allowed in one day \(10\)/);
+    assert.equal(ok(await api("GET", `/v1/me/today?cycleId=${fits}`, { token: p.token })).cards, 10);
+  } finally {
+    config.policy = policy;
+  }
 });
 
 test("buying: eligibility, limits, idempotency", async () => {
@@ -364,9 +434,9 @@ test("final draw: sign-offs, timing, reproducibility, runs once", async () => {
 
   // Cards nobody scratched were revealed automatically, and every instant prize was paid out exactly.
   const t = (await pool.query("SELECT count(*) FILTER (WHERE status = 'REVEALED')::int AS revealed, count(*) FILTER (WHERE revealed_outcome LIKE 'CASH:%')::int AS wins FROM tickets WHERE cycle_id = $1", [cycleA.id])).rows[0];
-  assert.deepEqual(t, { revealed: 60, wins: 11 });
+  assert.deepEqual(t, { revealed: 60, wins: 1 });
   const expense = (await pool.query("SELECT balance_kobo AS b FROM ledger_balances WHERE code = $1", [`PRIZE_EXPENSE:${cycleA.id}`])).rows[0].b;
-  assert.equal(expense, 1_000_000 + 10 * 50_000 + 10_000_000);
+  assert.equal(expense, 50_000 + 200_000);
   // Merchandise winners have an open claim with the 90-day window.
   const claims = (await pool.query("SELECT status, (expires_at - created_at) AS win FROM prize_claims WHERE stage = 'FINAL_DRAW' AND status = 'ENTITLED'")).rows;
   assert.equal(claims.length, 2);
@@ -376,7 +446,7 @@ test("final draw: sign-offs, timing, reproducibility, runs once", async () => {
 });
 
 test("closing date with unsold cards: the draw still runs, over sold cards only", async () => {
-  const b = await openCycle({ total: 30, closeInMs: 2500, cap: 10, name: "Cycle B" });
+  const b = await openCycle({ total: 60, closeInMs: 2500, cap: 10, name: "Cycle B" });
   const p = await newPlayer();
   await buy(p, b.id, 5);
   // Per-cycle cap of 10 cards per account, even though the spending limit would allow more.
@@ -393,12 +463,12 @@ test("closing date with unsold cards: the draw still runs, over sold cards only"
 });
 
 test("payouts: own verified bank account, PIN, second approver for large amounts", async () => {
-  // The ₦100,000 draw winner.
+  // The ₦2,000 draw winner.
   const winnerId = (await pool.query("SELECT user_id FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id WHERE pt.cycle_id = $1 AND pc.stage = 'FINAL_DRAW' AND pt.kind = 'CASH'", [cycleA.id])).rows[0].user_id;
   const w = players.find((p) => p.id === winnerId)!;
   const name = ok(await api("GET", "/v1/me", { token: w.token })).fullName;
   const start = ok(await api("GET", "/v1/wallet", { token: w.token })).balanceKobo;
-  assert.ok(start >= 10_000_000);
+  assert.ok(start >= 200_000);
 
   const wrongName = ok(await api("POST", "/v1/me/bank-accounts", { token: w.token, body: { bankCode: "058", accountNumber: "0123456789", accountName: "Somebody Else" } }));
   assert.equal(wrongName.nameMatch, false);
@@ -414,13 +484,13 @@ test("payouts: own verified bank account, PIN, second approver for large amounts
 
   // Small payout goes straight through; the same request key never pays twice.
   const k = key();
-  const small = ok(await pay({ amountKobo: 100_000, bankAccountId: acct.id, pin: w.pin }, k));
+  const small = ok(await pay({ amountKobo: 50_000, bankAccountId: acct.id, pin: w.pin }, k));
   assert.equal(small.status, "CONFIRMED");
-  assert.equal(ok(await pay({ amountKobo: 100_000, bankAccountId: acct.id, pin: w.pin }, k)).id, small.id);
-  assert.equal(ok(await api("GET", "/v1/wallet", { token: w.token })).balanceKobo, start - 100_000);
+  assert.equal(ok(await pay({ amountKobo: 50_000, bankAccountId: acct.id, pin: w.pin }, k)).id, small.id);
+  assert.equal(ok(await api("GET", "/v1/wallet", { token: w.token })).balanceKobo, start - 50_000);
 
   // Two withdrawals of the whole balance at once: only one can succeed.
-  const rest = start - 100_000;
+  const rest = start - 50_000;
   const both = await Promise.all([1, 2].map(() => pay({ amountKobo: rest, bankAccountId: acct.id, pin: w.pin })));
   assert.deepEqual(both.map((r) => r.status).sort(), [200, 409]);
   const held = both.find((r) => r.status === 200)!.body;
@@ -549,7 +619,8 @@ test("admin web app: separate cookie session, role-limited views, no outcomes ex
   assert.equal(detail.counts.sold, 60);
   assert.equal(detail.approvals.length, 2);
   assert.equal(detail.signoffs.length, 3);
-  assert.equal(detail.cashCoverRequiredKobo, 11_500_000);
+  assert.equal(detail.cashCoverRequiredKobo, 250_000);
+  assert.deepEqual([detail.budget.poolKobo, detail.budget.instantBudgetKobo, detail.budget.instantKobo, detail.budget.drawKobo], [600_000, 60_000, 50_000, 300_000]);
   assert.equal(detail.editable, false);
   // Nothing an administrator can fetch contains ticket outcomes, salts or secrets.
   const everything = JSON.stringify([detail, (await getAs(cookie, "/v1/admin/cycles")).body, (await getAs(cookie, "/v1/admin/dashboard")).body]);
@@ -587,7 +658,7 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
 
   // --- A cycle cannot be approved on a promise: the goods must be in the warehouse and reserved. ---
   const now = Date.now();
-  const c = ok(await api("POST", "/v1/admin/cycles", { token: mt, body: { name: "Stock check", ticketPriceKobo: N200, totalTickets: 10, maxTicketsPerAccount: 5, salesOpenAt: new Date(now).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString() } }));
+  const c = ok(await api("POST", "/v1/admin/cycles", { token: mt, body: { name: "Stock check", ticketPriceKobo: N200, totalTickets: 20, maxTicketsPerAccount: 5, salesOpenAt: new Date(now).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString() } }));
   ok(await api("POST", `/v1/admin/cycles/${c.id}/prize-tiers`, { token: mt, body: { stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Solar freezer", skuId, quantity: 2, drawOrder: 1 } }));
   ok(await api("PUT", `/v1/admin/cycles/${c.id}/evidence`, { token: mt, body: { financialModelRef: "fm", rulesDocumentRef: "r", rulesText: "rules", escrowReference: "E", escrowFundedKobo: 0, auditorAdminId: admins.auditor!.id } }));
   fails(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: mt }), 403, "ROLE_REQUIRED"); // the drafter cannot vouch for stock
@@ -602,7 +673,7 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
   fails(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", quantity: 1, acquisitionCostKobo: 1, landedCostKobo: 1 } }), 400, "SERIALS_REQUIRED");
   fails(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", serialNumbers: ["SN-1"], acquisitionCostKobo: 1, landedCostKobo: 1 } }), 409, "ALREADY_EXISTS");
   fails(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", serialNumbers: ["SN-6"], acquisitionCostKobo: 5, landedCostKobo: 4 } }), 400, "INVALID_COST");
-  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", serialNumbers: ["SN-6"], acquisitionCostKobo: 38_000_000, landedCostKobo: 42_000_000 } }));
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-2", serialNumbers: ["SN-6"], acquisitionCostKobo: 30_000, landedCostKobo: 40_000 } }));
   assert.equal(ok(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: ft })).complete, true);
   assert.equal(ok(await api("POST", `/v1/admin/cycles/${c.id}/approve`, { token: admins.finance!.token })).status, "APPROVED");
   fails(await api("POST", `/v1/admin/cycles/${c.id}/reserve-stock`, { token: ft }), 409, "CYCLE_LOCKED");
@@ -676,8 +747,8 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
   const inv = ok(await api("GET", "/v1/admin/inventory", { token: admins.auditor!.token }));
   const item = inv.items.find((i: any) => i.id === skuId);
   assert.deepEqual([item.in_stock, item.reserved, item.with_winners, item.delivered], [0, 4, 1, 1]);
-  assert.equal(item.avg_landed_cost_kobo, 42_000_000);
-  assert.equal(item.stock_value_kobo, 5 * 42_000_000);
+  assert.equal(item.avg_landed_cost_kobo, 40_000);
+  assert.equal(item.stock_value_kobo, 5 * 40_000);
   assert.ok(inv.units.every((u: any) => u.serial_number && u.supplier === "Test Supplier" && u.warehouse === "Minna"));
   fails(await api("GET", "/v1/admin/inventory", { token: admins.approver!.token }), 403, "ROLE_REQUIRED");
 
@@ -690,22 +761,35 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
 
 test("refunds and cancelled cycles: two people, original payment only, prizes forfeited or honoured as the rules say", async () => {
   const ft = admins.fulfilment!.token, ct = admins.compliance!.token, fin = admins.finance!.token, mt = admins.manager!.token;
-  // Two more freezers so a new cycle's merchandise prizes can be secured.
-  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: "PO-3", serialNumbers: ["SN-7", "SN-8"], acquisitionCostKobo: 38_000_000, landedCostKobo: 42_000_000 } }));
-  // 11 cards and 11 instant prizes: every card wins, so the prize rules are easy to check.
-  const v = await openCycle({ total: 11, closeInMs: 3600_000, cap: 11, name: "Void check" });
+  // Two cheap prizes in stock so the new cycle's merchandise can be secured.
+  const keyRing = ok(await api("POST", "/v1/admin/skus", { token: ft, body: { name: "Key ring", advertisedValueKobo: 10_000, serialised: true } })).id;
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId: keyRing, supplierId, warehouseId, poReference: "PO-3", serialNumbers: ["SN-7", "SN-8"], acquisitionCostKobo: 5_000, landedCostKobo: 6_000 } }));
+  // To check the prize rules, almost every card must win: 10 of 11. Only possible with a far higher
+  // instant-win share than company policy, so this one cycle is drafted under an overridden policy.
+  const policy = config.policy!;
+  config.policy = { ...POLICY, prizeShareBp: 10_000, instantShareBp: 9_100 };
+  const v = await openCycle({ total: 11, closeInMs: 3600_000, cap: 11, name: "Void check", priceKobo: 50_000, escrowKobo: 500_000, tiers: [
+    { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 10 },
+    { stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Key ring", skuId: keyRing, quantity: 2, drawOrder: 1 }] });
+  config.policy = policy;
   const [p1, p2, p3, p4] = [await newPlayer(), await newPlayer(), await newPlayer(), await newPlayer()];
   await buy(p1, v.id, 4); await buy(p2, v.id, 3); await buy(p3, v.id, 2);
   const cards = async (p: Player) => ok(await api("GET", `/v1/tickets?cycleId=${v.id}`, { token: p.token })).tickets;
   const reveal = async (p: Player, id: string) => ok(await api("POST", `/v1/tickets/${id}/reveal`, { token: p.token })).ticket.result.cashKobo as number;
+  /** Scratches a player's cards until `wins` of them have won (only one card in the cycle loses). */
+  const scratchUntil = async (p: Player, list: any[], wins: number) => {
+    let total = 0, found = 0, i = 0;
+    while (found < wins) { const c = await reveal(p, list[i++].id); if (c) { total += c; found++; } }
+    return { total, next: list[i] };
+  };
   const p1Cards = await cards(p1);
-  const w1 = (await reveal(p1, p1Cards[0].id)) + (await reveal(p1, p1Cards[1].id));
+  const { total: w1, next: p1Unscratched } = await scratchUntil(p1, p1Cards, 2);
   const p3Cards = await cards(p3);
-  const w3 = await reveal(p3, p3Cards[0].id);
+  const { total: w3 } = await scratchUntil(p3, p3Cards, 1);
   const wallet = async (p: Player) => ok(await api("GET", "/v1/wallet", { token: p.token }));
   const orderOf = async (p: Player) => (await pool.query("SELECT id FROM orders WHERE user_id = $1 AND cycle_id = $2 AND status = 'FULFILLED'", [p.id, v.id])).rows[0].id as string;
   const revenue = async () => 0 - (await pool.query("SELECT coalesce(sum(e.amount_kobo),0)::bigint AS b FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id WHERE a.code = $1", [`TICKET_REVENUE:${v.id}`])).rows[0].b;
-  assert.equal(await revenue(), 9 * N200);
+  assert.equal(await revenue(), 9 * 50_000);
 
   // p3 withdraws the prize before anyone notices the purchase was not allowed.
   const name3 = ok(await api("GET", "/v1/me", { token: p3.token })).fullName;
@@ -739,7 +823,7 @@ test("refunds and cancelled cycles: two people, original payment only, prizes fo
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'PRIZE_RECOVERY_REQUIRED' AND entity_id = $1", [p3.id])).rows[0].n, 1);
   const mine3 = ok(await api("GET", "/v1/orders", { token: p3.token })).orders;
   assert.equal(mine3[0].status, "REFUNDED"); assert.equal(mine3[0].refund_reason, "INELIGIBLE_PURCHASE");
-  assert.equal(await revenue(), 7 * N200);
+  assert.equal(await revenue(), 7 * 50_000);
   // Refunds are permanent records.
   await assert.rejects(pool.query("DELETE FROM refunds WHERE id = $1", [rq3.id]), /append-only/);
   await assert.rejects(pool.query("UPDATE refunds SET amount_kobo = 1 WHERE id = $1", [rq3.id]), /cannot be changed/);
@@ -769,7 +853,7 @@ test("refunds and cancelled cycles: two people, original payment only, prizes fo
   ok(await api("POST", url, { token: ct, body: { reason: "Regulator instruction" } }));
   fails(await api("POST", `${url}/decision`, { token: ct, body: { approve: true } }), 403, "SAME_PERSON");
   const voided = ok(await api("POST", `${url}/decision`, { token: fin, body: { approve: true } }));
-  assert.deepEqual(voided, { status: "VOID", refunds: 2, refundedKobo: 7 * N200 });
+  assert.deepEqual(voided, { status: "VOID", refunds: 2, refundedKobo: 7 * 50_000 });
 
   // Every remaining purchase refunded once; revenue back to zero; the books still balance.
   assert.equal(ok(await api("GET", `/v1/cycles/${v.id}`)).status, "VOID");
@@ -783,7 +867,7 @@ test("refunds and cancelled cycles: two people, original payment only, prizes fo
   }
   // Instant prizes already revealed are honoured; unscratched cards can no longer be revealed.
   assert.equal((await wallet(p1)).balanceKobo, w1);
-  fails(await api("POST", `/v1/tickets/${p1Cards[2].id}/reveal`, { token: p1.token }), 409, "CARD_CANCELLED");
+  fails(await api("POST", `/v1/tickets/${p1Unscratched.id}/reveal`, { token: p1.token }), 409, "CARD_CANCELLED");
   // The payment that arrives after cancellation is refunded automatically.
   assert.equal(ok(await api("POST", "/v1/simulated-gateway/pay", { token: p4.token, body: { paymentRef: late.paymentRef } })).status, "REFUNDED");
   // Merchandise goes back into stock for future cycles.
@@ -828,8 +912,8 @@ test("finance: expenses by reversal only, daily reconciliation catches a ledger 
   for (const c of results) assert.equal(c.gross_sales_kobo - c.refunds_kobo, c.net_revenue_kobo, `sales less refunds = revenue for ${c.name}`);
   const a = results.find((c: any) => c.id === cycleA.id);
   assert.deepEqual([a.cards_sold, a.net_revenue_kobo, a.instant_prizes_kobo, a.draw_cash_prizes_kobo, a.forfeited_prizes_kobo, a.merchandise_cost_kobo, a.operating_expenses_kobo],
-    [60, 60 * N200, 1_500_000, 10_000_000, 0, 2 * 42_000_000, 2_500_000]);
-  assert.equal(a.contribution_kobo, 60 * N200 - 1_500_000 - 10_000_000 - 84_000_000 - 2_500_000);
+    [60, 60 * N200, 50_000, 200_000, 0, 2 * 40_000, 2_500_000]);
+  assert.equal(a.contribution_kobo, 60 * N200 - 50_000 - 200_000 - 80_000 - 2_500_000);
   const voidCycle = results.find((c: any) => c.status === "VOID");
   assert.equal(voidCycle.net_revenue_kobo, 0); assert.equal(voidCycle.merchandise_cost_kobo, 0); assert.ok(voidCycle.refunds_kobo > 0);
 
@@ -891,7 +975,7 @@ test("finance: expenses by reversal only, daily reconciliation catches a ledger 
   const lines = csvRes.body.replace(/^﻿/, "").trim().split("\r\n");
   assert.match(lines[0]!, /^Cycle,Status,Cards sold,/);
   assert.ok(lines.some((l) => l.startsWith(`"'=HYPERLINK(""http://evil.example"",""click"")"`)), "formula is neutralised");
-  assert.ok(lines.some((l) => l.includes(String((60 * N200 - 98_000_000) / 100))), "negative contribution stays a number");
+  assert.ok(lines.some((l) => l.includes(String((60 * N200 - 2_830_000) / 100))), "negative contribution stays a number");
   const ex = await app.inject({ method: "GET", url: "/v1/admin/finance/expenses.csv", headers: { authorization: `Bearer ${fin}` } });
   assert.ok(ex.body.includes("'=cmd|"), "payee formula neutralised");
   assert.ok(ex.body.includes(",-50000,"), "reversal shown as a negative amount");
@@ -927,19 +1011,19 @@ test("close-out: blocked until every prize is resolved, two people, then every c
   await assert.rejects(pool.query("UPDATE cycles SET status = 'ARCHIVED', archived_by = archive_requested_by, archived_at = now() WHERE id = $1", [b]));
 
   const done = ok(await api("POST", `/v1/admin/cycles/${b}/archive/confirm`, { token: fin }));
-  assert.deepEqual(done, { status: "ARCHIVED", published: 30, stockReleased: 2 });
+  assert.deepEqual(done, { status: "ARCHIVED", published: 60, stockReleased: 2 });
   fails(await api("POST", `/v1/admin/cycles/${b}/archive/confirm`, { token: fin }), 409, "NOT_REQUESTED");
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM stock_units WHERE reserved_cycle_id = $1", [b])).rows[0].n, 0);
   assert.equal(ok(await api("GET", `/v1/cycles/${b}`)).status, "ARCHIVED");
 
   // Anyone, without signing in, can fetch every card and rebuild the fingerprint published before sales.
   const pub = ok(await api("GET", `/v1/cycles/${b}/tickets`));
-  assert.equal(pub.total, 30); assert.equal(pub.tickets.length, 30);
+  assert.equal(pub.total, 60); assert.equal(pub.tickets.length, 60);
   const leaves = pub.tickets.map((t: any) => ticketLeafHash({ cycleId: b, serial: t.serial, outcome: t.outcome, salt: Buffer.from(t.salt, "hex") }));
   assert.equal(new MerkleTree(leaves).root.toString("hex"), ok(await api("GET", `/v1/cycles/${b}`)).commitment.ticket_merkle_root);
   const count = (o: string) => pub.tickets.filter((t: any) => t.outcome === o).length;
-  assert.deepEqual([count("CASH:1000000"), count("CASH:50000"), count("NONE")], [1, 10, 19]); // exactly the advertised prizes
-  assert.deepEqual([pub.tickets.filter((t: any) => t.sale_status === "UNSOLD").length, pub.tickets.filter((t: any) => t.sale_status === "REVEALED").length], [25, 5]);
+  assert.deepEqual([count("CASH:50000"), count("NONE")], [1, 59]); // exactly the advertised prizes
+  assert.deepEqual([pub.tickets.filter((t: any) => t.sale_status === "UNSOLD").length, pub.tickets.filter((t: any) => t.sale_status === "REVEALED").length], [55, 5]);
   // Cards revealed during the cycle match what was published at the end.
   for (const t of (await pool.query("SELECT serial, revealed_outcome FROM tickets WHERE cycle_id = $1 AND status = 'REVEALED'", [b])).rows) {
     assert.equal(pub.tickets.find((p: any) => p.serial === t.serial).outcome, t.revealed_outcome);
@@ -1227,7 +1311,7 @@ test("next-of-kin claims: only the recorded next of kin, the winner told first, 
   const { expireClaims } = await import("../src/modules/inventory.ts");
   // A real drawn cycle: the winner holds every entry, so wins the cash prize and both freezers.
   ok(await api("POST", "/v1/admin/stock/receive", { token: admins.fulfilment!.token, body: { skuId, supplierId, warehouseId, poReference: "PO-NOK", serialNumbers: ["SN-NOK-1", "SN-NOK-2"], acquisitionCostKobo: 1, landedCostKobo: 1 } }));
-  const cyc = await openCycle({ total: 12, closeInMs: 2500, cap: 12, name: "Kin cycle" });
+  const cyc = await openCycle({ total: 30, closeInMs: 2500, cap: 12, name: "Kin cycle" });
   const winner = await newPlayer();
   const claimant = await newPlayer({ name: "Kin Claimant" });
   const stranger = await newPlayer();
@@ -1238,7 +1322,7 @@ test("next-of-kin claims: only the recorded next of kin, the winner told first, 
   for (const a of ["manager", "finance", "auditor"]) ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/sign`, { token: admins[a]!.token }));
   ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/execute`, { token: admins.manager!.token }));
   const winnings = ok(await api("GET", "/v1/wallet", { token: winner.token })).balanceKobo;
-  assert.ok(winnings >= 10_000_000);
+  assert.ok(winnings >= 100_000);
 
   const look = ok(await api("GET", `/v1/admin/nok/lookup?phone=${winner.phone}`, { token: ct }));
   assert.equal(look.waitingPrizes.length, 2); assert.equal(look.winningsKobo, winnings);

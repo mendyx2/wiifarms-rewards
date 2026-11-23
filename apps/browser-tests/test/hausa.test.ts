@@ -54,7 +54,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
 
   // Buying, scratching and checking a card.
   await p.click('.chips button:has-text("10")');
-  await p.click('button:has-text("Biya ₦2,000")');
+  await p.click('button:has-text("Biya ₦5,000")');
   await p.click("text=Tabbatar da biyan gwaji");
   await p.waitForSelector(".ticket");
   assert.match(await p.innerText("main p.muted"), /^kati 10 · 10 ba a karce ba/);

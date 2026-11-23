@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { policyFromEnv, type Policy } from "./policy.ts";
 
 export interface Config {
   databaseUrl: string;
@@ -32,6 +33,8 @@ export interface Config {
   webRoot?: string;
   /** Folder holding the admin web app, served under /admin/. Production serves it from a separate, restricted address. */
   adminRoot?: string;
+  /** Company policy for seasons (prize shares, daily card limit, referral rate). Defaults in policy.ts. */
+  policy?: Policy;
 }
 
 function keyFromEnv(name: string): Buffer {
@@ -81,5 +84,6 @@ export function loadConfig(): Config {
     // The player web app ships with the API unless WEB_ROOT points elsewhere.
     webRoot: process.env.WEB_ROOT ?? fileURLToPath(new URL("../../web/public", import.meta.url)),
     adminRoot: process.env.ADMIN_ROOT ?? fileURLToPath(new URL("../../admin/public", import.meta.url)),
+    policy: policyFromEnv(),
   };
 }

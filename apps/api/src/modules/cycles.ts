@@ -8,6 +8,7 @@ import { AppError, badRequest, conflict, notFound } from "../errors.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { stockCover } from "./inventory.ts";
 import { engineVersion } from "@wiifarm/game-core/tools/digest.ts";
+import { POLICY, share } from "../policy.ts";
 
 /**
  * Identifies the exact engine code that generates a cycle: release plus a
@@ -20,7 +21,8 @@ export const GAME_CORE_VERSION = engineVersion();
 
 export interface CycleRow {
   id: string; name: string; mode: string; state_code: string; status: string;
-  ticket_price_kobo: number; total_tickets: number; max_tickets_per_account: number;
+  ticket_price_kobo: number; total_tickets: number; max_tickets_per_account: number; max_tickets_per_day: number;
+  prize_share_bp: number; instant_share_bp: number;
   sales_open_at: Date; sales_close_at: Date; draw_at: Date; claim_window_days: number;
   rules_document_ref: string | null; auditor_admin_id: string | null; created_by: string;
 }
@@ -58,14 +60,17 @@ export async function createCycle(ctx: Ctx, admin: Admin, input: NewCycle): Prom
   if (input.ticketPriceKobo < 20_000 || input.ticketPriceKobo > 50_000) {
     throw badRequest("INVALID_PRICE", "Ticket price must be between ₦200 and ₦500.");
   }
+  const policy = ctx.config.policy ?? POLICY;
   return withTx(ctx.pool, async (db) => {
     // Every cycle is SIMULATED in Phase 2. Real-money cycles cannot be created through this API at all.
     const r = await db.query<{ id: string }>(
       `INSERT INTO cycles (name, mode, ticket_price_kobo, total_tickets, max_tickets_per_account,
-                           sales_open_at, sales_close_at, draw_at, claim_window_days, created_by)
-       VALUES ($1, 'SIMULATED', $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+                           sales_open_at, sales_close_at, draw_at, claim_window_days, created_by,
+                           prize_share_bp, instant_share_bp, max_tickets_per_day)
+       VALUES ($1, 'SIMULATED', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
       [input.name, input.ticketPriceKobo, input.totalTickets, input.maxTicketsPerAccount,
-        input.salesOpenAt, input.salesCloseAt, input.drawAt, input.claimWindowDays ?? 90, admin.id]).catch(asConflict);
+        input.salesOpenAt, input.salesCloseAt, input.drawAt, input.claimWindowDays ?? 90, admin.id,
+        policy.prizeShareBp, policy.instantShareBp, policy.cardsPerDay]).catch(asConflict);
     await audit(db, adminActor(admin), "cycle.created", "cycle", r.rows[0]!.id, { ...input });
     return { id: r.rows[0]!.id };
   });
@@ -115,6 +120,31 @@ export async function setEvidence(ctx: Ctx, admin: Admin, cycleId: string, e: Ev
   });
 }
 
+/**
+ * The prize budget: prizes are paid from a fixed share of what full sell-out
+ * would bring in, and a fixed share of that goes to instant cash wins (company
+ * policy, fixed on the cycle when drafted). Merchandise counts at its
+ * advertised value. Both shares are ceilings.
+ */
+export interface PrizeBudget {
+  fullSalesKobo: number; poolKobo: number; instantBudgetKobo: number; drawBudgetKobo: number;
+  instantKobo: number; drawKobo: number; prizeShareBp: number; instantShareBp: number;
+}
+export async function prizeBudget(db: Db | Ctx["pool"], cycleId: string): Promise<PrizeBudget> {
+  const c = await getCycle(db, cycleId);
+  const t = await one<{ instant: number; draw: number }>(db,
+    `SELECT coalesce(sum(CASE WHEN p.stage = 'INSTANT' THEN coalesce(p.cash_kobo, s.advertised_value_kobo) * p.quantity END), 0)::bigint AS instant,
+            coalesce(sum(CASE WHEN p.stage = 'FINAL_DRAW' THEN coalesce(p.cash_kobo, s.advertised_value_kobo) * p.quantity END), 0)::bigint AS draw
+     FROM prize_tiers p LEFT JOIN skus s ON s.id = p.sku_id WHERE p.cycle_id = $1`, [cycleId]);
+  const fullSalesKobo = c.total_tickets * Number(c.ticket_price_kobo);
+  const poolKobo = share(fullSalesKobo, c.prize_share_bp);
+  const instantBudgetKobo = share(poolKobo, c.instant_share_bp);
+  return { fullSalesKobo, poolKobo, instantBudgetKobo, drawBudgetKobo: poolKobo - instantBudgetKobo,
+    instantKobo: Number(t!.instant), drawKobo: Number(t!.draw), prizeShareBp: c.prize_share_bp, instantShareBp: c.instant_share_bp };
+}
+
+const nairaText = (k: number) => "₦" + (k / 100).toLocaleString("en-NG");
+
 export async function submitCycle(ctx: Ctx, admin: Admin, cycleId: string): Promise<void> {
   requireRole(admin, "CYCLE_MANAGER");
   await withTx(ctx.pool, async (db) => {
@@ -144,6 +174,13 @@ export async function approveCycle(ctx: Ctx, admin: Admin, cycleId: string): Pro
     if (cover && cover.have !== null && cover.have < cover.need) {
       const n2 = (k: number) => "₦" + (k / 100).toLocaleString("en-NG");
       throw conflict("RULE_VIOLATION", `Cash prizes total ${n2(cover.need)} but only ${n2(cover.have)} is recorded in escrow. They must be fully funded before approval.`);
+    }
+    const b = await prizeBudget(db, cycleId);
+    if (b.instantKobo > b.instantBudgetKobo) {
+      throw conflict("PRIZE_BUDGET", `Instant cash prizes total ${nairaText(b.instantKobo)}, above the ${nairaText(b.instantBudgetKobo)} allowed (${b.instantShareBp / 100}% of the ${nairaText(b.poolKobo)} prize money).`);
+    }
+    if (b.drawKobo > b.drawBudgetKobo) {
+      throw conflict("PRIZE_BUDGET", `Final-draw prizes total ${nairaText(b.drawKobo)}, above the ${nairaText(b.drawBudgetKobo)} allowed (the ${nairaText(b.poolKobo)} prize money less the instant-win share).`);
     }
     await db.query("UPDATE cycles SET status = 'APPROVED' WHERE id = $1", [cycleId]).catch(asConflict);
     await audit(db, adminActor(admin), "cycle.approved", "cycle", cycleId);
@@ -194,10 +231,15 @@ export async function commitCycle(ctx: Ctx, admin: Admin, cycleId: string): Prom
     }
     const root = new MerkleTree(leaves).root;
 
-    await db.query(
-      `INSERT INTO tickets (cycle_id, serial, leaf_index, leaf_hash, outcome_ciphertext)
-       SELECT $1, * FROM unnest($2::text[], $3::int[], $4::bytea[], $5::bytea[])`,
-      [cycleId, serialList, serialList.map((_, i) => i), leaves, ciphertexts]);
+    // In chunks, so a 400,000-card season does not become one enormous statement.
+    const CHUNK = 20_000;
+    for (let from = 0; from < serialList.length; from += CHUNK) {
+      const to = Math.min(serialList.length, from + CHUNK);
+      await db.query(
+        `INSERT INTO tickets (cycle_id, serial, leaf_index, leaf_hash, outcome_ciphertext)
+         SELECT $1, * FROM unnest($2::text[], $3::int[], $4::bytea[], $5::bytea[])`,
+        [cycleId, serialList.slice(from, to), Array.from({ length: to - from }, (_, i) => from + i), leaves.slice(from, to), ciphertexts.slice(from, to)]);
+    }
 
     const drawSecret = randomBytes(32);
     const beaconRound = ctx.beacon.roundAfter(cycle.draw_at);
@@ -235,10 +277,11 @@ export async function openCycle(ctx: Ctx, admin: Admin, cycleId: string): Promis
 export async function closeIfDue(db: Db, cycleId: string, actor: Actor = SYSTEM): Promise<boolean> {
   const cycle = await getCycle(db, cycleId, true);
   if (cycle.status !== "OPEN") return false;
-  const unsold = await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]);
-  const soldOut = unsold!.n === 0;
   const timeUp = cycle.sales_close_at.getTime() <= Date.now();
+  // Called after every sale: a cheap existence check first, the full count only when closing.
+  const soldOut = !(await one(db, "SELECT 1 FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' LIMIT 1", [cycleId]));
   if (!soldOut && !timeUp) return false;
+  const unsold = await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]);
   await db.query("UPDATE cycles SET status = 'CLOSED' WHERE id = $1", [cycleId]);
   await audit(db, actor, "cycle.closed", "cycle", cycleId, { reason: soldOut ? "SOLD_OUT" : "CLOSING_TIME", unsold: unsold!.n });
   return true;
@@ -258,24 +301,39 @@ export async function closeDueCycles(ctx: Ctx): Promise<string[]> {
 
 // --- Public catalogue ------------------------------------------------------------------
 
+/**
+ * Cards left in a cycle. Counting 400,000 rows on every page view would be
+ * wasteful during a rush, so the figure is reused for two seconds.
+ */
+const remainingCache = new Map<string, { n: number; at: number }>();
+export async function ticketsRemaining(db: Db | Ctx["pool"], cycleId: string): Promise<number> {
+  const hit = remainingCache.get(cycleId);
+  if (hit && Date.now() - hit.at < 2000) return hit.n;
+  const n = (await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]))!.n;
+  if (remainingCache.size > 50) remainingCache.clear();
+  remainingCache.set(cycleId, { n, at: Date.now() });
+  return n;
+}
+
 export async function listPublicCycles(ctx: Ctx): Promise<unknown[]> {
-  const r = await ctx.pool.query(
-    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account,
-            c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days,
-            (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'UNSOLD')::int AS tickets_remaining
+  const r = await ctx.pool.query<{ id: string; tickets_remaining: number }>(
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
+            c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days
      FROM cycles c WHERE c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id))
      ORDER BY c.sales_open_at DESC`);
+  for (const row of r.rows) row.tickets_remaining = await ticketsRemaining(ctx.pool, row.id);
   return r.rows;
 }
 
 export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown> {
   const c = await one<Record<string, unknown> & { total_tickets: number }>(
     ctx.pool,
-    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account,
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.rules_document_ref, encode(c.rules_sha256, 'hex') AS rules_sha256,
-            (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'UNSOLD')::int AS tickets_remaining
+            c.prize_share_bp, c.instant_share_bp
      FROM cycles c WHERE c.id = $1 AND (c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id)))`, [cycleId]);
   if (!c) throw notFound("Cycle not found.");
+  c.tickets_remaining = await ticketsRemaining(ctx.pool, cycleId);
   const tiers = await ctx.pool.query<{ stage: string; kind: string; title: string; cash_kobo: number | null; quantity: number; draw_order: number | null }>(
     "SELECT stage, kind, title, cash_kobo, quantity, draw_order FROM prize_tiers WHERE cycle_id = $1 ORDER BY stage DESC, draw_order NULLS LAST, cash_kobo DESC", [cycleId]);
   const commitment = await one(
@@ -314,7 +372,7 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
   if (!admin.roles.length) throw notFound();
   const c = await one<Record<string, unknown> & { status: string; draw_at: Date; total_tickets: number }>(
     ctx.pool,
-    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account,
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.financial_model_ref, c.rules_document_ref,
             encode(c.rules_sha256, 'hex') AS rules_sha256, c.escrow_reference, c.escrow_funded_kobo,
             c.auditor_admin_id, au.full_name AS auditor_name, c.created_by, cb.full_name AS created_by_name,
@@ -337,10 +395,12 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
               count(*) FILTER (WHERE status = 'UNSOLD')::int AS unsold FROM tickets WHERE cycle_id = $1`),
     q(`SELECT executed_at, entries_count FROM draws WHERE cycle_id = $1`),
   ]);
+  const budget = await prizeBudget(ctx.pool, cycleId);
   const cashCover = (tiers as { kind: string; cash_kobo: number | null; quantity: number }[]).reduce((s, t) => s + (t.kind === "CASH" ? t.cash_kobo! * t.quantity : 0), 0);
   return {
     ...c, tiers, approvals, signoffs, commitment: commitment[0] ?? null, counts: counts[0], draw: drawn[0] ?? null,
     cashCoverRequiredKobo: cashCover,
+    budget,
     stockCover: await stockCover(ctx, cycleId),
     voidRequests: (await ctx.pool.query(
       `SELECT v.id, v.reason, v.status, v.requested_at, v.requested_by, rq.full_name AS requested_by_name, v.decided_at, dc.full_name AS decided_by_name, v.decision_reason

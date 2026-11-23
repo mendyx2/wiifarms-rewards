@@ -42,12 +42,13 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   await p.click("text=Verify and continue");
   await p.waitForSelector("text=How many cards?");
 
-  await p.click('.chips button:has-text("20")');
-  await p.click('button:has-text("Pay ₦4,000")');
+  // 10 cards (the daily maximum) at ₦500: exactly the default ₦5,000 daily spending limit.
+  await p.click('.chips button:has-text("10")');
+  await p.click('button:has-text("Pay ₦5,000")');
   await p.waitForSelector("text=Simulated payment");
   await p.click("text=Confirm simulated payment");
   await p.waitForSelector(".ticket");
-  assert.match(await p.innerText("main p.muted"), /^20 cards · 20 to scratch/);
+  assert.match(await p.innerText("main p.muted"), /^10 cards · 10 to scratch/);
 
   // Scratching with a finger reveals the pre-set result, and the phone checks it against the published fingerprint.
   await p.locator(".ticket").first().click();
@@ -64,7 +65,7 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
 
   await p.click("a:has-text('My cards')");
   await p.click("text=Reveal all");
-  await p.waitForFunction(() => document.querySelectorAll(".ticket.done, .ticket.win").length === 20);
+  await p.waitForFunction(() => document.querySelectorAll(".ticket.done, .ticket.win").length === 10);
   const wins = await p.$$eval(".ticket.win b", (els) => els.map((e) => Number(e.textContent!.replace(/[^\d]/g, ""))));
   await p.click("#tabs a[data-tab=wallet]");
   await p.waitForSelector(".balance");
@@ -96,7 +97,8 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   await p.waitForSelector("text=Increase to ₦10,000 a day starts");
   await p.goto(s.base + "/#/buy");
   await p.waitForSelector(".note.warn:not([hidden])");
-  assert.match(await p.innerText(".note.warn:not([hidden])"), /reached your spending limit/);
+  assert.match(await p.innerText(".note.warn:not([hidden])"), /bought today's maximum of 10 cards/);
+  assert.match(await p.innerText("main"), /Cards today\s+10 of 10/);
   assert.equal(await p.locator("button.btn.gold").isDisabled(), true);
 
   // The inbox shows the bank-account security alert.

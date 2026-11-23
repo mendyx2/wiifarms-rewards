@@ -15,18 +15,18 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
 
 test("from draft to archive: approvals, draw, claim, handover, close-out, and the player verifying it all", async () => {
   // A cycle that closes 30 seconds from now, so its draw can run during this test.
-  const { cycleId } = await seedDemo(s.ctx, { name: "Quick Cycle", tickets: 40, closeInMinutes: 0.5 });
+  const { cycleId } = await seedDemo(s.ctx, { name: "Quick Cycle", tickets: 14_000, closeInMinutes: 0.5 });
   const phone = "08036660021";
   await apiPlayer(s, phone, "Hauwa Sani");
   const p = await newPage(s);
   answerDialogs(p);
   const serverData = watchServerData(p);
   await playerSignIn(p, s, phone);
-  // The newest open cycle is shown first; the player buys 20 of its cards.
+  // The newest open cycle is shown first; the player buys 10 of its cards (the daily maximum).
   await p.waitForSelector(".hero .tag:has-text('Quick Cycle')");
   await p.click("text=Buy scratch cards");
-  await p.click('.chips button:has-text("20")');
-  await p.click('button:has-text("Pay ₦4,000")');
+  await p.click('.chips button:has-text("10")');
+  await p.click('button:has-text("Pay ₦5,000")');
   await p.click("text=Confirm simulated payment");
   await p.waitForSelector(".ticket");
 
@@ -36,7 +36,7 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await adminSignIn(a, s, "manager");
   await a.click("#nav a[data-nav=cycles]");
   await a.fill("input[name=name]", "Browser Cycle");
-  await a.fill("input[name=total]", "30");
+  await a.fill("input[name=total]", "1000"); // ₦500,000 at sell-out: room for ₦25,000 of instant prizes
   await a.fill("input[name=close]", localInput(new Date(Date.now() + 864e5)));
   await a.fill("input[name=draw]", localInput(new Date(Date.now() + 864e5)));
   await a.click('button:has-text("Create draft")');
@@ -195,7 +195,7 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await adminSignIn(a, s, "finance");
   await visit(a, s.base + "/admin#/cycle/" + cycleId);
   await a.click('button:has-text("Confirm and archive")');
-  assert.match(await toast(a, /Archived/), /40 cards published/);
+  assert.match(await toast(a, /Archived/), /14,000 cards published/);
 
   await visit(p, s.base + "/#/draw");
   await p.click('button:has-text("Check the whole cycle")');

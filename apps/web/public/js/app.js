@@ -350,8 +350,11 @@ async function buy() {
   await loadMe();
   if (!c || c.status !== "OPEN") return [el("h1", {}, "Sales are closed"), el("a", { class: "btn", href: "#/draw" }, "See the draw")];
   const { limits, spending, exclusion } = state.me;
+  const today = await api.get(`/v1/me/today?cycleId=${c.id}`);
+  const leftToday = Math.max(0, today.max - today.cards);
   const room = Math.min(limits.dailyKobo - spending.dailyKobo, limits.weeklyKobo - spending.weeklyKobo, limits.monthlyKobo - spending.monthlyKobo);
-  const maxQty = Math.max(0, Math.min(20, c.tickets_remaining, Math.floor(room / c.ticket_price_kobo)));
+  const bySpending = Math.floor(room / c.ticket_price_kobo);
+  const maxQty = Math.max(0, Math.min(20, leftToday, c.tickets_remaining, bySpending));
   let qty = Math.min(5, Math.max(1, maxQty));
 
   const out = el("output", {}, qty), total = el("b"), warn = el("div", { class: "note warn", hidden: true });
@@ -364,11 +367,13 @@ async function buy() {
     const over = qty > maxQty;
     warn.hidden = !over && !exclusion;
     warn.textContent = tr(exclusion ? "You are taking a break from play, so buying is switched off."
-      : maxQty === 0 ? "You have reached your spending limit for now." : `You can buy up to ${maxQty} more within your spending limit.`);
+      : leftToday === 0 ? `You have bought today's maximum of ${today.max} cards. You can buy more tomorrow.`
+      : maxQty === 0 ? "You have reached your spending limit for now."
+      : leftToday <= bySpending ? `You can buy ${maxQty} more cards today.` : `You can buy up to ${maxQty} more within your spending limit.`);
     pay.disabled = over || Boolean(exclusion);
   };
   fill.style.width = Math.min(100, (spending.dailyKobo / Math.max(1, limits.dailyKobo)) * 100) + "%";
-  const set = (n) => { qty = Math.max(1, Math.min(20, n)); refresh(); };
+  const set = (n) => { qty = Math.max(1, Math.min(20, today.max, n)); refresh(); };
 
   pay.addEventListener("click", action(async () => {
     const keyName = `order:${c.id}:${qty}`;
@@ -381,9 +386,10 @@ async function buy() {
     el("h1", {}, "How many cards?"),
     el("div", { class: "card" },
       el("div", { class: "qty" }, el("button", { "aria-label": "Fewer", onclick: () => set(qty - 1) }, "−"), out, el("button", { "aria-label": "More", onclick: () => set(qty + 1) }, "+")),
-      el("div", { class: "chips" }, [1, 5, 10, 20].map((n) => el("button", { onclick: () => set(n) }, n))),
+      el("div", { class: "chips" }, [1, 3, 5, 10].filter((n) => n <= today.max).map((n) => el("button", { onclick: () => set(n) }, n))),
       el("div", { class: "row" }, el("span", {}, "Total"), total)),
     el("div", { class: "card" },
+      el("div", { class: "row" }, el("span", {}, "Cards today"), el("b", {}, `${today.cards} of ${today.max}`)),
       el("div", { class: "row" }, el("span", {}, "Spent in the last 24 hours"), el("b", {}, `${naira(spending.dailyKobo)} of ${naira(limits.dailyKobo)}`)),
       el("div", { class: "bar light" }, fill),
       el("a", { href: "#/me", class: "muted" }, "Change my limits")),

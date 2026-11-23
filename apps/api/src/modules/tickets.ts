@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { MerkleTree, type ProofStep } from "@wiifarm/game-core";
 import { SYSTEM, audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
@@ -33,6 +34,18 @@ async function spentSince(db: Db, userId: string, interval: string): Promise<num
 /** What the player has spent (or committed) in each rolling window, for showing against their limits. */
 export async function spending(db: Db, userId: string): Promise<{ dailyKobo: number; weeklyKobo: number; monthlyKobo: number }> {
   return { dailyKobo: await spentSince(db, userId, "24 hours"), weeklyKobo: await spentSince(db, userId, "7 days"), monthlyKobo: await spentSince(db, userId, "30 days") };
+}
+
+/** Start of today in Nigeria (UTC+1, no daylight saving), as SQL. */
+const LAGOS_TODAY = "(date_trunc('day', now() AT TIME ZONE 'Africa/Lagos') AT TIME ZONE 'Africa/Lagos')";
+
+/** Cards a player has bought (or is paying for) today in a cycle. */
+export async function cardsToday(db: Db | Ctx["pool"], userId: string, cycleId: string): Promise<number> {
+  const r = await one<{ n: number }>(db,
+    `SELECT coalesce(sum(quantity), 0)::int AS n FROM orders
+     WHERE user_id = $1 AND cycle_id = $2 AND created_at >= ${LAGOS_TODAY}
+       AND (status IN ('PAID','FULFILLED') OR (status = 'PENDING' AND reserved_until > now()))`, [userId, cycleId]);
+  return r!.n;
 }
 
 export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: string, quantity: number, idempotencyKey: string): Promise<OrderResult> {
@@ -71,7 +84,14 @@ export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: s
     if (exclusion) throw forbidden("SELF_EXCLUDED", "You are taking a break from play, so buying is switched off.");
     if (await onExclusionRegister(db, user)) throw forbidden("NOT_ELIGIBLE", "You are not eligible to take part.");
 
-    // How much they may buy.
+    // How much they may buy: the season's daily card limit, then the player's own spending limits.
+    const today = await cardsToday(db, user.id, cycleId);
+    if (today + quantity > cycle.max_tickets_per_day) {
+      const left = Math.max(0, cycle.max_tickets_per_day - today);
+      throw forbidden("DAILY_CARD_LIMIT", left === 0
+        ? `You have bought the most cards allowed in one day (${cycle.max_tickets_per_day}). You can buy more tomorrow.`
+        : `You can buy ${left} more cards today (at most ${cycle.max_tickets_per_day} a day).`);
+    }
     const amountKobo = quantity * cycle.ticket_price_kobo;
     const limits = await getLimits(db, user.id);
     const windows: [string, number, string][] = [["24 hours", limits.dailyKobo, "daily"], ["7 days", limits.weeklyKobo, "weekly"], ["30 days", limits.monthlyKobo, "monthly"]];
@@ -88,7 +108,8 @@ export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: s
     if (Number(held!.n) + quantity > cycle.max_tickets_per_account) {
       throw forbidden("CYCLE_CAP", `You can hold at most ${cycle.max_tickets_per_account} cards in this cycle.`);
     }
-    const unsold = await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]);
+    // Counts at most `quantity` rows, so this stays fast in a 400,000-card season.
+    const unsold = await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM (SELECT 1 FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' LIMIT $2) x", [cycleId, quantity]);
     if (unsold!.n < quantity) {
       throw conflict("NOT_ENOUGH_CARDS", unsold!.n === 0 ? "This cycle is sold out." : `Only ${unsold!.n} cards are left.`);
     }
@@ -160,11 +181,7 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
     // transaction.) SKIP LOCKED stays as a second guard against double sale.
     await lockKey(db, `cycle-sale:${order.cycle_id}`);
     const cycle = await getCycle(db, order.cycle_id);
-    const picked = cycle.status === "OPEN"
-      ? await db.query<{ id: string }>(
-          `SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' ORDER BY random() LIMIT $2 FOR NO KEY UPDATE SKIP LOCKED`,
-          [order.cycle_id, order.quantity])
-      : { rows: [] as { id: string }[] };
+    const picked = cycle.status === "OPEN" ? await pickCards(db, cycle.id, cycle.total_tickets, order.quantity) : { rows: [] as { id: string }[] };
 
     if (picked.rows.length < order.quantity) {
       // Paid, but the cards are gone (sold out or closed meanwhile): refund in full, automatically.
@@ -190,6 +207,23 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
     await closeIfDue(db, order.cycle_id);
     return { orderId: order.id, status: "FULFILLED", ticketIds };
   });
+}
+
+/**
+ * Takes the next unsold cards from a random point in the inventory, wrapping
+ * round to the start. The inventory order is itself a secret random shuffle
+ * fixed before sales, so any choice of positions is equally fair; starting at a
+ * random point avoids sorting every unsold card (400,000 in a large season) on
+ * each payment.
+ */
+async function pickCards(db: Db, cycleId: string, total: number, n: number): Promise<{ rows: { id: string }[] }> {
+  const start = randomInt(total);
+  const sql = (cmp: string) => `SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' AND leaf_index ${cmp} $2
+                                ORDER BY leaf_index LIMIT $3 FOR NO KEY UPDATE SKIP LOCKED`;
+  const a = await db.query<{ id: string }>(sql(">="), [cycleId, start, n]);
+  if (a.rows.length >= n) return a;
+  const b = await db.query<{ id: string }>(sql("<"), [cycleId, start, n - a.rows.length]);
+  return { rows: [...a.rows, ...b.rows] };
 }
 
 /** Simulated gateway: the player "pays" and the gateway notifies us. Only exists in simulation. */
@@ -255,7 +289,7 @@ export interface RevealResult {
  * transaction; later calls return the stored result and credit nothing.
  * `ownerId` is omitted only for the automatic reveal at cycle close.
  */
-async function revealInTx(ctx: Ctx, db: Db, ticketId: string, actor: Actor, ownerId?: string): Promise<RevealResult> {
+async function revealInTx(ctx: Ctx, db: Db, ticketId: string, actor: Actor, ownerId?: string, cycleKey?: Buffer): Promise<RevealResult> {
   const t = await one<{ id: string; cycle_id: string; serial: string; leaf_index: number; status: string; owner_id: string | null; sold_at: Date | null; outcome_ciphertext: Buffer; revealed_at: Date | null; revealed_outcome: string | null; revealed_salt: Buffer | null }>(
     db, "SELECT * FROM tickets WHERE id = $1 FOR NO KEY UPDATE", [ticketId]);
   // "Not found" for someone else's card too, so card ids cannot be probed.
@@ -263,10 +297,9 @@ async function revealInTx(ctx: Ctx, db: Db, ticketId: string, actor: Actor, owne
   if (t.status === "CANCELLED") throw conflict("CARD_CANCELLED", "This card was cancelled.");
 
   if (t.status === "SOLD") {
-    const secrets = await one<{ wrapped_data_key: Buffer }>(db, "SELECT wrapped_data_key FROM cycle_secrets WHERE cycle_id = $1", [t.cycle_id]);
-    const dataKey = await ctx.keys.unwrap(secrets!.wrapped_data_key, cycleKeyContext(t.cycle_id));
+    const dataKey = cycleKey ?? await unwrapCycleKey(ctx, db, t.cycle_id);
     const plain = JSON.parse(open(dataKey, t.outcome_ciphertext, ticketAad(t.cycle_id, t.serial)).toString()) as { o: string; s: string };
-    dataKey.fill(0);
+    if (!cycleKey) dataKey.fill(0);
 
     const updated = await db.query<{ revealed_at: Date }>(
       "UPDATE tickets SET status = 'REVEALED', revealed_at = now(), revealed_outcome = $2, revealed_salt = $3 WHERE id = $1 RETURNING revealed_at",
@@ -298,6 +331,11 @@ async function revealInTx(ctx: Ctx, db: Db, ticketId: string, actor: Actor, owne
   };
 }
 
+async function unwrapCycleKey(ctx: Ctx, db: Db, cycleId: string): Promise<Buffer> {
+  const secrets = await one<{ wrapped_data_key: Buffer }>(db, "SELECT wrapped_data_key FROM cycle_secrets WHERE cycle_id = $1", [cycleId]);
+  return ctx.keys.unwrap(secrets!.wrapped_data_key, cycleKeyContext(cycleId));
+}
+
 export async function revealTicket(ctx: Ctx, actor: Actor, userId: string, ticketId: string): Promise<RevealResult> {
   return withTx(ctx.pool, (db) => revealInTx(ctx, db, ticketId, actor, userId));
 }
@@ -306,9 +344,16 @@ export async function revealTicket(ctx: Ctx, actor: Actor, userId: string, ticke
 export async function autoRevealCycle(ctx: Ctx, cycleId: string): Promise<number> {
   const cycle = await getCycle(ctx.pool, cycleId);
   if (!["CLOSED", "DRAWN", "SETTLING"].includes(cycle.status)) throw conflict("NOT_CLOSED", "Cards are auto-revealed only after the cycle closes.");
-  const pending = await ctx.pool.query<{ id: string }>("SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'SOLD'", [cycleId]);
-  for (const { id } of pending.rows) {
-    await withTx(ctx.pool, (db) => revealInTx(ctx, db, id, SYSTEM));
+  const pending = await ctx.pool.query<{ id: string }>("SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'SOLD' ORDER BY leaf_index", [cycleId]);
+  // In batches: one key-service call and one transaction per 500 cards, not per card.
+  const BATCH = 500;
+  for (let i = 0; i < pending.rows.length; i += BATCH) {
+    await withTx(ctx.pool, async (db) => {
+      const key = await unwrapCycleKey(ctx, db, cycleId);
+      try {
+        for (const { id } of pending.rows.slice(i, i + BATCH)) await revealInTx(ctx, db, id, SYSTEM, undefined, key);
+      } finally { key.fill(0); }
+    });
   }
   return pending.rows.length;
 }

@@ -60,7 +60,7 @@ test("refund one purchase, then cancel the whole cycle: requested by one person,
   await visit(a, s.base + "/admin#/approvals");
   await a.click('.card:has(th:has-text("Status")) a:has-text("Review")');
   await a.click('button:has-text("Approve cancellation")');
-  assert.match(await toast(a, /Cycle cancelled/), /1 purchase refunded \(₦400\)/);
+  assert.match(await toast(a, /Cycle cancelled/), /1 purchase refunded \(₦1,000\)/);
   assert.match(await a.innerText(".note.bad"), /requested by Demo manager, approved by Demo compliance/);
 
   const q = await newPage(s);

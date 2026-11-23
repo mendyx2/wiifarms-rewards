@@ -190,6 +190,12 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     }));
     return { id: u.id, phoneLast4: u.phone_e164.slice(-4), fullName: u.full_name, kycTier: u.kyc_tier, stateCode: u.state_code, language: u.language, ...extra };
   });
+  // Cards bought today in a cycle, against the daily limit.
+  app.get<{ Querystring: { cycleId: string } }>("/v1/me/today", { schema: { querystring: { type: "object", required: ["cycleId"], additionalProperties: false, properties: { cycleId: { type: "string", format: "uuid" } } } } }, async (req) => {
+    const u = await player(req);
+    const c = await cycles.getCycle(ctx.pool, req.query.cycleId);
+    return { cards: await tickets.cardsToday(ctx.pool, u.id, c.id), max: c.max_tickets_per_day };
+  });
   app.put<{ Body: { language: Lang } }>("/v1/me/language", { schema: body({ language: langField }) }, async (req) => {
     const u = await player(req);
     await identity.setLanguage(ctx, actorOf(u.id, req), u.id, req.body.language);
