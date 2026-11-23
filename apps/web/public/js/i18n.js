@@ -42,6 +42,37 @@ const HA = {
   "Messages, {0} unread": "Saƙonni, {0} ba a karanta ba",
   "Wallet": "Jakar kuɗi",
 
+  // --- Sharing, invites, pop-ups and achievements ---
+  "Sales close in": "Sayarwa za ta rufe cikin", "Final draw in": "Zaɓen ƙarshe cikin",
+  "{0} day {1}": "kwana {0} {1}", "{0} days {1}": "kwana {0} {1}",
+  "just now": "yanzu-yanzu", "{0} min ago": "minti {0} da suka wuce", "{0} h ago": "awa {0} da suka wuce",
+  "🔥 {0} cards sold in the last hour": "🔥 An sayar da kati {0} cikin awa ɗayan da ta wuce", "🎉 {0} won": "🎉 An ci {0}",
+  "🤝 Invite friends, earn {0}%": "🤝 Gayyaci abokai, ka sami {0}%",
+  "Every time a friend you invited buys cards, part of it goes into your wallet.": "Duk lokacin da abokin da ka gayyata ya sayi katuna, wani kaso yana shiga jakarka.",
+  "More cards, more chances: each card is one entry in the final draw.": "Ƙarin katuna, ƙarin dama: kowane kati shigarwa ɗaya ne a zaɓen ƙarshe.",
+  "Share": "Raba", "Copy link": "Kwafi mahaɗi", "Link copied.": "An kwafi mahaɗi.",
+  "WhatsApp": "WhatsApp", "Facebook": "Facebook", "X": "X", "Telegram": "Telegram",
+  "Join me on WiiFarm Rewards: ₦500 scratch cards with instant cash prizes, and every card goes into the final draw. Use my invite code {0}. 18+ only. Play responsibly.":
+    "Ku zo mu yi WiiFarm Rewards tare: katin karce na ₦500 masu kyaututtukan kuɗi nan take, kuma kowane kati yana shiga zaɓen ƙarshe. Yi amfani da lambar gayyatata {0}. Shekara 18 zuwa sama kawai. Ku yi wasa cikin hankali.",
+  "I just won {0} on a WiiFarm Rewards scratch card! Join with my invite code {1}. 18+ only. Play responsibly.":
+    "Yanzu na ci {0} a katin karce na WiiFarm Rewards! Ka shiga da lambar gayyatata {1}. Shekara 18 zuwa sama kawai. Ku yi wasa cikin hankali.",
+  "Invite friends": "Gayyaci abokai", "Invite friends, earn {0}%": "Gayyaci abokai, ka sami {0}%",
+  "Every time a friend you invited buys cards, {0}% of what they pay goes into your wallet. Withdraw it (from ₦500) or use it to buy cards.":
+    "Duk lokacin da abokin da ka gayyata ya sayi katuna, {0}% na abin da ya biya yana shiga jakarka. Ka cire shi (daga ₦500) ko ka sayi katuna da shi.",
+  "Your invite code": "Lambar gayyatarka", "Your invites": "Gayyatarka",
+  "friends joined": "abokan da suka shiga", "friends bought cards": "abokan da suka sayi katuna", "cards they bought": "katunan da suka saya", "earned": "abin da ka samu",
+  "Purchase refunded — taken back": "An mayar da kuɗin sayayya — an karɓe", "A friend bought {0} cards": "Aboki ya sayi kati {0}",
+  "How it works": "Yadda yake aiki",
+  "Your friend signs up with your link or code. They must be 18 or over and verified to buy.": "Abokinka zai yi rajista da mahaɗinka ko lambarka. Dole ya kai shekara 18 kuma a tabbatar da shi kafin ya saya.",
+  "You earn on every purchase they make. Only the friends you invite count, not people they invite.": "Kana samun kaso a duk sayayyar da suka yi. Abokan da kai ka gayyata ne kawai ake ƙirga, ba waɗanda su suka gayyata ba.",
+  "If a purchase is refunded, its earnings are taken back.": "Idan aka mayar da kuɗin wata sayayya, za a karɓe ladanta.",
+  "Please share responsibly: only with adults, and never pressure anyone to play.": "Da fatan ka raba cikin hankali: ga manya kawai, kuma kada ka matsa wa kowa ya yi wasa.",
+  "Share your win": "Raba nasararka", "Show me": "Nuna min", "Close": "Rufe",
+  "{0}% of the cards are sold": "An sayar da {0}% na katunan",
+  "{0} cards are left. The final draw is on {1}.": "Kati {0} ne suka rage. Zaɓen ƙarshe zai kasance a {1}.",
+  "Achievements": "Nasarori", "{0} — not yet": "{0} — ba tukuna",
+  "Verified": "An tabbatar", "First card": "Kati na farko", "First scratch": "Karcewa ta farko", "Instant win": "Nasara nan take", "Shared": "An raba", "A friend joined": "Aboki ya shiga",
+
   // --- Invites, wallet and paying from it ---
   "You were invited by a friend. Their code is filled in below.": "Aboki ne ya gayyace ka. An cike lambar gayyatarsa a ƙasa.",
   "Have an invite code?": "Kana da lambar gayyata?", "Invite code (optional)": "Lambar gayyata (ba dole ba)",
@@ -361,7 +392,7 @@ if (typeof window !== "undefined") window.__i18nMissing = missing;
 
 /** The text in the current language. Text with no translation is shown in English (and recorded). */
 export function tr(text) {
-  if (current !== "ha" || typeof text !== "string" || !/[A-Za-z]/.test(text)) return text;
+  if (current !== "ha" || typeof text !== "string" || !/[A-Za-z]/.test(text) || /^https?:\/\/\S+$/.test(text)) return text; // web addresses stay as they are
   if (Object.prototype.hasOwnProperty.call(HA, text)) return HA[text];
   if (already.has(text)) return text;
   for (const p of PATTERNS) {

@@ -1579,3 +1579,48 @@ test("referrals and the wallet: codes for everyone, 2.5% of each referred purcha
   assert.equal(res.contribution_kobo, res.net_revenue_kobo - res.merchandise_cost_kobo - 2_000 - res.operating_expenses_kobo);
   assert.equal((await pool.query("SELECT coalesce(sum(amount_kobo), 0)::bigint AS s FROM ledger_entries")).rows[0].s, 0);
 });
+
+test("pop-ups, prize pictures and live activity: two people for any announcement, pictures checked and locked once sales open, real activity only", async () => {
+  const mt = admins.manager!.token, ct = admins.compliance!.token, ct2 = admins.compliance2!.token;
+  const now = Date.now();
+  const flash = (token: string, b: object) => api("POST", "/v1/admin/flash", { token, body: { titleEn: "Halfway there!", bodyEn: "Half of the cards are sold.", startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 3600_000).toISOString(), ...b } });
+  fails(await flash(admins.finance!.token, {}), 403, "ROLE_REQUIRED");
+  fails(await flash(mt, { link: "https://evil.example" }), 400, "INVALID_REQUEST");
+  const f = ok(await flash(mt, { titleHa: "Mun kai rabi!", bodyHa: "An sayar da rabin katunan.", link: "#/buy" }));
+  assert.deepEqual(ok(await api("GET", "/v1/flash")).messages, []); // nothing shows until approved
+  fails(await api("POST", `/v1/admin/flash/${f.id}/decision`, { token: mt, body: { approve: true } }), 403, "ROLE_REQUIRED");
+  const own = ok(await flash(ct, {}));
+  fails(await api("POST", `/v1/admin/flash/${own.id}/decision`, { token: ct, body: { approve: true } }), 403, "SAME_PERSON");
+  assert.equal(ok(await api("POST", `/v1/admin/flash/${f.id}/decision`, { token: ct, body: { approve: true } })).status, "APPROVED");
+  const live = ok(await api("GET", "/v1/flash")).messages;
+  assert.equal(live.length, 1); assert.equal(live[0].title_ha, "Mun kai rabi!"); assert.equal(live[0].link, "#/buy");
+  await assert.rejects(pool.query("UPDATE flash_messages SET body_en = 'Edited' WHERE id = $1", [f.id]), /cannot be edited/);
+  await assert.rejects(pool.query("UPDATE flash_messages SET status = 'APPROVED', decided_by = created_by WHERE id = $1", [own.id]), /flash_messages_check/);
+  ok(await api("POST", `/v1/admin/flash/${f.id}/withdraw`, { token: ct2 }));
+  assert.deepEqual(ok(await api("GET", "/v1/flash")).messages, []);
+
+  // Prize pictures: real image files only, at most 1 MB; fixed once sales open.
+  const draft = ok(await api("POST", "/v1/admin/cycles", { token: mt, body: { name: "Pictures", ticketPriceKobo: N200, totalTickets: 100, maxTicketsPerAccount: 10,
+    salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString() } })).id;
+  const tier = ok(await api("POST", `/v1/admin/cycles/${draft}/prize-tiers`, { token: mt, body: { stage: "FINAL_DRAW", kind: "CASH", title: "₦4,000 cash", cashKobo: 400_000, quantity: 1, drawOrder: 1 } })).id;
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(200)]);
+  const put = (token: string, data: Buffer) => api("PUT", `/v1/admin/prize-tiers/${tier}/image`, { token, body: { dataBase64: data.toString("base64") } });
+  fails(await put(admins.fulfilment!.token, png), 403, "ROLE_REQUIRED");
+  fails(await put(mt, Buffer.from("<svg onload=alert(1)></svg>")), 400, "INVALID_IMAGE");
+  fails(await put(mt, Buffer.concat([png, Buffer.alloc(1024 * 1024)])), 400, "INVALID_IMAGE");
+  assert.equal(ok(await put(mt, png)).contentType, "image/png");
+  const img = await app.inject({ method: "GET", url: `/v1/prize-images/${tier}` });
+  assert.equal(img.statusCode, 200); assert.equal(img.headers["content-type"], "image/png"); assert.equal(img.headers["x-content-type-options"], "nosniff");
+  assert.deepEqual(img.rawPayload, png);
+  assert.equal((await app.inject({ method: "GET", url: `/v1/prize-images/${tier}`, headers: { "if-none-match": String(img.headers.etag) } })).statusCode, 304);
+  // A cycle that is already selling: its pictures cannot change.
+  const sellingTier = (await pool.query("SELECT id FROM prize_tiers WHERE cycle_id = (SELECT id FROM cycles WHERE name = 'Referral cycle') LIMIT 1")).rows[0].id;
+  fails(await api("PUT", `/v1/admin/prize-tiers/${sellingTier}/image`, { token: mt, body: { dataBase64: png.toString("base64") } }), 409, "RULE_VIOLATION");
+  const pub = ok(await api("GET", `/v1/cycles/${(await pool.query("SELECT id FROM cycles WHERE name = 'Referral cycle'")).rows[0].id}`));
+  assert.ok(pub.prizes.every((p: any) => typeof p.has_image === "boolean" && p.id));
+
+  // Activity: real figures, and nothing about who won.
+  const act = ok(await api("GET", `/v1/cycles/${cycleA.id}/activity`));
+  assert.equal(typeof act.soldLastHour, "number");
+  assert.ok(act.recentWins.every((w: any) => Object.keys(w).sort().join() === "at,cashKobo"));
+});

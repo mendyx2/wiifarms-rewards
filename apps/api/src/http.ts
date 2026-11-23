@@ -21,6 +21,7 @@ import * as nok from "./modules/nok.ts";
 import * as support from "./modules/support.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as referrals from "./modules/referrals.ts";
+import * as promo from "./modules/promo.ts";
 import * as wallet from "./modules/wallet.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
@@ -238,6 +239,13 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   // ---- Catalogue (public) ---------------------------------------------------------------
   app.get("/v1/cycles", async () => ({ cycles: await cycles.listPublicCycles(ctx) }));
   app.get<{ Params: { id: string } }>("/v1/cycles/:id", { schema: idParam }, async (req) => cycles.getPublicCycle(ctx, req.params.id));
+  app.get<{ Params: { id: string } }>("/v1/cycles/:id/activity", { schema: idParam }, async (req) => promo.cycleActivity(ctx, req.params.id));
+  app.get("/v1/flash", async () => ({ messages: await promo.liveFlash(ctx) }));
+  app.get<{ Params: { id: string } }>("/v1/prize-images/:id", { schema: idParam }, async (req, reply) => {
+    const img = await promo.prizeImage(ctx, req.params.id);
+    if (req.headers["if-none-match"] === img.etag) return reply.status(304).send();
+    return reply.header("Content-Type", img.contentType).header("Cache-Control", "public, max-age=300").header("ETag", img.etag).send(img.bytes);
+  });
   app.get<{ Params: { id: string } }>("/v1/cycles/:id/draw", { schema: idParam }, async (req) => draw.getPublicDraw(ctx, req.params.id));
   app.get<{ Params: { id: string }; Querystring: { offset?: string; limit?: string } }>("/v1/cycles/:id/tickets", {
     schema: { ...idParam, querystring: { type: "object", additionalProperties: false, properties: { offset: { type: "string", pattern: "^[0-9]{1,9}$" }, limit: { type: "string", pattern: "^[0-9]{1,5}$" } } } },
@@ -480,6 +488,19 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   step("archive/confirm", (a, id) => archive.confirmArchive(ctx, a, id));
   app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id/archive", { schema: idParam }, async (req) => ({ checks: await archive.archiveReadiness(ctx, await staff(req), req.params.id) }));
 
+  // Pop-up announcements and prize pictures.
+  app.get("/v1/admin/flash", async (req) => ({ messages: await promo.listFlash(ctx, await staff(req)) }));
+  app.post<{ Body: promo.NewFlash }>("/v1/admin/flash", {
+    schema: body({ titleEn: str(80), bodyEn: str(400), titleHa: str(80), bodyHa: str(400), link: str(20), startsAt: str(40), endsAt: str(40) }, ["titleHa", "bodyHa", "link"]),
+  }, async (req) => promo.createFlash(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { approve: boolean } }>("/v1/admin/flash/:id/decision", { schema: { ...idParam, ...body({ approve: { type: "boolean" } }) } },
+    async (req) => promo.decideFlash(ctx, await staff(req), req.params.id, req.body.approve));
+  app.post<{ Params: { id: string } }>("/v1/admin/flash/:id/withdraw", { schema: idParam }, async (req) => promo.withdrawFlash(ctx, await staff(req), req.params.id));
+  app.put<{ Params: { id: string }; Body: { dataBase64: string } }>("/v1/admin/prize-tiers/:id/image", {
+    bodyLimit: 1536 * 1024, // a 1 MB picture, base64-encoded
+    schema: { ...idParam, ...body({ dataBase64: str(1_500_000) }) },
+  }, async (req) => promo.setPrizeImage(ctx, await staff(req), req.params.id, req.body));
+
   app.get("/v1/admin/payouts/pending", async (req) => ({ payouts: await wallet.listPendingPayouts(ctx, await staff(req)) }));
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/payouts/:id/decision", {
     schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
@@ -494,6 +515,9 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   // ---- Player web app (same origin as the API) -------------------------------------------
   if (ctx.config.webRoot) {
     const files = loadStatic(ctx.config.webRoot);
+    // Link previews need an absolute picture address; it comes from settings, never from the request.
+    const index = files.get("/index.html");
+    if (index) files.set("/index.html", { ...index, body: Buffer.from(index.body.toString("utf8").replaceAll("%PUBLIC_URL%", ctx.config.publicUrl ?? "")) });
     const serve = (reply: FastifyReply, file: { body: Buffer; type: string }) =>
       reply.header("Content-Type", file.type).header("Cache-Control", "no-cache").send(file.body);
     if (ctx.config.adminRoot) {

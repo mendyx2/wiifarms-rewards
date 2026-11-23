@@ -101,6 +101,7 @@ const val = (form, name) => form.elements[name].value.trim();
 async function loadMe() {
   try {
     const me = await api.get("/v1/me");
+    if (state.me?.id !== me.id) state.invite = undefined; // a different player on this phone
     if (me.language !== lang()) {
       // A choice made on this phone is kept and passed on to the account; on a new phone the account's choice is used.
       if (chosenHere()) { me.language = lang(); api.put("/v1/me/language", { language: lang() }).catch(() => {}); }
@@ -110,6 +111,7 @@ async function loadMe() {
   } catch (err) {
     if (err.status !== 401) throw err;
     state.me = null;
+    state.invite = undefined;
   }
   const bal = document.getElementById("topBal");
   bal.hidden = !state.me;
@@ -209,7 +211,7 @@ function scratchSurface(resultNode, { onStart, onDone }) {
 
 // --- Screens ----------------------------------------------------------------------------
 
-const PRIZE_ICON = (title) => /motor|bike|vehicle/i.test(title) ? "🏍️" : /freez|fridge/i.test(title) ? "🧊" : /solar|batter/i.test(title) ? "🔋" : /phone/i.test(title) ? "📱" : /rice|vita/i.test(title) ? "🌾" : /cash|₦/i.test(title) ? "💵" : "🎁";
+const PRIZE_ICON = (title) => /\bcar\b/i.test(title) ? "🚗" : /motor|bike|vehicle/i.test(title) ? "🏍️" : /freez|fridge/i.test(title) ? "🧊" : /solar|batter/i.test(title) ? "🔋" : /phone/i.test(title) ? "📱" : /rice|vita/i.test(title) ? "🌾" : /cash|₦/i.test(title) ? "💵" : "🎁";
 const STATUS_TEXT = { COMMITTED: "Opening soon", OPEN: "On sale", CLOSED: "Sales closed", DRAWN: "Draw complete", SETTLING: "Draw complete", ARCHIVED: "Finished", VOID: "Cancelled" };
 const VOID_TEXT = "This cycle was cancelled. Every card was refunded in full to the payment it came from. Instant prizes already revealed have been kept.";
 
@@ -225,6 +227,9 @@ async function home() {
 
   // A winner is told straight away, whichever cycle the prize came from.
   const waiting = state.me ? (await api.get("/v1/claims")).claims.filter((p) => p.status === "ENTITLED").length : 0;
+  const activity = c.status === "OPEN" ? await api.get(`/v1/cycles/${c.id}/activity`).catch(() => null) : null;
+  const inv = await myInvite();
+  setTimeout(() => { if (location.hash === "" || location.hash === "#/home" || location.hash === "#/") popups(c).catch(() => {}); }, 400);
   const nodes = [
     langSwitch(),
     waiting ? el("a", { class: "btn gold", href: "#/wallet" }, `🎉 You have ${plural(waiting, "prize")} to claim`) : null,
@@ -238,17 +243,24 @@ async function home() {
         el("div", {}, el("b", {}, odds), "cards win instant cash"),
         el("div", {}, el("b", {}, instant.length ? `${naira(Math.min(...instant))} – ${naira(Math.max(...instant))}` : "—"), "instant prizes"),
         el("div", {}, el("b", {}, when(c.sales_close_at)), "or when sold out"),
-        el("div", {}, el("b", {}, "Final draw"), when(c.draw_at)))),
+        el("div", {}, el("b", {}, "Final draw"), when(c.draw_at))),
+      c.status === "OPEN" ? countdown("Sales close in", c.sales_close_at) : c.status === "CLOSED" ? countdown("Final draw in", c.draw_at) : null),
+    activity && (activity.soldLastHour || activity.recentWins.length) ? el("div", { class: "card live" },
+      activity.soldLastHour ? el("div", { class: "row" }, el("b", {}, `🔥 ${activity.soldLastHour.toLocaleString("en-NG")} cards sold in the last hour`)) : null,
+      activity.recentWins.slice(0, 5).map((w) => el("div", { class: "row" }, el("span", {}, `🎉 ${naira(w.cashKobo)} won`), el("small", { class: "muted" }, ago(w.at))))) : null,
     el("div", { class: "stack" },
       c.status === "OPEN"
         ? el("a", { class: "btn gold", href: "#/" + nextStep() }, "Buy scratch cards")
         : c.status === "VOID" ? el("div", { class: "note warn" }, VOID_TEXT)
         : el("a", { class: "btn gold", href: "#/draw" }, c.status === "CLOSED" ? "Sales closed — see the draw" : "See the draw"),
       el("a", { class: "btn ghost", href: "#/demo" }, "Try a free demo card")),
+    inv ? el("a", { class: "card invite-card", href: "#/invite" }, el("b", {}, `🤝 Invite friends, earn ${inv.ratePercent}%`),
+      el("small", {}, "Every time a friend you invited buys cards, part of it goes into your wallet.")) : null,
     el("h2", {}, "Final-draw prizes"),
     el("p", { class: "muted" }, "Every card you buy is entered automatically, win or lose."),
     el("div", { class: "prizes" }, c.prizes.filter((p) => p.stage === "FINAL_DRAW").map((p) =>
-      el("div", { class: "prize" }, el("div", { class: "pic" }, PRIZE_ICON(p.title)), el("b", {}, p.title), el("span", {}, plural(p.quantity, "winner"))))),
+      el("div", { class: "prize" }, el("div", { class: "pic" }, p.has_image ? el("img", { src: `/v1/prize-images/${p.id}`, alt: p.title, loading: "lazy" }) : PRIZE_ICON(p.title)),
+        el("b", {}, p.title), el("span", {}, plural(p.quantity, "winner"))))),
     el("h2", {}, "Instant prizes"),
     el("div", { class: "card" }, c.prizes.filter((p) => p.stage === "INSTANT").map((p) =>
       el("div", { class: "row" }, el("b", {}, naira(p.cash_kobo)), el("span", { class: "muted" }, `${p.quantity.toLocaleString("en-NG")} of ${c.total_tickets.toLocaleString("en-NG")} cards`)))),
@@ -411,7 +423,8 @@ async function buy() {
     el("div", { class: "card" },
       el("div", { class: "qty" }, el("button", { "aria-label": "Fewer", onclick: () => set(qty - 1) }, "−"), out, el("button", { "aria-label": "More", onclick: () => set(qty + 1) }, "+")),
       el("div", { class: "chips" }, [1, 3, 5, 10].filter((n) => n <= today.max).map((n) => el("button", { onclick: () => set(n) }, n))),
-      el("div", { class: "row" }, el("span", {}, "Total"), total)),
+      el("div", { class: "row" }, el("span", {}, "Total"), total),
+      el("p", { class: "muted" }, "More cards, more chances: each card is one entry in the final draw.")),
     el("div", { class: "card" },
       el("div", { class: "row" }, el("span", {}, "Cards today"), el("b", {}, `${today.cards} of ${today.max}`)),
       el("div", { class: "row" }, el("span", {}, "Spent in the last 24 hours"), el("b", {}, `${naira(spending.dailyKobo)} of ${naira(limits.dailyKobo)}`)),
@@ -525,7 +538,8 @@ async function card(id) {
   const showAfter = async () => {
     revealBtn.hidden = true;
     const cash = revealed.ticket.result.cashKobo;
-    if (cash && !ticket.result) { navigator.vibrate?.(60); toast("You won " + naira(cash) + "!"); }
+    if (cash && !ticket.result) { navigator.vibrate?.(60); confetti(); toast("You won " + naira(cash) + "!"); }
+    const inv = cash ? await myInvite() : null;
     // Checked on this phone against the fingerprint from the public cycle page.
     const verified = await verifyTicket(revealed.proof, cycle.commitment.ticket_merkle_root).catch(() => false);
     const next = tickets.find((t) => !t.result && t.id !== id);
@@ -540,6 +554,8 @@ async function card(id) {
           el("div", {}, "card: " + revealed.proof.serial), el("div", {}, "result: " + revealed.proof.outcome),
           el("div", {}, "salt: " + revealed.proof.salt), el("div", {}, `position ${revealed.proof.leafIndex}, ${revealed.proof.steps.length} proof steps`),
           el("div", {}, "fingerprint: " + cycle.commitment.ticket_merkle_root))),
+      inv ? el("details", { class: "card" }, el("summary", {}, "Share your win"),
+        shareBlock(tr(`I just won ${naira(cash)} on a WiiFarm Rewards scratch card! Join with my invite code ${inv.code}. 18+ only. Play responsibly.`), inv.url)) : null,
       next ? el("a", { class: "btn", href: "#/card/" + next.id }, "Next card") : el("a", { class: "btn", href: "#/cards" }, "Back to my cards"));
     after.hidden = false;
     loadMe();
@@ -810,6 +826,8 @@ async function me() {
         m.kycTier >= 1 ? el("span", { class: "pill" }, "Verified") : el("a", { class: "btn small", href: "#/verify" }, "Verify")),
       el("div", { class: "row" }, el("div", {}, el("b", {}, "Next of kin"), el("small", {}, m.nextOfKin ? `${m.nextOfKin.full_name} · ${m.nextOfKin.relationship}` : "Not added — needed before a big prize is claimed")))),
     el("details", { class: "card" }, el("summary", {}, m.nextOfKin ? "Change next of kin" : "Add next of kin"), nok),
+    el("a", { class: "btn gold", href: "#/invite" }, "Invite friends"), el("p"),
+    el("h2", {}, "Achievements"), await achievements(m),
     el("a", { class: "btn ghost", href: "#/support" }, "Help and support"), el("p"),
     await purchasesSection(),
     el("h2", {}, "Play within your limits"),
@@ -837,6 +855,153 @@ async function me() {
   ];
 }
 
+// --- Sharing, invites and a little fun -------------------------------------------------------
+//
+// Everything shown here is real: the countdown is to the published closing
+// time, "sold in the last hour" and "just won" come from the server, and
+// milestones are the actual share of cards sold. Nothing invents urgency.
+
+let ticker = null; // one live countdown at a time; cleared on every screen change
+const enc = encodeURIComponent;
+const pad2 = (n) => String(n).padStart(2, "0");
+
+/** "3 days 04:12:09" until the given time. */
+function timeLeft(iso) {
+  const ms = Math.max(0, new Date(iso).getTime() - Date.now());
+  const d = Math.floor(ms / 864e5), h = Math.floor(ms / 36e5) % 24, m = Math.floor(ms / 6e4) % 60, sec = Math.floor(ms / 1000) % 60;
+  const clock = `${pad2(h)}:${pad2(m)}:${pad2(sec)}`;
+  return d ? tr(`${d} ${d === 1 ? "day" : "days"} ${clock}`) : clock;
+}
+function countdown(label, iso) {
+  const out = el("b", {}, timeLeft(iso));
+  clearInterval(ticker);
+  ticker = setInterval(() => { if (!out.isConnected) clearInterval(ticker); else out.textContent = timeLeft(iso); }, 1000);
+  return el("div", { class: "countdown", role: "timer" }, el("span", {}, label), out);
+}
+
+/** "3 min ago". */
+function ago(iso) {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 6e4);
+  return tr(min < 1 ? "just now" : min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`);
+}
+
+/** The player's invite code and link (fetched once). */
+async function myInvite() {
+  if (!state.me) return null;
+  state.invite ??= await api.get("/v1/me/referrals").catch(() => null);
+  return state.invite ? { ...state.invite, url: location.origin + state.invite.link } : null;
+}
+
+/** Share buttons: the phone's own share sheet where there is one, the main apps, and copying the link. */
+function shareBlock(text, url) {
+  const markShared = () => { try { localStorage.setItem("shared", "1"); } catch { /* storage unavailable */ } };
+  const app = (name, href) => el("a", { class: "btn small ghost share-" + name.toLowerCase(), href, target: "_blank", rel: "noopener noreferrer", onclick: markShared }, name);
+  return el("div", { class: "share" },
+    navigator.share ? el("button", { class: "btn gold", type: "button", onclick: async () => {
+      try { await navigator.share({ title: "WiiFarm Rewards", text, url }); markShared(); } catch { /* the player closed the share sheet */ }
+    } }, "Share") : null,
+    el("div", { class: "share-apps" },
+      app("WhatsApp", `https://wa.me/?text=${enc(text + " " + url)}`),
+      app("Facebook", `https://www.facebook.com/sharer/sharer.php?u=${enc(url)}`),
+      app("X", `https://twitter.com/intent/tweet?text=${enc(text)}&url=${enc(url)}`),
+      app("Telegram", `https://t.me/share/url?url=${enc(url)}&text=${enc(text)}`)),
+    el("button", { class: "btn small ghost", type: "button", onclick: async () => {
+      try { await navigator.clipboard.writeText(url); toast("Link copied."); markShared(); } catch { toast(url); }
+    } }, "Copy link"));
+}
+
+const inviteText = (code) => tr(`Join me on WiiFarm Rewards: ₦500 scratch cards with instant cash prizes, and every card goes into the final draw. Use my invite code ${code}. 18+ only. Play responsibly.`);
+
+async function invite() {
+  const inv = await myInvite();
+  if (!inv) return [el("h1", {}, "Invite friends"), el("p", { class: "muted" }, "Something went wrong. Please try again.")];
+  return [
+    el("h1", {}, `Invite friends, earn ${inv.ratePercent}%`),
+    el("p", { class: "muted" }, `Every time a friend you invited buys cards, ${inv.ratePercent}% of what they pay goes into your wallet. Withdraw it (from ₦500) or use it to buy cards.`),
+    el("div", { class: "card center" }, el("span", { class: "muted" }, "Your invite code"), el("div", { class: "code-big" }, inv.code), el("small", { class: "muted" }, inv.url)),
+    shareBlock(inviteText(inv.code), inv.url),
+    el("h2", {}, "Your invites"),
+    el("div", { class: "tiles" },
+      el("div", { class: "tile" }, el("b", {}, String(inv.friendsJoined)), el("span", {}, "friends joined")),
+      el("div", { class: "tile" }, el("b", {}, String(inv.friendsWhoBought)), el("span", {}, "friends bought cards")),
+      el("div", { class: "tile" }, el("b", {}, String(inv.cardsBought)), el("span", {}, "cards they bought")),
+      el("div", { class: "tile" }, el("b", {}, naira(inv.earnedKobo)), el("span", {}, "earned"))),
+    inv.recent.length ? el("div", { class: "card" }, inv.recent.slice(0, 10).map((r) => el("div", { class: "row" },
+      el("div", {}, el("b", {}, r.status === "REVERSED" ? "Purchase refunded — taken back" : `A friend bought ${r.cards} cards`), el("small", {}, when(r.created_at))),
+      el("b", {}, (r.status === "REVERSED" ? "−" : "+") + naira(r.amount_kobo))))) : null,
+    el("h2", {}, "How it works"),
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("small", {}, "Your friend signs up with your link or code. They must be 18 or over and verified to buy.")),
+      el("div", { class: "row" }, el("small", {}, "You earn on every purchase they make. Only the friends you invite count, not people they invite.")),
+      el("div", { class: "row" }, el("small", {}, "If a purchase is refunded, its earnings are taken back."))),
+    el("div", { class: "note" }, "Please share responsibly: only with adults, and never pressure anyone to play."),
+  ];
+}
+
+/** A short burst of confetti for a win (not shown to people who prefer less motion). */
+function confetti() {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const c = el("canvas", { class: "confetti", "aria-hidden": "true" });
+  document.body.append(c);
+  const w = c.width = innerWidth, h = c.height = innerHeight, g = c.getContext("2d");
+  const colours = ["#d99a1c", "#14532d", "#1c6b3c", "#f4c34d", "#e8f3ec"];
+  const bits = Array.from({ length: 120 }, () => ({ x: w / 2, y: h / 3, vx: (Math.random() - 0.5) * 12, vy: Math.random() * -12 - 4, r: Math.random() * 6 + 3, c: colours[Math.floor(Math.random() * colours.length)] }));
+  const start = performance.now();
+  const frame = (t) => {
+    g.clearRect(0, 0, w, h);
+    for (const b of bits) { b.vy += 0.35; b.x += b.vx; b.y += b.vy; g.fillStyle = b.c; g.fillRect(b.x, b.y, b.r, b.r * 0.6); }
+    if (t - start < 1800) requestAnimationFrame(frame); else c.remove();
+  };
+  requestAnimationFrame(frame);
+}
+
+// Pop-ups: announcements approved by Compliance, and real sales milestones. At most one per visit to the home screen.
+const seen = (key) => { try { return localStorage.getItem(key) === "1"; } catch { return true; } };
+const markSeen = (key) => { try { localStorage.setItem(key, "1"); } catch { /* storage unavailable */ } };
+function modal({ title, body, href, label }) {
+  const close = () => box.remove();
+  const box = el("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "modalTitle", onclick: (e) => { if (e.target === box) close(); } },
+    el("div", { class: "modal-card" },
+      el("b", { id: "modalTitle", class: "modal-title" }, title), el("p", {}, body),
+      el("div", { class: "stack" },
+        href ? el("a", { class: "btn gold", href, onclick: close }, label ?? "Show me") : null,
+        el("button", { class: "btn ghost", type: "button", onclick: close }, "Close"))));
+  document.body.append(box);
+  box.querySelector("button, a")?.focus();
+}
+async function popups(c) {
+  if (document.querySelector(".modal")) return;
+  const flash = (await api.get("/v1/flash").catch(() => ({ messages: [] }))).messages.find((m) => !seen("flash:" + m.id));
+  if (flash) {
+    markSeen("flash:" + flash.id);
+    const ha = lang() === "ha";
+    return modal({ title: ha && flash.title_ha ? flash.title_ha : flash.title_en, body: ha && flash.body_ha ? flash.body_ha : flash.body_en, href: flash.link ?? undefined });
+  }
+  if (c?.status !== "OPEN") return;
+  const pct = Math.floor(((c.total_tickets - c.tickets_remaining) / c.total_tickets) * 100);
+  const milestone = [90, 75, 50, 25].find((m) => pct >= m);
+  if (milestone && !seen(`milestone:${c.id}:${milestone}`)) {
+    for (const m of [25, 50, 75, 90]) if (m <= milestone) markSeen(`milestone:${c.id}:${m}`);
+    modal({ title: tr(`${milestone}% of the cards are sold`),
+      body: tr(`${c.tickets_remaining.toLocaleString("en-NG")} cards are left. The final draw is on ${when(c.draw_at)}.`), href: "#/buy", label: "Buy scratch cards" });
+  }
+}
+
+/** Badges for taking part — none of them for spending more. */
+async function achievements(m) {
+  const [tickets, inv] = await Promise.all([api.get("/v1/tickets").then((r) => r.tickets).catch(() => []), myInvite()]);
+  const list = [
+    ["✅", "Verified", m.kycTier >= 1],
+    ["🎟️", "First card", tickets.length > 0],
+    ["🪙", "First scratch", tickets.some((t) => t.result)],
+    ["🎉", "Instant win", tickets.some((t) => t.result?.cashKobo > 0)],
+    ["📣", "Shared", seen("shared")],
+    ["🤝", "A friend joined", (inv?.friendsJoined ?? 0) > 0],
+  ];
+  return el("div", { class: "badges" }, list.map(([icon, name, got]) =>
+    el("div", { class: "badge" + (got ? " got" : ""), "aria-label": got ? name : `${name} — not yet` }, el("span", { "aria-hidden": "true" }, icon), el("small", {}, name))));
+}
+
 // --- Router ---------------------------------------------------------------------------------
 
 const ROUTES = {
@@ -844,7 +1009,7 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 
 // --- Offline and installing -------------------------------------------------------------------
@@ -895,6 +1060,7 @@ let renderId = 0;
 let meLoaded = false;
 async function render() {
   const mine = ++renderId;
+  clearInterval(ticker);
   const [name = "home", arg] = location.hash.replace(/^#\/?/, "").split("/");
   try {
     if (!meLoaded) { await loadMe(); meLoaded = true; }

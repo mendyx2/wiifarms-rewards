@@ -335,7 +335,8 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
   if (!c) throw notFound("Cycle not found.");
   c.tickets_remaining = await ticketsRemaining(ctx.pool, cycleId);
   const tiers = await ctx.pool.query<{ stage: string; kind: string; title: string; cash_kobo: number | null; quantity: number; draw_order: number | null }>(
-    "SELECT stage, kind, title, cash_kobo, quantity, draw_order FROM prize_tiers WHERE cycle_id = $1 ORDER BY stage DESC, draw_order NULLS LAST, cash_kobo DESC", [cycleId]);
+    `SELECT p.id, p.stage, p.kind, p.title, p.cash_kobo, p.quantity, p.draw_order, EXISTS (SELECT 1 FROM prize_images i WHERE i.prize_tier_id = p.id) AS has_image
+     FROM prize_tiers p WHERE p.cycle_id = $1 ORDER BY p.stage DESC, p.draw_order NULLS LAST, p.cash_kobo DESC`, [cycleId]);
   const commitment = await one(
     ctx.pool,
     `SELECT cc.game_core_version, encode(cc.ticket_merkle_root, 'hex') AS ticket_merkle_root, encode(cc.prize_table_sha256, 'hex') AS prize_table_sha256,
@@ -384,6 +385,7 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
   const q = (sql: string) => ctx.pool.query(sql, [cycleId]).then((r) => r.rows);
   const [tiers, approvals, signoffs, commitment, counts, drawn] = await Promise.all([
     q(`SELECT p.id, p.stage, p.kind, p.title, p.cash_kobo, p.quantity, p.draw_order, s.name AS sku_name,
+              EXISTS (SELECT 1 FROM prize_images i WHERE i.prize_tier_id = p.id) AS has_image,
               (SELECT count(*) FROM prize_claims pc WHERE pc.prize_tier_id = p.id)::int AS awarded
        FROM prize_tiers p LEFT JOIN skus s ON s.id = p.sku_id WHERE p.cycle_id = $1 ORDER BY p.stage DESC, p.draw_order NULLS LAST, p.cash_kobo DESC`),
     q(`SELECT a.capacity, a.approved_at, a.approver_id, u.full_name FROM cycle_approvals a JOIN admin_users u ON u.id = a.approver_id WHERE a.cycle_id = $1 ORDER BY a.approved_at`),

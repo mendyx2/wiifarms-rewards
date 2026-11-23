@@ -219,6 +219,8 @@ New **Access & licences** page in the admin app.
 | `lifecycle.test.ts` | A cycle from draft to archive: drafter cannot approve, escrow ₦1 short refused, locked after approval; the draw needs two operators and the appointed auditor, the auditor cannot execute, it runs once; the player is told, verifies the draw on the phone, adds next of kin, claims with PIN; fulfilment dispatches, staff never see the handover code, a wrong code is refused; Finance reconciles and signs off; close-out by two people publishes every card; the player checks the whole cycle; every admin screen fits a phone |
 | `hausa.test.ts` | Signing up in Hausa sets the account to Hausa, switching back sets it to English, and a new phone takes the account's language on sign-in. Every player screen in Hausa with nothing left in English (other than names from the server); the switch applies to the tab bar and is remembered after a reload; server error messages appear in Hausa; switching back restores English. `lifecycle.test.ts` also repeats its draw, verification and prize screens in Hausa |
 | `installable.test.ts` | Install icons and manifest; nothing personal kept on the phone; offline screen in English and Hausa; recovery when back online; the staff app never served offline; install prompt and *Not now* |
+| `wallet.test.ts` | An invite link fills in the code at sign-up; the friend's purchase pays the inviter 2.5%; the wallet buys cards only with the right PIN |
+| `engage.test.ts` | Invite screen and share links carry the link, code and "18+ only"; live activity and a ticking countdown; a true sales milestone shown once; achievements; link previews; pop-ups appear only after a second person approves, once, in Hausa for Hausa readers; prize pictures accepted before sales open, refused after, and fake image files refused |
 | `operations.test.ts` | Refund requested by Compliance and approved by Finance, seen by the player; cycle cancellation requested by a manager, approved by Compliance, seen by players; reconciliation against a statement, sign-off with an explanation, expenses recorded and reversed, spreadsheet with formulas neutralised; auditors see but cannot act; staff access granted by two security administrators, disabling immediate; a licence recorded by one person and verified by another |
 
 The whole browser suite takes about a minute and passed four runs in a row, one with the processor saturated.
@@ -276,6 +278,51 @@ The player app can be **added to the home screen** and opens like an app, full s
 **What is kept on the phone, and what is not.** Only the app's own public files — the page, styles, scripts, language file and icons. Nothing from the API is ever stored, so no balances, card results, messages or personal details stay on the phone, and a shared or lost phone gives nothing away beyond what any visitor could download. The staff app is never served from the phone's copy. The app always fetches its files fresh when online, so a player never runs an outdated version after an update.
 
 Tested in `installable.test.ts`: the icons are real PNGs of the stated sizes (including one shaped for Android's round masks); the phone's copy contains no `/v1/` or staff-app entries after a signed-in session; offline opening, the offline screen in both languages, and automatic recovery; the install prompt offered once per request; *Not now* remembered.
+
+## First wave: season economics, referrals, wallet and engagement
+
+Built from management's instructions of 23 November 2026.
+
+### Seasons and the prize budget
+- **Rewards are seasonal** (each season is a cycle, as built). **The lottery ("loto") is a separate, continuous product and is not part of this system**: it would need its own licence, rules and certification, and nothing here mixes the two.
+- **First wave: 400,000 cards at ₦500**, ₦200,000,000 at sell-out. `pnpm --filter @wiifarm/api seed:demo --first-wave` creates it in the simulation; the everyday demo uses a scaled-down copy.
+- **Prize money is 50% of full sell-out sales (₦100,000,000), and 10% of that (₦10,000,000) is instant cash.** This is company policy, set in configuration (`WR_PRIZE_SHARE_BP`, `WR_INSTANT_SHARE_BP`) and fixed on each season when it is drafted. Approval is refused if the instant prizes or the final-draw prizes exceed their share; merchandise counts at its advertised value. The admin cycle page shows the budget as it is filled.
+- **Placeholder prize table** for the first wave: instant cash of ₦500 × 8,000, ₦1,000 × 2,500, ₦2,000 × 750, ₦5,000 × 200 and ₦10,000 × 100 (exactly ₦10,000,000; one card in about 35 wins). Final draw: **the single car**, then an electric motorcycle, cash, freezers and rice — about ₦33,000,000 of the ₦90,000,000 final-draw budget. **The car's value (₦30,000,000 in the demo) and the rest of the list are placeholders for management's real list and pictures.**
+- **If not every card sells, the advertised prizes are still given**, so prizes become a larger share of actual sales. This is the operator's risk and is stated on the admin page.
+
+### Buying: up to 10 cards a day
+- Each person can buy **at most 10 cards per Nigerian calendar day** (`WR_CARDS_PER_DAY`), in any number of purchases. At ₦500 that is exactly the default ₦5,000 daily spending limit. The buy screen shows "cards today", offers 1, 3, 5 or 10, and explains that each card is one entry in the final draw.
+- **Speed at scale (measured):** 400,000 cards generated and committed in about 20 seconds; about 73 purchases of 10 cards per second (a full sell-out at maximum rush in about 9 minutes); the final draw over 400,000 entries in about 13 seconds. If nobody scratched their cards, revealing all 400,000 takes about 5 minutes, so it now runs in the background as soon as sales close rather than when the draw is started.
+
+### Referrals ("affiliates")
+- **Every player has an invite code from sign-up; there is no separate affiliate sign-up.** Invite links look like `/r/ABC2345` and fill the code in automatically; it can also be typed.
+- **The referrer earns 2.5% of every card purchase their invited friends make** (₦12.50 per ₦500 card), paid straight into their wallet (`WR_REFERRAL_BP`). **It is paid from the operator's 50%, never from prize money**: it is booked as a cost of the season (`REFERRAL_EXPENSE`), and the finance reports show it as its own line, with the season's contribution after commissions.
+- **Safeguards:** who referred an account is fixed when it is opened and cannot be changed, even in the database. One level only — no earnings from people your friends invite. If a purchase is refunded (or the season cancelled) its commission is taken back automatically; a referrer who had already withdrawn it shows as owing, and Compliance is alerted. People on the staff and exclusion register earn nothing. Referrers never see who their friends are — only counts and amounts.
+
+### The wallet
+- One wallet per player holds **winnings and referral earnings**, in the double-entry ledger. It can be **withdrawn from ₦500** to a bank account in the player's own verified name, with the PIN (as before), **or spent on cards**.
+- Paying from the wallet asks for the PIN again, and is settled in one database transaction while the player's account is locked against other spending, so the same money cannot be spent or withdrawn twice. Wallet purchases count towards spending limits and the daily card limit like any other, and refunds go back to the wallet.
+- Daily reconciliation compares money through the payment provider, so wallet purchases and wallet refunds (which never pass through it) are kept out of that check and reported separately as wallet sales.
+
+### Sharing and engagement
+Built in the style of shopping apps such as Temu — invites, sharing, live activity, countdowns, pop-ups and badges — **but only with true information, because this is gambling**: no invented countdowns or "only 3 left" messages, no rewards for spending more, and nothing shown to people who are taking a break.
+- **Invite & earn** screen: the code, the link, the phone's own share sheet, WhatsApp, Facebook, X and Telegram buttons, copy link, and counts of friends joined and earnings. Every message shared says "18+ only. Play responsibly."
+- **Share a win** after an instant win, with the invite code.
+- **Link previews**: a title, description and picture when the link is pasted into WhatsApp or Facebook. Set `WR_PUBLIC_URL` to the live https address so the picture's link is absolute.
+- **Home screen**: a live countdown to the real closing time (then to the draw), "cards sold in the last hour", and the latest instant wins (amount and time only, never who won).
+- **Confetti** on an instant win (not for people whose phones ask for less motion).
+- **Sales milestones**: at 25%, 50%, 75% and 90% sold, a pop-up once per phone with the true number of cards left and the draw date.
+- **Achievements** on the Me page: verified, first card, first scratch, first instant win, shared, a friend joined — none for spending.
+- **Flash pop-ups** (admin *Pop-ups* page): written by a cycle manager or Compliance, in English and optionally Hausa, with a start and end time and an optional button to a screen. **They appear only after a Compliance officer who did not write them approves them**; approved text cannot be edited, only withdrawn at once.
+
+### Prize pictures
+- Final-draw prizes can have a picture (PNG, JPEG or WebP, up to 1 MB), uploaded on the admin cycle page **until sales open; after that the database refuses changes**, because the pictures are part of what players were shown. Files are checked by their contents, not their names; SVG is refused because it can carry script. Players see the picture on the home screen, and the emoji stands in until one is uploaded.
+
+### For management to confirm
+1. The real final-draw prize list, the car's model and value, and pictures.
+2. The instant prize table (the placeholder above, or another that fits the ₦10,000,000).
+3. That 2.5% referral commission has no time limit (built: it lasts as long as the friend plays), and whether there should be a ceiling per referrer.
+4. Advertising and promotion rules from the Niger State regulator, which may restrict social-media promotion of gambling and require age-gating; the share messages already say "18+ only".
 
 ## Differences from the Phase 1 plan
 

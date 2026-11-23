@@ -75,3 +75,4 @@ a.tile { color: inherit; text-decoration: none; }
 .neg { color: var(--red); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .chips .btn.on { background: var(--green); color: #fff; }
+.thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; vertical-align: middle; margin-right: 8px; }

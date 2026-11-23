@@ -580,9 +580,14 @@ async function cycle(id) {
     el("p", { class: "sub" }, `If not every card sells, the advertised prizes are still given, so prizes become a larger share of actual sales. Each player can buy at most ${num(c.max_tickets_per_day)} cards a day.`));
 
   // Prize schedule
+  // Pictures can be added or replaced until sales open (the database enforces this).
+  const picturesOpen = ["DRAFT", "SUBMITTED", "APPROVED", "COMMITTED"].includes(c.status) && can("CYCLE_MANAGER");
+  const picture = (t) => [t.has_image ? el("img", { class: "thumb", src: `/v1/prize-images/${t.id}?v=${Date.now()}`, alt: t.title }) : el("span", { class: "sub" }, "none"),
+    picturesOpen && t.stage === "FINAL_DRAW" ? imageUpload(t.id) : null];
   const tierRows = c.tiers.map((t) => el("tr", {}, td(t.stage === "INSTANT" ? "Instant" : "Final draw #" + t.draw_order), td(t.title + (t.sku_name && t.sku_name !== t.title ? ` (${t.sku_name})` : "")),
-    td(t.kind === "CASH" ? naira(t.cash_kobo) : "Merchandise", true), td(num(t.quantity), true), td(num(t.awarded), true)));
-  nodes.push(el("h2", {}, "Prize schedule"), el("div", { class: "card" }, c.tiers.length ? table(["Stage", "Prize", "#Value", "#Quantity", "#Awarded"], tierRows) : el("p", { class: "sub" }, "No prizes yet."),
+    td(t.kind === "CASH" ? naira(t.cash_kobo) : "Merchandise", true), td(num(t.quantity), true), td(num(t.awarded), true), td(t.stage === "FINAL_DRAW" ? picture(t) : "")));
+  nodes.push(el("h2", {}, "Prize schedule"), el("div", { class: "card" }, c.tiers.length ? table(["Stage", "Prize", "#Value", "#Quantity", "#Awarded", "Picture"], tierRows) : el("p", { class: "sub" }, "No prizes yet."),
+    el("p", { class: "sub" }, picturesOpen ? "Final-draw prizes can have a picture (PNG, JPEG or WebP, up to 1 MB) until sales open." : "Prize pictures are fixed once sales open."),
     el("p", { class: "sub" }, "Nobody — including staff and engineers — can see which unsold or unscratched tickets hold instant prizes.")));
 
   if (c.status === "DRAFT" && can("CYCLE_MANAGER")) {
@@ -1014,7 +1019,70 @@ async function auditPage() {
 
 // --- Router ------------------------------------------------------------------------------------
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, audit: auditPage, access };
+// --- Pop-up announcements in the player app ------------------------------------------------------
+
+const FLASH_LINKS = [["", "No button"], ["#/buy", "Buy cards"], ["#/home", "Home"], ["#/draw", "Draw"], ["#/invite", "Invite friends"], ["#/wallet", "Wallet"], ["#/cards", "My cards"]];
+async function popupsPage() {
+  const list = (await get("/v1/admin/flash")).messages;
+  const now = Date.now();
+  const nodes = [el("h1", {}, "Pop-ups"),
+    el("p", { class: "sub" }, "Announcements shown once to each player when they open the app. Anything players are told about prizes, odds or dates must be accurate, so a Compliance officer who did not write it must approve it before it appears. Approved text cannot be edited, only withdrawn. The app also shows real sales milestones (25%, 50%, 75%, 90% sold) by itself.")];
+  if (can("CYCLE_MANAGER", "COMPLIANCE")) {
+    const form = el("form", { class: "card", onsubmit: action(async () => {
+      await post("/v1/admin/flash", { titleEn: v(form, "titleEn"), bodyEn: v(form, "bodyEn"), ...(v(form, "titleHa") ? { titleHa: v(form, "titleHa") } : {}),
+        ...(v(form, "bodyHa") ? { bodyHa: v(form, "bodyHa") } : {}), ...(v(form, "link") ? { link: v(form, "link") } : {}),
+        startsAt: new Date(v(form, "starts")).toISOString(), endsAt: new Date(v(form, "ends")).toISOString() });
+      return "Pop-up written. A Compliance officer must approve it before players see it.";
+    }) },
+      el("b", {}, "New pop-up"),
+      el("div", { class: "form" },
+        input("Title (English)", { name: "titleEn", required: true, maxlength: 80 }),
+        input("Title (Hausa, optional)", { name: "titleHa", maxlength: 80 }),
+        input("Message (English)", { name: "bodyEn", required: true, maxlength: 400, rows: 3 }, true),
+        input("Message (Hausa, optional — English is shown if empty)", { name: "bodyHa", maxlength: 400, rows: 3 }, true),
+        select("Button", "link", FLASH_LINKS),
+        input("Show from", { name: "starts", type: "datetime-local", value: localInput(new Date(now)), required: true }),
+        input("Until", { name: "ends", type: "datetime-local", value: localInput(new Date(now + 3 * 864e5)), required: true })),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Submit for approval")));
+    nodes.push(form);
+  }
+  const statusPill = (f) => f.live ? pill("Live") : f.status === "PENDING" ? pill("Awaiting approval", "gold") : f.status === "APPROVED" ? pill(new Date(f.starts_at) > new Date() ? "Scheduled" : "Ended", "grey") : pill(f.status === "REJECTED" ? "Rejected" : "Withdrawn", "grey");
+  nodes.push(el("div", { class: "card" }, list.length ? table(["Pop-up", "Shown", "Written by", "Status", ""], list.map((f) => el("tr", {},
+    td([el("b", {}, f.title_en), el("div", { class: "sub" }, f.body_en), f.title_ha ? el("div", { class: "sub" }, `Hausa: ${f.title_ha}`) : null]),
+    td(`${when(f.starts_at)} – ${when(f.ends_at)}`),
+    td([f.created_by_name, f.decided_by_name ? el("div", { class: "sub" }, `decided by ${f.decided_by_name}`) : null]),
+    td(statusPill(f)),
+    td(el("div", { class: "actions" },
+      f.status === "PENDING" && can("COMPLIANCE") && f.created_by !== me.id ? [
+        el("button", { class: "btn small", onclick: action(async () => { await post(`/v1/admin/flash/${f.id}/decision`, { approve: true }); return "Approved."; }) }, "Approve"),
+        el("button", { class: "btn small ghost", onclick: action(async () => { await post(`/v1/admin/flash/${f.id}/decision`, { approve: false }); return "Rejected."; }) }, "Reject")] : null,
+      ["PENDING", "APPROVED"].includes(f.status) && can("CYCLE_MANAGER", "COMPLIANCE") ? el("button", { class: "btn small ghost danger", onclick: action(async () => {
+        if (!confirm("Withdraw this pop-up? Players will stop seeing it at once.")) return;
+        await post(`/v1/admin/flash/${f.id}/withdraw`); return "Withdrawn.";
+      }) }, "Withdraw") : null))))) : el("p", { class: "sub" }, "No pop-ups yet.")));
+  return nodes;
+}
+
+/** Reads a picture file and sends it; the server checks it really is a PNG, JPEG or WebP of at most 1 MB. */
+function imageUpload(tierId) {
+  const file = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", "aria-label": "Prize picture" });
+  file.addEventListener("change", action(async () => {
+    const f = file.files?.[0];
+    if (!f) return;
+    if (f.size > 1024 * 1024) throw new Error("The picture must be at most 1 MB.");
+    const dataBase64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1]);
+      r.onerror = () => reject(new Error("Could not read the file."));
+      r.readAsDataURL(f);
+    });
+    await put(`/v1/admin/prize-tiers/${tierId}/image`, { dataBase64 });
+    return "Picture saved.";
+  }));
+  return file;
+}
+
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, popups: popupsPage, audit: auditPage, access };
 let renderId = 0;
 
 async function render() {

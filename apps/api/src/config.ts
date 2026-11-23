@@ -33,6 +33,8 @@ export interface Config {
   webRoot?: string;
   /** Folder holding the admin web app, served under /admin/. Production serves it from a separate, restricted address. */
   adminRoot?: string;
+  /** The public address of the player app (https://…), used for link previews when it is shared. */
+  publicUrl?: string;
   /** Company policy for seasons (prize shares, daily card limit, referral rate). Defaults in policy.ts. */
   policy?: Policy;
 }
@@ -85,5 +87,10 @@ export function loadConfig(): Config {
     webRoot: process.env.WEB_ROOT ?? fileURLToPath(new URL("../../web/public", import.meta.url)),
     adminRoot: process.env.ADMIN_ROOT ?? fileURLToPath(new URL("../../admin/public", import.meta.url)),
     policy: policyFromEnv(),
+    ...(process.env.WR_PUBLIC_URL ? { publicUrl: (() => {
+      const u = process.env.WR_PUBLIC_URL!;
+      if (!/^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(u)) throw new Error("WR_PUBLIC_URL must be the https address of the player app, with no path, e.g. https://rewards.example.ng");
+      return u;
+    })() } : {}),
   };
 }
