@@ -274,12 +274,28 @@ async function home() {
   return nodes;
 }
 
+/** The invite code from the link the player arrived by, if any. */
+function storedRef() { try { return localStorage.getItem("ref"); } catch { return null; } }
+(() => {
+  const ref = new URLSearchParams(location.search).get("ref");
+  if (!ref) return;
+  try { localStorage.setItem("ref", ref.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12)); } catch { /* storage unavailable */ }
+  history.replaceState(null, "", "/" + location.hash); // tidy the address
+  if (!location.hash) location.hash = "#/home";
+})();
+
 function signup() {
   let phone = "";
   const codeBlock = el("div", { hidden: true });
   const hint = el("div", { class: "note warn" });
   const phoneInput = el("input", { name: "phone", inputmode: "tel", autocomplete: "tel", placeholder: "0803 000 0000", required: true });
   const submit = el("button", { class: "btn", type: "submit" }, "Send code");
+  // An invite link (/r/CODE) leaves the friend's code ready here; it can also be typed.
+  const invited = storedRef();
+  const refInput = el("input", { name: "ref", maxlength: 12, autocomplete: "off", autocapitalize: "characters", value: invited ?? "" });
+  const refBlock = invited
+    ? el("div", {}, el("div", { class: "note" }, "You were invited by a friend. Their code is filled in below."), ...field("Invite code (optional)", refInput))
+    : el("details", {}, el("summary", {}, "Have an invite code?"), ...field("Invite code (optional)", refInput));
   codeBlock.append(hint,
     ...field("Enter the 6-digit code", el("input", { name: "code", inputmode: "numeric", maxlength: 6, autocomplete: "one-time-code" })),
     ...field("Choose a 6-digit PIN", el("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 6, autocomplete: "new-password" })),
@@ -292,11 +308,13 @@ function signup() {
       codeBlock.hidden = false; phoneInput.readOnly = true; submit.textContent = tr("Create account");
       form.elements.code.focus();
     } else {
-      await api.post("/v1/auth/register", { phone, code: val(form, "code"), pin: val(form, "pin"), language: lang() });
+      const referralCode = val(form, "ref");
+      await api.post("/v1/auth/register", { phone, code: val(form, "code"), pin: val(form, "pin"), language: lang(), ...(referralCode ? { referralCode } : {}) });
+      try { localStorage.removeItem("ref"); } catch { /* storage unavailable */ }
       await loadMe();
       go(nextStep());
     }
-  }) }, ...field("Phone number", phoneInput), codeBlock, el("div", { class: "stack" }, el("p"), submit));
+  }) }, ...field("Phone number", phoneInput), refBlock, codeBlock, el("div", { class: "stack" }, el("p"), submit));
   return [
     el("div", { class: "steps" }, el("i", { class: "done" }), el("i"), el("i")),
     el("h1", {}, "Create your account"), el("p", { class: "muted" }, "Just your phone number to start."), form,
@@ -360,6 +378,8 @@ async function buy() {
   const out = el("output", {}, qty), total = el("b"), warn = el("div", { class: "note warn", hidden: true });
   const fill = el("i");
   const pay = el("button", { class: "btn gold" });
+  const balance = state.me.balanceKobo ?? 0;
+  const fromWallet = el("button", { class: "btn ghost" });
   const refresh = () => {
     out.textContent = qty;
     total.textContent = naira(qty * c.ticket_price_kobo);
@@ -371,7 +391,11 @@ async function buy() {
       : maxQty === 0 ? "You have reached your spending limit for now."
       : leftToday <= bySpending ? `You can buy ${maxQty} more cards today.` : `You can buy up to ${maxQty} more within your spending limit.`);
     pay.disabled = over || Boolean(exclusion);
+    const cost = qty * c.ticket_price_kobo;
+    fromWallet.hidden = balance < cost || over || Boolean(exclusion);
+    fromWallet.textContent = tr(`Pay ${naira(cost)} from my wallet (${naira(balance)})`);
   };
+  fromWallet.addEventListener("click", () => view.replaceChildren(...walletStep(c, qty, balance)));
   fill.style.width = Math.min(100, (spending.dailyKobo / Math.max(1, limits.dailyKobo)) * 100) + "%";
   const set = (n) => { qty = Math.max(1, Math.min(20, today.max, n)); refresh(); };
 
@@ -393,8 +417,27 @@ async function buy() {
       el("div", { class: "row" }, el("span", {}, "Spent in the last 24 hours"), el("b", {}, `${naira(spending.dailyKobo)} of ${naira(limits.dailyKobo)}`)),
       el("div", { class: "bar light" }, fill),
       el("a", { href: "#/me", class: "muted" }, "Change my limits")),
-    warn, pay,
+    warn, pay, el("p"), fromWallet,
   ];
+}
+
+/** Paying from the wallet: the PIN again, then the cards are issued at once. */
+function walletStep(c, qty, balance) {
+  const cost = qty * c.ticket_price_kobo, keyName = `wallet-order:${c.id}:${qty}`;
+  const form = el("form", { onsubmit: action(async () => {
+    await api.post("/v1/orders", { cycleId: c.id, quantity: qty, payWith: "WALLET", pin: val(form, "pin") }, stableKey(keyName));
+    clearKey(keyName);
+    remember(c.id);
+    toast("Paid from your wallet — your cards are ready.");
+    await loadMe();
+    go("cards");
+  }) },
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("span", {}, plural(qty, "scratch card")), el("b", {}, naira(cost))),
+      el("div", { class: "row" }, el("span", {}, "Wallet balance after"), el("b", {}, naira(balance - cost)))),
+    ...field("Your PIN", el("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 6, autocomplete: "current-password", required: true })),
+    el("p"), el("div", { class: "stack" }, el("button", { class: "btn gold", type: "submit" }, "Confirm and buy"), el("a", { class: "btn ghost", href: "#/buy" }, "Cancel")));
+  return [el("h1", {}, "Pay from your wallet"), form];
 }
 
 function paymentStep(order, keyName) {
@@ -527,7 +570,8 @@ function demo() {
 }
 
 const BANKS = { "044": "Access Bank", "011": "First Bank", "058": "GTBank", "033": "UBA", "057": "Zenith Bank" };
-const HISTORY_TEXT = { INSTANT_PRIZE: "Instant win", DRAW_PRIZE: "Final-draw prize", PAYOUT: "Withdrawal", PAYOUT_REVERSAL: "Withdrawal returned" };
+const HISTORY_TEXT = { INSTANT_PRIZE: "Instant win", DRAW_PRIZE: "Final-draw prize", PAYOUT: "Withdrawal", PAYOUT_REVERSAL: "Withdrawal returned",
+  REFERRAL_COMMISSION: "Referral earnings", REFERRAL_REVERSAL: "Referral earnings taken back", TICKET_SALE: "Cards bought", REFUND: "Refund", ADJUSTMENT: "Adjustment" };
 const PAYOUT_TEXT = { CONFIRMED: "Sent to your bank", PENDING_APPROVAL: "Being checked", REJECTED: "Not sent — money returned", REQUESTED: "Processing", APPROVED: "Processing", SENT: "On its way", FAILED: "Failed" };
 
 const CLAIM_TEXT = { ENTITLED: "Ready to claim", ON_HOLD: "Being reviewed", VERIFIED: "Claimed — being prepared", DISPATCHED: "On its way", DELIVERED: "Received", EXPIRED: "Claim period ended", VOID: "Not available" };
@@ -580,10 +624,11 @@ async function wallet() {
   const [w, bank, prizes] = await Promise.all([api.get("/v1/wallet"), api.get("/v1/me/bank-accounts"), api.get("/v1/claims")]);
   await loadMe();
   const usable = bank.accounts.filter((a) => a.name_match);
-  const nodes = [el("h1", {}, "Winnings"),
+  const nodes = [el("h1", {}, "Wallet"),
     w.owedKobo ? el("div", { class: "note bad" }, `A purchase of yours was refunded after you had withdrawn ${naira(w.owedKobo)} that its cards had won. That prize was forfeited, so this amount is owed back; new winnings will go towards it first. Our team will contact you.`) : null,
-    el("div", { class: "card" }, el("span", { class: "muted" }, "Available to withdraw"), el("div", { class: "balance" }, naira(w.balanceKobo)),
-      el("p", { class: "muted" }, "Paid only to a bank account in your own verified name."))];
+    el("div", { class: "card" }, el("span", { class: "muted" }, "Wallet balance"), el("div", { class: "balance" }, naira(w.balanceKobo)),
+      el("p", { class: "muted" }, "Your winnings and referral earnings. Withdraw them to a bank account in your own verified name, or use them to buy cards."),
+      state.me.kycTier >= 1 && w.balanceKobo > 0 ? el("a", { class: "btn small ghost", href: "#/buy" }, "Buy cards from my wallet") : null)];
 
   if (state.me.kycTier < 1) nodes.push(el("a", { class: "btn", href: "#/verify" }, "Verify your identity"));
   else if (w.balanceKobo >= 50000 && usable.length) {

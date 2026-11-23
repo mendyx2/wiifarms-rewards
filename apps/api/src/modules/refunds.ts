@@ -7,6 +7,7 @@ import { accounts, post } from "../ledger.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { getCycle } from "./cycles.ts";
 import { winningsBalance } from "./wallet.ts";
+import { reverseReferral } from "./referrals.ts";
 
 /**
  * Refunds and cancelled cycles.
@@ -32,10 +33,19 @@ function dbRule(err: unknown): never {
 }
 
 /** Posts the refund to the ledger: revenue is reversed and the money goes back out through the gateway. */
+/**
+ * Books a refund back to where the money came from: the payment provider, or
+ * the player's own wallet for cards bought from it. Any referral commission on
+ * the purchase is taken back.
+ */
 async function postRefund(db: Db, refundId: string, orderId: string, cycleId: string, amountKobo: number): Promise<void> {
   await post(db, { kind: "REFUND", reference: `order:${orderId}:refund-due`, cycleId, debit: accounts.ticketRevenue(cycleId), credit: accounts.refundsPayable(), amountKobo });
-  // The simulated gateway refunds at once; a real one confirms later by webhook.
-  await post(db, { kind: "REFUND", reference: `refund:${refundId}`, cycleId, debit: accounts.refundsPayable(), credit: accounts.gatewayClearing(), amountKobo });
+  const paid = await one<{ provider: string; user_id: string }>(db,
+    "SELECT p.provider, o.user_id FROM payments p JOIN orders o ON o.id = p.order_id WHERE p.order_id = $1 AND p.status = 'SUCCEEDED'", [orderId]);
+  // The simulated gateway refunds at once; a real one confirms later by webhook. A wallet refund is immediate.
+  const to = paid?.provider === "WALLET" ? accounts.playerWinnings(paid.user_id) : accounts.gatewayClearing();
+  await post(db, { kind: "REFUND", reference: `refund:${refundId}`, cycleId, debit: accounts.refundsPayable(), credit: to, amountKobo });
+  await reverseReferral(db, orderId);
 }
 
 // --- Finding purchases ----------------------------------------------------------------------

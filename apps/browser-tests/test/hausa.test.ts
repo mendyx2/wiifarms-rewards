@@ -21,7 +21,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await p.waitForSelector(".hero");
   await p.click('.lang button:has-text("Hausa")');
   await p.waitForSelector(".hero .tag:has-text('Ana sayarwa')");
-  assert.match(await p.innerText("#tabs a[data-tab=wallet]"), /Kuɗin nasara/);
+  assert.match(await p.innerText("#tabs a[data-tab=wallet]"), /Jakar kuɗi/);
   assert.equal(await p.getAttribute("html", "lang"), "ha");
   assert.match(await p.innerText("#modeBanner"), /GWAJI/);
 
@@ -125,7 +125,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await p.waitForSelector(".hero .tag:has-text('On sale')");
   await p.reload();
   await p.waitForSelector(".hero .tag:has-text('On sale')");
-  assert.match(await p.innerText("#tabs"), /Winnings/);
+  assert.match(await p.innerText("#tabs"), /Wallet/);
 });
 
 test("a returning Hausa player signs in and buys more in Hausa", async () => {
@@ -157,7 +157,7 @@ test("on a new phone, a player who reads Hausa gets the app in Hausa as soon as 
   const p = await newPage(s); // nothing chosen on this phone yet
   await playerSignIn(p, s, "08035550404");
   await p.waitForSelector(".hero .tag:has-text('Ana sayarwa')");
-  assert.match(await p.innerText("#tabs"), /Kuɗin nasara/);
+  assert.match(await p.innerText("#tabs"), /Jakar kuɗi/);
   assert.equal(await p.evaluate(() => localStorage.getItem("lang")), "ha");
   await assertClean(p, "new phone");
 });

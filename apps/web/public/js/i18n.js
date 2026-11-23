@@ -40,6 +40,21 @@ const HA = {
   "Access Bank": "Access Bank", "First Bank": "First Bank", "GTBank": "GTBank", "Zenith Bank": "Zenith Bank",
   "Language": "Harshe", "English": "English", "Hausa": "Hausa",
   "Messages, {0} unread": "Saƙonni, {0} ba a karanta ba",
+  "Wallet": "Jakar kuɗi",
+
+  // --- Invites, wallet and paying from it ---
+  "You were invited by a friend. Their code is filled in below.": "Aboki ne ya gayyace ka. An cike lambar gayyatarsa a ƙasa.",
+  "Have an invite code?": "Kana da lambar gayyata?", "Invite code (optional)": "Lambar gayyata (ba dole ba)",
+  "Wallet balance": "Kuɗin da ke cikin jaka",
+  "Your winnings and referral earnings. Withdraw them to a bank account in your own verified name, or use them to buy cards.": "Kuɗin nasararka da ladan gayyata. Ka cire su zuwa asusun banki da ke da sunanka da aka tabbatar, ko ka sayi katuna da su.",
+  "Buy cards from my wallet": "Sayi katuna daga jakata",
+  "Referral earnings": "Ladan gayyata", "Referral earnings taken back": "An karɓe ladan gayyata", "Cards bought": "An sayi katuna", "Refund": "Mayar da kuɗi", "Adjustment": "Gyara",
+  "Pay {0} from my wallet ({1})": "Biya {0} daga jakata ({1})",
+  "Pay from your wallet": "Biya daga jakarka", "Wallet balance after": "Saura a jaka bayan biya", "Confirm and buy": "Tabbatar ka saya",
+  "Paid from your wallet — your cards are ready.": "An biya daga jakarka — katunanka sun shirya.",
+  "Your wallet does not have enough for these cards.": "Babu isasshen kuɗi a jakarka don waɗannan katunan.",
+  "Those cards sold out just now. Nothing was taken from your wallet.": "An sayar da katunan yanzu-yanzu. Ba a cire komai daga jakarka ba.",
+  "That invite code is not recognised. Check it, or leave it empty.": "Ba a gane wannan lambar gayyata ba. Ka duba ta, ko ka bar wurin babu komai.",
 
   // --- Home ---
   "On sale": "Ana sayarwa", "Opening soon": "Za a buɗe nan ba da daɗewa ba", "Sales closed": "An rufe sayarwa",

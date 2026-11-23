@@ -62,8 +62,9 @@ function action(fn, done) {
     if (btn) btn.disabled = true;
     try {
       const message = await fn(event);
-      if (message) toast(message);
+      // The confirmation appears on the updated screen, not on the one being replaced.
       if (done !== false) await render();
+      if (message) toast(message);
     } catch (err) {
       if (err.status === 401) { me = null; await render(); }
       else toast(err.message);

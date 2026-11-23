@@ -90,13 +90,16 @@ export interface Statement { collectedKobo: number; refundedKobo: number; paidOu
  * independently: once from the payment, refund and payout records, once from
  * the ledger. With a real provider a third column, the provider's own
  * statement, is entered by Finance. In simulation the provider has no
- * statement of its own, so the check is records-versus-ledger only.
+ * statement of its own, so the check is records-versus-ledger only. Cards
+ * bought from a player's wallet (and their refunds) never pass through the
+ * provider, so they are not part of this check.
  */
 async function dayTotals(db: Db, day: string): Promise<{ records: Totals; ledger: Totals }> {
   const inDay = (col: string) => `(${col} AT TIME ZONE '${TZ}')::date = $1::date`;
   const records = (await one<{ c: number; r: number; p: number }>(db,
-    `SELECT (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND ${inDay("verified_at")})::bigint AS c,
-            (SELECT coalesce(sum(amount_kobo), 0) FROM refunds WHERE status = 'CONFIRMED' AND ${inDay("coalesce(decided_at, created_at)")})::bigint AS r,
+    `SELECT (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider <> 'WALLET' AND ${inDay("verified_at")})::bigint AS c,
+            (SELECT coalesce(sum(rf.amount_kobo), 0) FROM refunds rf JOIN payments p ON p.id = rf.payment_id
+              WHERE rf.status = 'CONFIRMED' AND p.provider <> 'WALLET' AND ${inDay("coalesce(rf.decided_at, rf.created_at)")})::bigint AS r,
             (SELECT coalesce(sum(amount_kobo), 0) FROM payouts WHERE status = 'CONFIRMED' AND ${inDay("updated_at")})::bigint AS p`, [day]))!;
   const ledger = (await one<{ c: number; r: number; p: number }>(db,
     `SELECT coalesce(sum(e.amount_kobo) FILTER (WHERE e.amount_kobo > 0), 0)::bigint AS c,
@@ -178,6 +181,10 @@ export interface CycleResult {
   gross_sales_kobo: number; refunds_kobo: number; net_revenue_kobo: number;
   instant_prizes_kobo: number; draw_cash_prizes_kobo: number; forfeited_prizes_kobo: number;
   merchandise_cost_kobo: number; operating_expenses_kobo: number; contribution_kobo: number;
+  /** Paid to referrers from the operator's share (net of reversals). */
+  referral_commissions_kobo: number;
+  /** Part of net revenue paid from players' wallets rather than through the payment provider. */
+  wallet_sales_kobo: number;
   prize_payout_ratio: number | null;
 }
 
@@ -193,7 +200,7 @@ export async function cycleResults(ctx: Ctx, admin: Admin): Promise<CycleResult[
     `WITH le AS (
        SELECT a.code, t.kind, sum(e.amount_kobo) AS amt
        FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id JOIN ledger_accounts a ON a.id = e.account_id
-       WHERE a.code LIKE 'TICKET_REVENUE:%' OR a.code LIKE 'PRIZE_EXPENSE:%' GROUP BY a.code, t.kind)
+       WHERE a.code LIKE 'TICKET_REVENUE:%' OR a.code LIKE 'PRIZE_EXPENSE:%' OR a.code LIKE 'REFERRAL_EXPENSE:%' GROUP BY a.code, t.kind)
      SELECT c.id, c.name, c.status,
        (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status IN ('SOLD','REVEALED'))::int AS cards_sold,
        (SELECT coalesce(sum(amount_kobo), 0) FROM orders o WHERE o.cycle_id = c.id AND o.status IN ('FULFILLED','REFUNDED')
@@ -204,13 +211,16 @@ export async function cycleResults(ctx: Ctx, admin: Admin): Promise<CycleResult[
        coalesce((SELECT sum(amt) FROM le WHERE code = 'PRIZE_EXPENSE:' || c.id AND kind = 'DRAW_PRIZE'), 0)::bigint AS draw_cash_prizes_kobo,
        (0 - coalesce((SELECT sum(amt) FROM le WHERE code = 'PRIZE_EXPENSE:' || c.id AND kind = 'ADJUSTMENT'), 0))::bigint AS forfeited_prizes_kobo,
        (SELECT coalesce(sum(landed_cost_kobo), 0) FROM stock_units u WHERE u.reserved_cycle_id = c.id AND u.status <> 'IN_STOCK')::bigint AS merchandise_cost_kobo,
+       coalesce((SELECT sum(amt) FROM le WHERE code = 'REFERRAL_EXPENSE:' || c.id), 0)::bigint AS referral_commissions_kobo,
+       (SELECT coalesce(sum(o.amount_kobo), 0) FROM orders o JOIN payments p ON p.order_id = o.id AND p.status = 'SUCCEEDED' AND p.provider = 'WALLET'
+          WHERE o.cycle_id = c.id AND o.status = 'FULFILLED')::bigint AS wallet_sales_kobo,
        (SELECT coalesce(sum(CASE WHEN x.reverses IS NULL THEN x.amount_kobo ELSE -x.amount_kobo END), 0) FROM operating_expenses x WHERE x.cycle_id = c.id)::bigint AS operating_expenses_kobo
      FROM cycles c ORDER BY c.created_at DESC`);
   return r.rows.map((c) => {
     const prizes = c.instant_prizes_kobo + c.draw_cash_prizes_kobo - c.forfeited_prizes_kobo + c.merchandise_cost_kobo;
     return {
       ...c,
-      contribution_kobo: c.net_revenue_kobo - prizes - c.operating_expenses_kobo,
+      contribution_kobo: c.net_revenue_kobo - prizes - c.referral_commissions_kobo - c.operating_expenses_kobo,
       prize_payout_ratio: c.net_revenue_kobo > 0 ? Math.round((prizes / c.net_revenue_kobo) * 1000) / 1000 : null,
     };
   });
@@ -223,8 +233,11 @@ export async function periodSummary(ctx: Ctx, admin: Admin, from: string, to: st
   const inRange = (col: string) => `(${col} AT TIME ZONE '${TZ}')::date BETWEEN $1::date AND $2::date`;
   const s = (await one<Record<string, number>>(ctx.pool,
     `SELECT
-       (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND ${inRange("verified_at")})::bigint AS collected_kobo,
+       (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider <> 'WALLET' AND ${inRange("verified_at")})::bigint AS collected_kobo,
+       (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider = 'WALLET' AND ${inRange("verified_at")})::bigint AS wallet_sales_kobo,
        (SELECT coalesce(sum(amount_kobo), 0) FROM refunds WHERE status = 'CONFIRMED' AND ${inRange("coalesce(decided_at, created_at)")})::bigint AS refunded_kobo,
+       (SELECT coalesce(sum(e.amount_kobo), 0) FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+          WHERE a.code LIKE 'REFERRAL_EXPENSE:%' AND ${inRange("e.created_at")})::bigint AS referral_commissions_kobo,
        (SELECT coalesce(sum(e.amount_kobo), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id JOIN ledger_accounts a ON a.id = e.account_id
           WHERE a.code LIKE 'PRIZE_EXPENSE:%' AND ${inRange("e.created_at")})::bigint AS cash_prizes_kobo,
        (SELECT coalesce(sum(amount_kobo), 0) FROM payouts WHERE status = 'CONFIRMED' AND ${inRange("updated_at")})::bigint AS paid_out_kobo,
@@ -235,9 +248,9 @@ export async function periodSummary(ctx: Ctx, admin: Admin, from: string, to: st
   const byCategory = (await ctx.pool.query(
     `SELECT category, sum(CASE WHEN reverses IS NULL THEN amount_kobo ELSE -amount_kobo END)::bigint AS amount_kobo
      FROM operating_expenses WHERE incurred_on BETWEEN $1::date AND $2::date GROUP BY category ORDER BY 2 DESC`, [from, to])).rows;
-  const net = s.collected_kobo! - s.refunded_kobo!;
-  return { from, to, ...s, net_sales_kobo: net, result_kobo: net - s.cash_prizes_kobo! - s.operating_expenses_kobo!, expensesByCategory: byCategory,
-    note: "Cash prizes are counted when awarded. Merchandise prize costs are shown per cycle in the cycle results." };
+  const net = s.collected_kobo! + s.wallet_sales_kobo! - s.refunded_kobo!;
+  return { from, to, ...s, net_sales_kobo: net, result_kobo: net - s.cash_prizes_kobo! - s.referral_commissions_kobo! - s.operating_expenses_kobo!, expensesByCategory: byCategory,
+    note: "Cash prizes are counted when awarded. Merchandise prize costs are shown per cycle in the cycle results. Sales include cards bought from players' wallets; referral commissions are paid from the operator's share." };
 }
 
 // --- Spreadsheet export ----------------------------------------------------------------------------
@@ -264,9 +277,9 @@ export async function cycleResultsCsv(ctx: Ctx, admin: Admin): Promise<string> {
   const rows = await cycleResults(ctx, admin);
   return toCsv(
     ["Cycle", "Status", "Cards sold", "Gross sales (NGN)", "Refunds (NGN)", "Net revenue (NGN)", "Instant prizes (NGN)", "Draw cash prizes (NGN)",
-      "Forfeited prizes (NGN)", "Merchandise at landed cost (NGN)", "Operating expenses (NGN)", "Contribution (NGN)", "Prize payout ratio"],
+      "Forfeited prizes (NGN)", "Merchandise at landed cost (NGN)", "Referral commissions (NGN)", "Operating expenses (NGN)", "Contribution (NGN)", "Prize payout ratio"],
     rows.map((c) => [c.name, c.status, c.cards_sold, naira(c.gross_sales_kobo), naira(c.refunds_kobo), naira(c.net_revenue_kobo), naira(c.instant_prizes_kobo),
-      naira(c.draw_cash_prizes_kobo), naira(c.forfeited_prizes_kobo), naira(c.merchandise_cost_kobo), naira(c.operating_expenses_kobo), naira(c.contribution_kobo),
+      naira(c.draw_cash_prizes_kobo), naira(c.forfeited_prizes_kobo), naira(c.merchandise_cost_kobo), naira(c.referral_commissions_kobo), naira(c.operating_expenses_kobo), naira(c.contribution_kobo),
       c.prize_payout_ratio === null ? "" : c.prize_payout_ratio]));
 }
 

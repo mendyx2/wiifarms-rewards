@@ -20,6 +20,7 @@ import * as governance from "./modules/governance.ts";
 import * as nok from "./modules/nok.ts";
 import * as support from "./modules/support.ts";
 import * as tickets from "./modules/tickets.ts";
+import * as referrals from "./modules/referrals.ts";
 import * as wallet from "./modules/wallet.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
@@ -158,11 +159,11 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     authLimit(req.ip);
     return identity.requestOtp(ctx, req.body.phone, req.body.language);
   });
-  app.post<{ Body: { phone: string; code: string; pin: string; language?: Lang } }>("/v1/auth/register", {
-    schema: body({ phone: str(20), code: str(6), pin: str(6), language: langField }, ["language"]),
+  app.post<{ Body: { phone: string; code: string; pin: string; language?: Lang; referralCode?: string } }>("/v1/auth/register", {
+    schema: body({ phone: str(20), code: str(6), pin: str(6), language: langField, referralCode: str(20) }, ["language", "referralCode"]),
   }, async (req, reply) => {
     authLimit(req.ip);
-    const r = await identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip, req.body.language);
+    const r = await identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip, req.body.language, req.body.referralCode);
     setSession(reply, r.token);
     return r;
   });
@@ -243,10 +244,19 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   }, async (req) => archive.publishedTickets(ctx, req.params.id, Number(req.query.offset ?? 0), Number(req.query.limit ?? 5000)));
 
   // ---- Buying and scratching --------------------------------------------------------------
-  app.post<{ Body: { cycleId: string; quantity: number } }>("/v1/orders", { schema: body({ cycleId: uuid, quantity: int(1, 20) }) }, async (req) => {
+  app.post<{ Body: { cycleId: string; quantity: number; payWith?: tickets.PayWith; pin?: string } }>("/v1/orders", {
+    schema: body({ cycleId: uuid, quantity: int(1, 20), payWith: { enum: ["GATEWAY", "WALLET"] }, pin: str(6) }, ["payWith", "pin"]),
+  }, async (req) => {
     const u = await player(req);
-    return tickets.createOrder(ctx, actorOf(u.id, req), u, req.body.cycleId, req.body.quantity, idemKey(req));
+    const payWith = req.body.payWith ?? "GATEWAY";
+    if (payWith === "WALLET") {
+      // Spending wallet money is like a withdrawal: the PIN is asked for again.
+      authLimit(req.ip);
+      await identity.confirmPin(ctx, u.id, req.body.pin ?? "");
+    }
+    return tickets.createOrder(ctx, actorOf(u.id, req), u, req.body.cycleId, req.body.quantity, idemKey(req), payWith);
   });
+  app.get("/v1/me/referrals", async (req) => referrals.referralSummary(ctx, (await player(req)).id));
   app.post<{ Body: { paymentRef: string } }>("/v1/simulated-gateway/pay", { schema: body({ paymentRef: str(64) }) }, async (req) => {
     const u = await player(req);
     return tickets.simulatePayment(ctx, u, req.body.paymentRef);
@@ -474,6 +484,12 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/payouts/:id/decision", {
     schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
   }, async (req) => wallet.decidePayout(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+
+  // ---- Invite links: /r/CODE opens the app with the code ready for sign-up ---------------
+  app.get<{ Params: { code: string } }>("/r/:code", async (req, reply) => {
+    const code = referrals.normaliseCode(req.params.code);
+    return reply.redirect(/^[A-HJ-NP-Z2-9]{7}$/.test(code) ? `/?ref=${code}` : "/", 302);
+  });
 
   // ---- Player web app (same origin as the API) -------------------------------------------
   if (ctx.config.webRoot) {

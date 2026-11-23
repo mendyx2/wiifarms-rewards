@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { notify, smsText, type Lang } from "./notify.ts";
+import { ensureReferralCode, findReferrer } from "./referrals.ts";
 import { audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { hashPin, keyedHash, newOtp, newToken, sha256, verifyPin } from "../crypto.ts";
@@ -103,11 +104,14 @@ async function createSession(ctx: Ctx, db: Db, userId: string): Promise<string> 
 }
 
 /** Verifies the code and creates the account (or, for an existing number, resets the PIN). */
-export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string, pin: string, ip?: string, lang?: Lang): Promise<{ token: string; userId: string }> {
+export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string, pin: string, ip?: string, lang?: Lang, referralCode?: string): Promise<{ token: string; userId: string }> {
   const phone = normalisePhone(phoneInput);
   assertPin(pin);
   const pinHash = await hashPin(pin);
   return withTx(ctx.pool, async (db) => {
+    // An invite code only counts when a new account is opened; it is checked before the sign-up code is used up.
+    const isNew = !(await one(db, "SELECT 1 FROM users WHERE phone_e164 = $1", [phone]));
+    const referrerId = isNew && referralCode?.trim() ? await findReferrer(db, referralCode) : null;
     await consumeOtp(ctx, db, phone, code);
     const existing = await one<{ id: string; status: string }>(db, "SELECT id, status FROM users WHERE phone_e164 = $1 FOR NO KEY UPDATE", [phone]);
     let userId: string;
@@ -124,10 +128,11 @@ export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string
         ha: { title: "An canja PIN ɗinka", body: "An canja PIN ɗinka kuma an fitar da kai a sauran na'urori. Idan ba kai ba ne, tuntuɓi masu taimako nan take.",
           sms: "An canja PIN ɗinka yanzu. Idan ba kai ba ne, tuntuɓi masu taimako nan take." } });
     } else {
-      const created = await db.query<{ id: string }>("INSERT INTO users (phone_e164, pin_hash, language) VALUES ($1, $2, $3) RETURNING id", [phone, pinHash, lang ?? "en"]);
+      const created = await db.query<{ id: string }>("INSERT INTO users (phone_e164, pin_hash, language, referred_by) VALUES ($1, $2, $3, $4) RETURNING id", [phone, pinHash, lang ?? "en", referrerId]);
       userId = created.rows[0]!.id;
       await db.query("INSERT INTO rg_limits (user_id) VALUES ($1)", [userId]);
-      await audit(db, { type: "PLAYER", id: userId, ip }, "player.registered", "user", userId);
+      await ensureReferralCode(db, userId); // every player can invite others from the start
+      await audit(db, { type: "PLAYER", id: userId, ip }, "player.registered", "user", userId, referrerId ? { referredBy: referrerId } : {});
     }
     return { token: await createSession(ctx, db, userId), userId };
   });

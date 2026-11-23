@@ -8,6 +8,8 @@ import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { accounts, post } from "../ledger.ts";
 import { assertSimulated, closeIfDue, cycleKeyContext, getCycle, ticketAad } from "./cycles.ts";
 import { activeExclusion, getLimits, onExclusionRegister, type User } from "./identity.ts";
+import { creditReferral } from "./referrals.ts";
+import { winningsBalance } from "./wallet.ts";
 
 const MAX_PER_ORDER = 20;
 const RESERVATION_MINUTES = 15;
@@ -18,7 +20,12 @@ export interface OrderResult {
   orderId: string; status: string; quantity: number; amountKobo: number;
   /** Reference the (simulated) payment gateway uses to confirm payment. */
   paymentRef: string;
+  /** Cards issued at once (wallet payments only). */
+  ticketIds?: string[];
 }
+
+/** How an order is paid: through the payment provider, or from the player's own wallet. */
+export type PayWith = "GATEWAY" | "WALLET";
 
 /** Total of a player's ticket spending in a rolling window, across every payment method. Pending orders count. */
 async function spentSince(db: Db, userId: string, interval: string): Promise<number> {
@@ -48,7 +55,7 @@ export async function cardsToday(db: Db | Ctx["pool"], userId: string, cycleId: 
   return r!.n;
 }
 
-export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: string, quantity: number, idempotencyKey: string): Promise<OrderResult> {
+export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: string, quantity: number, idempotencyKey: string, payWith: PayWith = "GATEWAY"): Promise<OrderResult> {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_PER_ORDER) {
     throw badRequest("INVALID_QUANTITY", `You can buy 1 to ${MAX_PER_ORDER} cards at a time.`);
   }
@@ -114,11 +121,28 @@ export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: s
       throw conflict("NOT_ENOUGH_CARDS", unsold!.n === 0 ? "This cycle is sold out." : `Only ${unsold!.n} cards are left.`);
     }
 
+    if (payWith === "WALLET" && (await winningsBalance(db, user.id)) < amountKobo) {
+      throw conflict("INSUFFICIENT_WALLET", "Your wallet does not have enough for these cards.");
+    }
+
     const order = await db.query<{ id: string }>(
       `INSERT INTO orders (user_id, cycle_id, quantity, amount_kobo, idempotency_key, reserved_until)
        VALUES ($1, $2, $3, $4, $5, now() + make_interval(mins => $6)) RETURNING id`,
       [user.id, cycleId, quantity, amountKobo, idempotencyKey, RESERVATION_MINUTES]);
     const orderId = order.rows[0]!.id;
+
+    if (payWith === "WALLET") {
+      // Paid from the wallet: settled now, in this same transaction, while the player's lock is held,
+      // so the balance cannot be spent twice. If the cards are gone, everything is undone and nothing is taken.
+      const paymentRef = `WAL-${orderId}`;
+      await db.query(
+        "INSERT INTO payments (order_id, provider, provider_ref, method, amount_kobo, status, verified_at) VALUES ($1, 'WALLET', $2, 'WALLET', $3, 'SUCCEEDED', now())",
+        [orderId, paymentRef, amountKobo]);
+      await audit(db, actor, "order.created", "order", orderId, { cycleId, quantity, amountKobo, payWith });
+      const ticketIds = await settleOrder(ctx, db, { id: orderId, user_id: user.id, cycle_id: cycleId, quantity, amount_kobo: amountKobo }, "WALLET");
+      if (!ticketIds) throw conflict("NOT_ENOUGH_CARDS", "Those cards sold out just now. Nothing was taken from your wallet.");
+      return { orderId, status: "FULFILLED", quantity, amountKobo, paymentRef, ticketIds };
+    }
     const paymentRef = "SIM-" + newToken().token.slice(0, 24);
     await db.query(
       "INSERT INTO payments (order_id, provider, provider_ref, method, amount_kobo, status) VALUES ($1, 'SIMULATED', $2, 'SIMULATED', $3, 'INITIATED')",
@@ -173,17 +197,8 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
 
     await db.query("UPDATE payments SET status = 'SUCCEEDED', verified_at = now() WHERE id = $1", [payment.id]);
 
-    // Assign cards at random from whatever is unsold. This query cannot see
-    // outcomes — they are encrypted. Assignment for one cycle happens one
-    // payment at a time: without this, two payments racing for the last cards
-    // could each lock part of them, each come up short, both be refunded and
-    // leave the cards unsold. (The lock is held only for the rest of this short
-    // transaction.) SKIP LOCKED stays as a second guard against double sale.
-    await lockKey(db, `cycle-sale:${order.cycle_id}`);
-    const cycle = await getCycle(db, order.cycle_id);
-    const picked = cycle.status === "OPEN" ? await pickCards(db, cycle.id, cycle.total_tickets, order.quantity) : { rows: [] as { id: string }[] };
-
-    if (picked.rows.length < order.quantity) {
+    const ticketIds = await settleOrder(ctx, db, order, "GATEWAY");
+    if (!ticketIds) {
       // Paid, but the cards are gone (sold out or closed meanwhile): refund in full, automatically.
       await post(db, { kind: "REFUND", reference: `order:${order.id}:refund-due`, cycleId: order.cycle_id, debit: accounts.gatewayClearing(), credit: accounts.refundsPayable(), amountKobo: order.amount_kobo });
       const refund = await db.query<{ id: string }>(
@@ -195,18 +210,43 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
       return { orderId: order.id, status: "REFUNDED", ticketIds: [] };
     }
 
-    const ticketIds = picked.rows.map((r) => r.id);
-    await db.query(
-      "UPDATE tickets SET status = 'SOLD', owner_id = $2, order_id = $3, sold_at = now() WHERE id = ANY($1::uuid[])",
-      [ticketIds, order.user_id, order.id]);
-    await post(db, { kind: "TICKET_SALE", reference: `order:${order.id}`, cycleId: order.cycle_id, debit: accounts.gatewayClearing(), credit: accounts.ticketRevenue(order.cycle_id), amountKobo: order.amount_kobo });
-    await db.query("UPDATE orders SET status = 'FULFILLED' WHERE id = $1", [order.id]);
-    await audit(db, SYSTEM, "order.fulfilled", "order", order.id, { tickets: ticketIds.length, amountKobo: order.amount_kobo });
-
-    // Closing rule: the cycle closes the moment the last card is sold.
-    await closeIfDue(db, order.cycle_id);
     return { orderId: order.id, status: "FULFILLED", ticketIds };
   });
+}
+
+/**
+ * Issues the cards for a paid order, inside the payment's transaction: assigns
+ * them, books the sale, pays any referral commission, and closes the cycle if
+ * that was the last card. Returns null, changing nothing, when not enough cards
+ * are left.
+ *
+ * Cards are assigned at random from whatever is unsold; the query cannot see
+ * outcomes (they are encrypted). Assignment for one cycle happens one payment
+ * at a time: without this, two payments racing for the last cards could each
+ * lock part of them, each come up short, both be refunded and leave the cards
+ * unsold. (The lock is held only for the rest of this short transaction.)
+ * SKIP LOCKED stays as a second guard against double sale.
+ */
+async function settleOrder(ctx: Ctx, db: Db, order: { id: string; user_id: string; cycle_id: string; quantity: number; amount_kobo: number }, paidWith: PayWith): Promise<string[] | null> {
+  await lockKey(db, `cycle-sale:${order.cycle_id}`);
+  const cycle = await getCycle(db, order.cycle_id);
+  const picked = cycle.status === "OPEN" ? await pickCards(db, cycle.id, cycle.total_tickets, order.quantity) : { rows: [] as { id: string }[] };
+  if (picked.rows.length < order.quantity) return null;
+
+  const ticketIds = picked.rows.map((r) => r.id);
+  await db.query(
+    "UPDATE tickets SET status = 'SOLD', owner_id = $2, order_id = $3, sold_at = now() WHERE id = ANY($1::uuid[])",
+    [ticketIds, order.user_id, order.id]);
+  // Money in: from the provider's clearing account, or out of the player's own wallet.
+  const from = paidWith === "WALLET" ? accounts.playerWinnings(order.user_id) : accounts.gatewayClearing();
+  await post(db, { kind: "TICKET_SALE", reference: `order:${order.id}`, cycleId: order.cycle_id, debit: from, credit: accounts.ticketRevenue(order.cycle_id), amountKobo: order.amount_kobo });
+  await db.query("UPDATE orders SET status = 'FULFILLED' WHERE id = $1", [order.id]);
+  await audit(db, SYSTEM, "order.fulfilled", "order", order.id, { tickets: ticketIds.length, amountKobo: order.amount_kobo, paidWith });
+  await creditReferral(ctx, db, order);
+
+  // Closing rule: the cycle closes the moment the last card is sold.
+  await closeIfDue(db, order.cycle_id);
+  return ticketIds;
 }
 
 /**
@@ -338,6 +378,26 @@ async function unwrapCycleKey(ctx: Ctx, db: Db, cycleId: string): Promise<Buffer
 
 export async function revealTicket(ctx: Ctx, actor: Actor, userId: string, ticketId: string): Promise<RevealResult> {
   return withTx(ctx.pool, (db) => revealInTx(ctx, db, ticketId, actor, userId));
+}
+
+/**
+ * Run periodically: reveals the unscratched cards of cycles that have closed,
+ * in the background, so that the draw itself does not wait for it. (For a
+ * 400,000-card season where nobody scratched anything, this takes minutes.)
+ */
+let revealing = false;
+export async function revealClosedCycles(ctx: Ctx): Promise<number> {
+  if (revealing) return 0;
+  revealing = true;
+  try {
+    const due = await ctx.pool.query<{ id: string }>(
+      "SELECT c.id FROM cycles c WHERE c.status = 'CLOSED' AND EXISTS (SELECT 1 FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'SOLD')");
+    let n = 0;
+    for (const { id } of due.rows) n += await autoRevealCycle(ctx, id);
+    return n;
+  } finally {
+    revealing = false;
+  }
 }
 
 /** After a cycle closes, every sold card that was never scratched is revealed so no winner misses out. */

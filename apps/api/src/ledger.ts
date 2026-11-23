@@ -17,6 +17,9 @@ export const accounts = {
   payoutsInTransit: (): AccountRef => ({ code: "PAYOUTS_IN_TRANSIT", kind: "LIABILITY" }),
   ticketRevenue: (cycleId: string): AccountRef => ({ code: `TICKET_REVENUE:${cycleId}`, kind: "REVENUE", cycleId }),
   prizeExpense: (cycleId: string): AccountRef => ({ code: `PRIZE_EXPENSE:${cycleId}`, kind: "EXPENSE", cycleId }),
+  /** Referral commissions: an operating cost of the cycle, paid from the operator's share (not the prize money). */
+  referralExpense: (cycleId: string): AccountRef => ({ code: `REFERRAL_EXPENSE:${cycleId}`, kind: "EXPENSE", cycleId }),
+  /** A player's wallet: winnings and referral earnings. Withdrawable to their own bank account, or spendable on cards. */
   playerWinnings: (userId: string): AccountRef => ({ code: `PLAYER_WINNINGS:${userId}`, kind: "LIABILITY", userId }),
 };
 
@@ -35,7 +38,8 @@ async function accountId(db: Db, a: AccountRef): Promise<string> {
 }
 
 export interface Posting {
-  kind: "TICKET_SALE" | "INSTANT_PRIZE" | "DRAW_PRIZE" | "PAYOUT" | "PAYOUT_REVERSAL" | "REFUND" | "ADJUSTMENT" | "EXPENSE" | "EXPENSE_REVERSAL";
+  kind: "TICKET_SALE" | "INSTANT_PRIZE" | "DRAW_PRIZE" | "PAYOUT" | "PAYOUT_REVERSAL" | "REFUND" | "ADJUSTMENT" | "EXPENSE" | "EXPENSE_REVERSAL"
+    | "REFERRAL_COMMISSION" | "REFERRAL_REVERSAL";
   /** Unique name of the business event. Posting the same reference twice is rejected by the database. */
   reference: string;
   cycleId?: string | undefined;

@@ -1485,3 +1485,97 @@ test("language: a Hausa player's codes, texts and in-app messages are in Hausa, 
   const other = await newPlayer();
   assert.equal(ok(await api("GET", "/v1/me", { token: other.token })).language, "en");
 });
+
+test("referrals and the wallet: codes for everyone, 2.5% of each referred purchase paid from the operator's share, reversed on refund, wallet spending with the PIN", async () => {
+  const { accounts, post } = await import("../src/ledger.ts");
+  const fin = admins.finance!.token, ct = admins.compliance!.token;
+  const cyc = await openCycle({ total: 60, closeInMs: 3600_000, cap: 25, name: "Referral cycle" });
+  const balanceOf = async (code: string) => Number((await pool.query("SELECT coalesce(balance_kobo, 0)::bigint AS b FROM ledger_balances WHERE code = $1", [code])).rows[0]?.b ?? 0);
+  const wallet = async (p: { token: string }) => ok(await api("GET", "/v1/wallet", { token: p.token }));
+
+  // Every player has a code without signing up for anything; the short link opens the app with it.
+  const r = await newPlayer();
+  const mine = ok(await api("GET", "/v1/me/referrals", { token: r.token }));
+  assert.match(mine.code, /^[A-HJ-NP-Z2-9]{7}$/); assert.equal(mine.link, `/r/${mine.code}`); assert.equal(mine.ratePercent, 2.5);
+  const link = await app.inject({ method: "GET", url: `/r/${mine.code.toLowerCase()}` });
+  assert.equal(link.statusCode, 302); assert.equal(link.headers.location, `/?ref=${mine.code}`);
+  assert.equal((await app.inject({ method: "GET", url: "/r/<script>" })).headers.location, "/");
+
+  // A friend signs up with the code. A wrong code is refused and leaves the sign-up code usable.
+  const seq = ++phoneSeq, phone = "0803" + String(1000000 + seq);
+  const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone } }));
+  fails(await api("POST", "/v1/auth/register", { body: { phone, code: otp.devCode, pin: "482915", referralCode: "ZZZZZZZ" } }), 400, "INVALID_REFERRAL");
+  const reg = ok(await api("POST", "/v1/auth/register", { body: { phone, code: otp.devCode, pin: "482915", referralCode: ` ${mine.code.toLowerCase().slice(0, 3)} ${mine.code.toLowerCase().slice(3)} ` } }));
+  const f = { token: reg.token, phone, pin: "482915", id: reg.userId };
+  ok(await api("POST", "/v1/me/verify", { token: f.token, body: { kind: "NIN", number: String(10000000000 + seq), fullName: "Referred Friend", dateOfBirth: "1990-05-17", stateCode: "NG-NI" } }));
+  await assert.rejects(pool.query("UPDATE users SET referred_by = NULL WHERE id = $1", [f.id]), /cannot be changed/);
+  await assert.rejects(pool.query("UPDATE users SET referral_code = 'AAAAAAA' WHERE id = $1", [r.id]), /cannot be changed/);
+
+  // The friend buys 10 cards (₦2,000): the referrer earns ₦50, booked as a cost of the cycle, not from prize money.
+  await buy(f, cyc.id, 10);
+  assert.equal((await wallet(r)).balanceKobo, 5_000);
+  assert.equal(await balanceOf(`REFERRAL_EXPENSE:${cyc.id}`), 5_000);
+  assert.equal(await balanceOf(`PRIZE_EXPENSE:${cyc.id}`), 0);
+  const after1 = ok(await api("GET", "/v1/me/referrals", { token: r.token }));
+  assert.deepEqual([after1.friendsJoined, after1.friendsWhoBought, after1.cardsBought, after1.earnedKobo], [1, 1, 10, 5_000]);
+  assert.ok(!JSON.stringify(after1).includes(f.phone.slice(-7)) && !JSON.stringify(after1).includes("Referred Friend"), "referred people are not identified");
+  assert.ok((await wallet(r)).history.some((h: any) => h.kind === "REFERRAL_COMMISSION"));
+
+  // One level only: someone the friend invites earns the friend a commission, not the original referrer.
+  const fCode = ok(await api("GET", "/v1/me/referrals", { token: f.token })).code;
+  const seq2 = ++phoneSeq, phone2 = "0803" + String(1000000 + seq2);
+  const otp2 = ok(await api("POST", "/v1/auth/otp", { body: { phone: phone2 } }));
+  const g = ok(await api("POST", "/v1/auth/register", { body: { phone: phone2, code: otp2.devCode, pin: "482915", referralCode: fCode } }));
+  ok(await api("POST", "/v1/me/verify", { token: g.token, body: { kind: "NIN", number: String(10000000000 + seq2), fullName: "Second Friend", dateOfBirth: "1991-01-01", stateCode: "NG-NI" } }));
+  await buy({ token: g.token } as Player, cyc.id, 4);
+  assert.equal((await wallet(f)).balanceKobo, 2_000);
+  assert.equal((await wallet(r)).balanceKobo, 5_000);
+
+  // Paying from the wallet: the PIN is asked for again; the cards are issued at once; a retry never charges twice.
+  const { withTx } = await import("../src/db.ts");
+  await withTx(pool, (db) => post(db, { kind: "ADJUSTMENT", reference: `test:credit:${r.id}`, memo: "test set-up", debit: accounts.companyBank(), credit: accounts.playerWinnings(r.id), amountKobo: 100_000 }));
+  const start = (await wallet(r)).balanceKobo; // ₦1,050
+  const walletBuy = (b: object, k = key()) => api("POST", "/v1/orders", { token: r.token, key: k, body: { cycleId: cyc.id, payWith: "WALLET", ...b } });
+  fails(await walletBuy({ quantity: 2 }), 403, "PIN_REQUIRED");
+  fails(await walletBuy({ quantity: 2, pin: "135790" }), 403, "PIN_REQUIRED");
+  fails(await walletBuy({ quantity: 6, pin: r.pin }), 409, "INSUFFICIENT_WALLET"); // ₦1,200 > ₦1,050
+  const k = key();
+  const paid = ok(await walletBuy({ quantity: 5, pin: r.pin }, k));
+  assert.equal(paid.status, "FULFILLED"); assert.equal(paid.ticketIds.length, 5);
+  assert.equal(ok(await walletBuy({ quantity: 5, pin: r.pin }, k)).orderId, paid.orderId);
+  assert.equal((await wallet(r)).balanceKobo, start - 100_000);
+  assert.equal(ok(await api("GET", `/v1/tickets?cycleId=${cyc.id}`, { token: r.token })).tickets.length, 5);
+  assert.equal(ok(await api("GET", "/v1/me", { token: r.token })).spending.dailyKobo, 100_000, "wallet purchases count towards spending limits");
+  const clearingBefore = await balanceOf("GATEWAY_CLEARING");
+
+  // Refunds: the friend's purchase is refunded, so the commission is taken back;
+  // the wallet purchase is refunded to the wallet, not to the payment provider.
+  const orderOf = async (userId: string) => (await pool.query("SELECT id FROM orders WHERE user_id = $1 AND cycle_id = $2 AND status = 'FULFILLED' ORDER BY created_at LIMIT 1", [userId, cyc.id])).rows[0].id as string;
+  for (const [userId, why] of [[f.id, "Buyer is a staff relative"], [r.id, "Bought in error"]] as const) {
+    const rq = ok(await api("POST", `/v1/admin/orders/${await orderOf(userId)}/refund`, { token: ct, body: { reason: "INELIGIBLE_PURCHASE", note: why } }));
+    ok(await api("POST", `/v1/admin/refunds/${rq.id}/decision`, { token: fin, body: { approve: true } }));
+  }
+  assert.equal((await wallet(r)).balanceKobo, start - 5_000, "wallet purchase refunded to the wallet; commission taken back");
+  assert.equal(await balanceOf("GATEWAY_CLEARING"), clearingBefore - 200_000, "only the friend's card payment went back through the provider");
+  assert.equal(await balanceOf(`REFERRAL_EXPENSE:${cyc.id}`), 2_000);
+  const after2 = ok(await api("GET", "/v1/me/referrals", { token: r.token }));
+  assert.deepEqual([after2.earnedKobo, after2.reversedKobo], [0, 5_000]);
+  await assert.rejects(pool.query("DELETE FROM referral_commissions WHERE order_id = $1", [await (async () => (await pool.query("SELECT order_id FROM referral_commissions WHERE referrer_id = $1", [r.id])).rows[0].order_id)()]), /append-only/);
+
+  // Someone on the staff register earns nothing from referrals.
+  const staffCode = ok(await api("GET", "/v1/me/referrals", { token: g.token })).code;
+  ok(await api("POST", "/v1/admin/exclusion-register", { token: ct, body: { category: "STAFF", phone: phone2 } }));
+  const seq3 = ++phoneSeq, phone3 = "0803" + String(1000000 + seq3);
+  const otp3 = ok(await api("POST", "/v1/auth/otp", { body: { phone: phone3 } }));
+  const h = ok(await api("POST", "/v1/auth/register", { body: { phone: phone3, code: otp3.devCode, pin: "482915", referralCode: staffCode } }));
+  ok(await api("POST", "/v1/me/verify", { token: h.token, body: { kind: "NIN", number: String(10000000000 + seq3), fullName: "Third Friend", dateOfBirth: "1992-01-01", stateCode: "NG-NI" } }));
+  await buy({ token: h.token } as Player, cyc.id, 2);
+  assert.equal((await wallet({ token: g.token })).balanceKobo, 0);
+
+  // The cycle's results show the commissions and the wallet sales; the books still balance.
+  const res = ok(await api("GET", "/v1/admin/finance/cycle-results", { token: fin })).cycles.find((c: any) => c.id === cyc.id);
+  assert.equal(res.referral_commissions_kobo, 2_000);
+  assert.equal(res.wallet_sales_kobo, 0); // refunded
+  assert.equal(res.contribution_kobo, res.net_revenue_kobo - res.merchandise_cost_kobo - 2_000 - res.operating_expenses_kobo);
+  assert.equal((await pool.query("SELECT coalesce(sum(amount_kobo), 0)::bigint AS s FROM ledger_entries")).rows[0].s, 0);
+});
