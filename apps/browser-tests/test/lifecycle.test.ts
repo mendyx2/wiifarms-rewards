@@ -203,6 +203,6 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await assertClean(p, "player through the whole cycle");
 
   // Every admin screen fits a phone.
-  await assertFits(a, s.base, ["/admin#/dashboard", "/admin#/cycles", `/admin#/cycle/${cycleId}`, "/admin#/approvals", "/admin#/payouts", "/admin#/refunds", "/admin#/nok",
+  await assertFits(a, s.base, ["/admin#/dashboard", "/admin#/cycles", `/admin#/cycle/${cycleId}`, "/admin#/approvals", "/admin#/payouts", "/admin#/refunds", "/admin#/nok", "/admin#/support",
     "/admin#/finance", "/admin#/merchandise", "/admin#/audit", "/admin#/access"], "main h1", 390);
 });

@@ -17,6 +17,7 @@ import * as archive from "./modules/archive.ts";
 import * as notifications from "./modules/notify.ts";
 import * as governance from "./modules/governance.ts";
 import * as nok from "./modules/nok.ts";
+import * as support from "./modules/support.ts";
 import * as tickets from "./modules/tickets.ts";
 import * as wallet from "./modules/wallet.ts";
 
@@ -248,6 +249,17 @@ export function buildServer(ctx: Ctx): FastifyInstance {
 
   // ---- Winnings ------------------------------------------------------------------------------
   app.get("/v1/wallet", async (req) => wallet.getWallet(ctx, (await player(req)).id));
+  // ---- Support (player) ----
+  const topic = { enum: ["PAYMENT", "PRIZE", "ACCOUNT", "TECHNICAL", "COMPLAINT", "OTHER"] };
+  app.get("/v1/support/tickets", async (req) => ({ tickets: await support.playerTickets(ctx, (await player(req)).id) }));
+  app.post<{ Body: { topic: support.Topic; subject: string; message: string } }>("/v1/support/tickets", { schema: body({ topic, subject: str(120), message: str(2000) }) }, async (req) => {
+    const u = await player(req);
+    return support.openTicket(ctx, actorOf(u.id, req), u, req.body);
+  });
+  app.post<{ Params: { id: string }; Body: { message: string } }>("/v1/support/tickets/:id/messages", { schema: { ...idParam, ...body({ message: str(2000) }) } }, async (req) => {
+    const u = await player(req);
+    return support.playerReply(ctx, actorOf(u.id, req), u, req.params.id, req.body.message);
+  });
   app.get("/v1/notifications", async (req) => notifications.inbox(ctx, (await player(req)).id));
   app.post<{ Body: { ids?: string[] } }>("/v1/notifications/read", { schema: body({ ids: { type: "array", maxItems: 100, items: uuid } }, ["ids"]) },
     async (req) => notifications.markRead(ctx, (await player(req)).id, req.body.ids));
@@ -391,6 +403,25 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/nok/cases/:id/decision", {
     schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
   }, async (req) => nok.decideCase(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+
+  // ---- Support (staff) ----
+  app.get<{ Querystring: { status?: string } }>("/v1/admin/support/tickets", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { status: { enum: ["OPEN", "WAITING_PLAYER", "CLOSED"] } } } },
+  }, async (req) => ({ tickets: await support.queue(ctx, await staff(req), req.query.status) }));
+  app.get<{ Params: { id: string } }>("/v1/admin/support/tickets/:id", { schema: idParam }, async (req) => support.ticketDetail(ctx, await staff(req), req.params.id));
+  app.post<{ Params: { id: string }; Body: { message: string; close?: boolean } }>("/v1/admin/support/tickets/:id/reply", {
+    schema: { ...idParam, ...body({ message: str(2000), close: { type: "boolean" } }, ["close"]) },
+  }, async (req) => support.staffReply(ctx, await staff(req), req.params.id, req.body));
+  app.post<{ Params: { id: string } }>("/v1/admin/support/tickets/:id/close", { schema: idParam }, async (req) => support.closeTicket(ctx, await staff(req), req.params.id));
+  app.post<{ Params: { id: string }; Body: { reason: string } }>("/v1/admin/support/tickets/:id/escalate", { schema: { ...idParam, ...body({ reason: str(500) }) } },
+    async (req) => support.escalate(ctx, await staff(req), req.params.id, req.body.reason));
+  app.get<{ Querystring: { phone: string } }>("/v1/admin/support/player", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { phone: str(20) }, required: ["phone"] } },
+  }, async (req) => support.playerSummary(ctx, await staff(req), req.query.phone));
+  app.post<{ Params: { id: string }; Body: { reason: string } }>("/v1/admin/support/player/:id/lock", { schema: { ...idParam, ...body({ reason: str(500) }) } },
+    async (req) => support.lockPlayer(ctx, await staff(req), req.params.id, req.body.reason));
+  app.post<{ Params: { id: string }; Body: { reason: string } }>("/v1/admin/support/player/:id/unlock", { schema: { ...idParam, ...body({ reason: str(500) }) } },
+    async (req) => support.unlockPlayer(ctx, await staff(req), req.params.id, req.body.reason));
 
   app.get("/v1/admin/messages", async (req) => notifications.messageLog(ctx, await staff(req)));
   app.get("/v1/admin/compliance", async (req) => admin.compliance(ctx, await staff(req)));

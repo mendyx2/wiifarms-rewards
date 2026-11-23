@@ -106,7 +106,7 @@ before(async () => {
   ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds), messenger };
   app = buildServer(ctx);
 
-  const roles: Record<string, string> = { manager: "CYCLE_MANAGER", manager2: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", compliance: "COMPLIANCE", auditor: "AUDITOR", auditor2: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
+  const roles: Record<string, string> = { manager: "CYCLE_MANAGER", manager2: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", support: "SUPPORT", compliance: "COMPLIANCE", compliance2: "COMPLIANCE", auditor: "AUDITOR", auditor2: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
   const ids: Record<string, string> = {};
   for (const name of Object.keys(roles)) {
     ids[name] = (await pool.query("INSERT INTO admin_users (email, full_name) VALUES ($1, $2) RETURNING id", [`${name}@example.test`, name])).rows[0].id;
@@ -1298,4 +1298,70 @@ test("next-of-kin claims: only the recorded next of kin, the winner told first, 
   await assert.rejects(pool.query("DELETE FROM next_of_kin_cases WHERE id = $1", [c1.id]), /cannot be changed/);
   const actions = (await pool.query("SELECT action FROM audit_log WHERE entity_id = $1", [winner.id])).rows.map((r: any) => r.action);
   for (const a of ["nok.case_opened", "nok.case_rejected", "nok.case_approved"]) assert.ok(actions.includes(a), a);
+});
+
+test("support: requests and replies, what staff can see, and locking an account on a suspected takeover", async () => {
+  const sp = admins.support!.token, ct = admins.compliance!.token, ct2 = admins.compliance2!.token;
+  const p = await newPlayer({ name: "Support Player" });
+  const other = await newPlayer();
+  const open = (who: Player, b: object) => api("POST", "/v1/support/tickets", { token: who.token, body: { topic: "PAYMENT", subject: "Card not received", message: "I paid but no cards", ...b } });
+  const t1 = ok(await open(p, {}));
+  fails(await open(p, { message: "   " }), 400, "MESSAGE_REQUIRED");
+  // Someone else cannot read or add to it.
+  fails(await api("POST", `/v1/support/tickets/${t1.id}/messages`, { token: other.token, body: { message: "hi" } }), 404, "NOT_FOUND");
+  assert.equal(ok(await api("GET", "/v1/support/tickets", { token: other.token })).tickets.length, 0);
+  // A complaint also goes straight to Compliance.
+  const c = ok(await open(p, { topic: "COMPLAINT", subject: "Unfair treatment", message: "I want to complain" }));
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'PLAYER_COMPLAINT' AND entity_id = $1", [c.id])).rows[0].n, 1);
+  // At most five open requests per player.
+  for (let i = 0; i < 3; i++) ok(await open(p, { subject: `Extra ${i}` }));
+  fails(await open(p, { subject: "Sixth" }), 409, "TOO_MANY_OPEN");
+
+  // Staff queue and reply. Finance has no access.
+  fails(await api("GET", "/v1/admin/support/tickets", { token: admins.finance!.token }), 403, "ROLE_REQUIRED");
+  const q = ok(await api("GET", "/v1/admin/support/tickets", { token: sp })).tickets;
+  assert.ok(q.find((t: any) => t.id === c.id).escalated);
+  assert.ok(q.every((t: any) => /^…\d{4}$/.test(t.player_phone)));
+  assert.equal(ok(await api("POST", `/v1/admin/support/tickets/${t1.id}/reply`, { token: sp, body: { message: "Your payment was refunded on the same day; reference SIMRF-123." } })).status, "WAITING_PLAYER");
+  // The text says only that a reply is waiting — the reply stays in the app.
+  const sms = (await pool.query("SELECT body FROM notifications WHERE user_id = $1 AND kind = 'SUPPORT_REPLY' AND channel = 'SMS'", [p.id])).rows;
+  assert.equal(sms.length, 1); assert.ok(!sms[0].body.includes("SIMRF"));
+  let mine = ok(await api("GET", "/v1/support/tickets", { token: p.token })).tickets.find((t: any) => t.id === t1.id);
+  assert.deepEqual(mine.messages.map((m: any) => m.author), ["PLAYER", "STAFF"]);
+  assert.ok(!JSON.stringify(mine).includes("support@example.test") && mine.messages.every((m: any) => !("staff_name" in m)), "players do not see staff names");
+  ok(await api("POST", `/v1/support/tickets/${t1.id}/messages`, { token: p.token, body: { message: "Thank you, I see it now." } }));
+  assert.equal(ok(await api("GET", `/v1/admin/support/tickets/${t1.id}`, { token: sp })).status, "OPEN");
+  ok(await api("POST", `/v1/admin/support/tickets/${t1.id}/reply`, { token: sp, body: { message: "Glad to help.", close: true } }));
+  fails(await api("POST", `/v1/support/tickets/${t1.id}/messages`, { token: p.token, body: { message: "one more" } }), 409, "TICKET_CLOSED");
+  fails(await api("POST", `/v1/admin/support/tickets/${t1.id}/escalate`, { token: ct, body: { reason: "x" } }), 403, "ROLE_REQUIRED");
+  ok(await api("POST", `/v1/admin/support/tickets/${t1.id}/escalate`, { token: sp, body: { reason: "Player reports a second payment missing" } }));
+  fails(await api("POST", `/v1/admin/support/tickets/${t1.id}/escalate`, { token: sp, body: { reason: "again" } }), 409, "ALREADY_ESCALATED");
+  await assert.rejects(pool.query("UPDATE support_messages SET body = 'edited' WHERE ticket_id = $1", [t1.id]), /append-only/);
+
+  // The player record support sees: enough to help, nothing that would let them impersonate the player.
+  const sum = ok(await api("GET", `/v1/admin/support/player?phone=${p.phone}`, { token: sp }));
+  assert.equal(sum.player.name, "Support Player"); assert.match(sum.player.phone, /^…\d{4}$/);
+  const dump = JSON.stringify(sum);
+  assert.ok(!dump.includes(p.phone.slice(1)) && !/identity_hash|account_number|pin_hash|outcome_ciphertext/.test(dump));
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'support.player_viewed' AND entity_id = $1", [p.id])).rows[0].n, 1);
+
+  // Locking on a suspected takeover: one person, at once. Unlocking: a different Compliance officer.
+  fails(await api("POST", `/v1/admin/support/player/${p.id}/lock`, { token: admins.finance!.token, body: { reason: "x" } }), 403, "ROLE_REQUIRED");
+  ok(await api("POST", `/v1/admin/support/player/${p.id}/lock`, { token: sp, body: { reason: "Player called: phone stolen" } }));
+  fails(await api("GET", "/v1/me", { token: p.token }), 401, "UNAUTHENTICATED"); // signed out everywhere
+  fails(await api("POST", "/v1/auth/login", { body: { phone: p.phone, pin: "000001" } }), 401, "UNAUTHENTICATED"); // a stranger learns nothing
+  fails(await api("POST", "/v1/auth/login", { body: { phone: p.phone, pin: p.pin } }), 403, "ACCOUNT_LOCKED"); // the owner is told
+  // A thief with the SIM cannot get in by resetting the PIN with a text code.
+  const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone: p.phone } }));
+  fails(await api("POST", "/v1/auth/register", { body: { phone: p.phone, code: otp.devCode, pin: "692047" } }), 403, "ACCOUNT_UNAVAILABLE");
+  fails(await api("POST", `/v1/admin/support/player/${p.id}/unlock`, { token: sp, body: { reason: "x" } }), 403, "ROLE_REQUIRED");
+  ok(await api("POST", `/v1/admin/support/player/${p.id}/unlock`, { token: ct, body: { reason: "Identity confirmed in person at the Minna office" } }));
+  p.token = ok(await api("POST", "/v1/auth/login", { body: { phone: p.phone, pin: p.pin } })).token;
+  ok(await api("GET", "/v1/me", { token: p.token }));
+  // The person who locked an account cannot unlock it.
+  ok(await api("POST", `/v1/admin/support/player/${other.id}/lock`, { token: ct, body: { reason: "Unusual withdrawals" } }));
+  fails(await api("POST", `/v1/admin/support/player/${other.id}/unlock`, { token: ct, body: { reason: "x" } }), 403, "SAME_PERSON");
+  ok(await api("POST", `/v1/admin/support/player/${other.id}/unlock`, { token: ct2, body: { reason: "Checked with the player" } }));
+  await assert.rejects(pool.query("DELETE FROM player_locks WHERE user_id = $1", [p.id]), /cannot be changed/);
+  assert.ok((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND title = 'Your account has been locked'", [p.id])).rows[0].n >= 1);
 });

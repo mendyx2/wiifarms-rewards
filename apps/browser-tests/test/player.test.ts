@@ -106,7 +106,7 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   await assertClean(p, "limits and inbox");
 
   // Every player screen fits a small phone.
-  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy"], "main h1, main .hero");
+  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support"], "main h1, main .hero");
 });
 
 test("session safety: the sign-in cookie is out of reach of page scripts and other sites, and signing out ends it", async () => {

@@ -224,3 +224,58 @@ test("next-of-kin claim: Compliance opens the case, the winner is told, someone 
   assert.match(await p.innerText('.card:has-text("Solar freezer 200L")'), /Ready to claim/);
   await assertClean(p, "next-of-kin (claimant)");
 });
+
+test("support: the player asks for help, support replies, and an account is locked by one person and unlocked by another", async () => {
+  const pl = await apiPlayer(s, "08037770041", "Chidi Okeke");
+  const p = await newPage(s);
+  await playerSignIn(p, s, pl.phone);
+  await p.click("#tabs a[data-tab=me]");
+  await p.click("text=Help and support");
+  await p.waitForSelector("text=Support will never ask for your PIN");
+  await p.selectOption("select[name=topic]", "PAYMENT");
+  await p.fill("input[name=subject]", "Paid but no cards");
+  await p.fill("textarea[name=message]", "I paid N1,000 this morning and got no cards.");
+  await p.click('button:has-text("Send")');
+  await toast(p, /We will reply here/);
+  await p.waitForSelector('summary:has-text("Paid but no cards") .pill:has-text("Waiting for support")');
+
+  const a = await newPage(s, "desktop");
+  answerDialogs(a, () => "Player called from a new phone; says their old phone was stolen");
+  await adminSignIn(a, s, "support");
+  await visit(a, s.base + "/admin#/support");
+  await a.click('a:has-text("Paid but no cards")');
+  await a.waitForSelector("text=I paid N1,000 this morning");
+  await a.fill("textarea[name=message]", "Your payment was refunded automatically because the cards sold out while you paid.");
+  await a.click('button:has-text("Send reply")');
+  await toast(a, /Reply sent/);
+
+  await visit(p, s.base + "/#/support");
+  await p.waitForSelector('summary:has-text("Paid but no cards") .pill:has-text("Support replied")');
+  assert.match(await p.innerText("details[open]"), /WiiFarm support[\s\S]*refunded automatically/);
+  await p.fill("details[open] textarea[name=message]", "Thank you, I see the refund.");
+  await p.click('details[open] button:has-text("Send")');
+  await toast(p, /Sent/);
+  await assertClean(p, "support (player)");
+
+  // A suspected takeover: support locks the account at once; only a different Compliance officer can unlock it.
+  await visit(a, s.base + "/admin#/support");
+  await a.fill('form:has-text("Find a player") input[name=phone]', pl.phone);
+  await a.click('button:has-text("Look up")');
+  await a.waitForSelector('.tile b:has-text("Chidi Okeke")');
+  assert.equal((await a.content()).includes(pl.phone.slice(1)), false, "the full phone number is never shown");
+  await a.click('button:has-text("Lock account")');
+  await toast(a, /Account locked/);
+  await a.waitForSelector("text=Locked by Demo support");
+  assert.equal(await a.locator('button:has-text("Unlock")').count(), 0, "support cannot unlock");
+  await visit(p, s.base + "/#/wallet");
+  await p.waitForSelector("h1:has-text('Create your account'), h1:has-text('Sign in')"); // signed out at once
+  await adminSignIn(a, s, "compliance");
+  await visit(a, s.base + "/admin#/support");
+  await a.fill('form:has-text("Find a player") input[name=phone]', pl.phone);
+  await a.click('button:has-text("Look up")');
+  await a.waitForSelector("text=Locked by Demo support");
+  await a.click('button:has-text("Unlock")');
+  await toast(a, /unlocked/);
+  await playerSignIn(p, s, pl.phone);
+  await assertClean(a, "support (admin)");
+});

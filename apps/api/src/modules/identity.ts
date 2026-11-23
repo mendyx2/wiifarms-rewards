@@ -133,6 +133,12 @@ export async function login(ctx: Ctx, phoneInput: string, pin: string, ip?: stri
   const wrong = unauthorized("Wrong phone number or PIN.");
   const user = await one<{ id: string; pin_hash: string | null; status: string; pin_locked_until: Date | null }>(
     ctx.pool, "SELECT id, pin_hash, status, pin_locked_until FROM users WHERE phone_e164 = $1", [phone]);
+  if (user && user.pin_hash && user.status === "SUSPENDED" && await one(ctx.pool, "SELECT 1 FROM player_locks WHERE user_id = $1 AND lifted_at IS NULL", [user.id])) {
+    // A locked account says so — but only to someone who knows the PIN, so the
+    // message does not reveal to strangers which numbers have accounts.
+    if (await verifyPin(pin, user.pin_hash)) throw forbidden("ACCOUNT_LOCKED", "Your account is locked for your protection. Please contact support to unlock it.");
+    throw wrong;
+  }
   if (!user || !user.pin_hash || user.status !== "ACTIVE") {
     // Do the same slow PIN check as for a real account, so the response time
     // does not reveal whether this phone number has an account.

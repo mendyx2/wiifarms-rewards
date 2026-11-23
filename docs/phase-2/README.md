@@ -20,7 +20,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 
 ## What the tests prove
 
-`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 21 tests, run repeatedly without failure, including twice with the processor saturated:
+`apps/api/test/e2e.test.ts` runs a complete cycle against a real PostgreSQL — 25 tests, run repeatedly without failure, including with the processor saturated:
 
 - A used or wrong one-time code is refused; weak PINs are refused; five wrong PINs lock sign-in.
 - Under-18s are refused; one identity cannot open two accounts; identity numbers, PINs and session tokens are not stored in readable form.
@@ -101,7 +101,7 @@ Buttons appear only for roles that may use them, but that is convenience: every 
 
 Checked in a real browser with six administrators signing in turn: draft through the form; drafter refused when approving their own cycle; finance refused without evidence and with escrow ₦1 short; locked after approval; tickets generated and sales opened; a player bought; sign-off buttons absent before close; execute disabled with one sign-off; payout approver offered no draw buttons; auditor could countersign but not execute; draw executed once and the button disappeared; a ₦20,000 payout held, rejected (money returned), re-requested and approved by the payout approver while finance was offered no approve button; exclusion register entry added by compliance and hidden from the auditor; audit trail intact; no script errors; no sideways scrolling at phone width. As with the player app, this browser run is a manual check script, not yet in the automated suite.
 
-Still missing from the admin app: customer support views. In production it must be served from its own restricted address rather than alongside the player app.
+Still missing from the admin app: nothing planned for Phase 2. In production it must be served from its own restricted address rather than alongside the player app.
 
 ## Merchandise
 
@@ -238,6 +238,17 @@ When a winner has died or cannot be reached, the next of kin they recorded may r
 
 Staff use the new **Next of kin** page (look up the winner, open a case, decide). The claimant sees "Passed to you as next of kin" on the prize.
 
+## Customer support
+
+**Players** have a *Help and support* screen (from the Me page): they choose a topic, describe the problem, follow the conversation and reply. When support answers, a text says a reply is waiting — the reply itself stays in the app. The screen reminds them that support never asks for a PIN or a code. Complaints go to Compliance automatically. At most five open requests per player.
+
+**Support staff** have a *Support* page:
+- a queue of requests (needs reply / waiting for player / closed; anything passed to Compliance is marked), with reply, reply-and-close, close and *pass to Compliance*;
+- a player lookup showing what is needed to help — account state, limits and breaks, winnings, cards, purchases, prizes, withdrawals, bank accounts (bank code and whether the name matches only), texts sent and past requests. Phone numbers are masked; identity numbers, account numbers and unrevealed outcomes are never shown. **Every lookup is written to the audit trail.**
+- **Lock account** for a suspected takeover: one person, immediate, signs the player out everywhere and texts them. A locked account cannot be reopened by resetting the PIN with a text code, so a stolen SIM is not enough. **Unlocking needs a Compliance officer who is not the person who locked it.** When the real owner signs in with the right PIN they are told the account is locked; a stranger without the PIN learns nothing.
+
+**Deliberately not possible for support:** resetting a PIN, changing a phone number, raising a limit or moving money — what someone pretending to be the player would ask for. Conversations are a permanent record.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -262,7 +273,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking.
 5. ~~Voiding a cycle with refunds; manual refunds with two-person approval~~ — done (see above).
 6. ~~Publishing the full ticket list when a cycle is archived; settling and archiving steps~~ — done (see above).
-7. ~~Notifications (SMS/in-app)~~ — done (see above). Remaining: WhatsApp, support tickets.
+7. ~~Notifications (SMS/in-app); support requests and tools~~ — done (see above). Remaining: WhatsApp.
 8. ~~Reconciliation report and financial reports; operating-expense records~~ — done (see above).
 9. ~~Unclaimed-prize reminders and expiry; the next-of-kin claim process~~ — done.
 10. Tier 2 checks (liveness) before major-prize claims; fraud rules beyond the staff register.

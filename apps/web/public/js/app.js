@@ -675,6 +675,37 @@ async function purchasesSection() {
       el("div", {}, el("b", {}, naira(o.amount_kobo)), el("small", {}, o.status === "REFUNDED" ? "Refunded — " + (REFUND_TEXT[o.refund_reason] ?? "refunded") : "Paid")))));
 }
 
+const TOPICS = [["PAYMENT", "A payment or refund"], ["PRIZE", "A prize or withdrawal"], ["ACCOUNT", "My account"], ["TECHNICAL", "Something is not working"], ["COMPLAINT", "I want to make a complaint"], ["OTHER", "Something else"]];
+const TICKET_TEXT = { OPEN: "Waiting for support", WAITING_PLAYER: "Support replied", CLOSED: "Closed" };
+
+async function supportScreen() {
+  const { tickets } = await api.get("/v1/support/tickets");
+  const nodes = [el("h1", {}, "Help and support"),
+    el("div", { class: "note" }, "Support will never ask for your PIN or a code sent to your phone. Your PIN can only be changed by you, with a code sent to your own phone."),
+    el("p", { class: "muted" }, "Worried about how much you play? Lower your limits or take a break on the Me page, or ask us for help here.")];
+  for (const t of tickets) {
+    const reply = el("form", { onsubmit: action(async () => {
+      await api.post(`/v1/support/tickets/${t.id}/messages`, { message: val(reply, "message") });
+      toast("Sent."); render();
+    }) }, ...field("Your reply", el("textarea", { name: "message", rows: 3, maxlength: 2000, required: true })), el("p"), el("button", { class: "btn ghost", type: "submit" }, "Send"));
+    nodes.push(el("details", { class: "card", open: t.status === "WAITING_PLAYER" },
+      el("summary", {}, t.subject, " ", el("span", { class: "pill" + (t.status === "WAITING_PLAYER" ? " gold" : t.status === "CLOSED" ? " grey" : "") }, TICKET_TEXT[t.status] ?? t.status)),
+      t.messages.map((m) => el("div", { class: "row" }, el("div", {}, el("b", {}, m.author === "STAFF" ? "WiiFarm support" : "You"), el("small", {}, m.body), el("small", {}, when(m.created_at))))),
+      t.status === "CLOSED" ? el("p", { class: "muted" }, "This request is closed. Start a new one below if you need more help.") : reply));
+  }
+  const form = el("form", { class: "card", onsubmit: action(async () => {
+    await api.post("/v1/support/tickets", { topic: val(form, "topic"), subject: val(form, "subject"), message: val(form, "message") });
+    toast("Sent. We will reply here and send you a text when we do."); render();
+  }) }, el("b", {}, "Ask for help"),
+    ...field("What is it about?", el("select", { name: "topic" }, TOPICS.map(([v, t]) => el("option", { value: v }, t)))),
+    ...field("Subject", el("input", { name: "subject", maxlength: 120, required: true })),
+    ...field("Tell us what happened", el("textarea", { name: "message", rows: 4, maxlength: 2000, required: true })),
+    el("p", { class: "muted" }, "Do not include your PIN or any code. If you can, give the card number or the date and amount of the payment."),
+    el("button", { class: "btn", type: "submit" }, "Send"));
+  nodes.push(form);
+  return nodes;
+}
+
 async function me() {
   await loadMe();
   const m = state.me;
@@ -695,6 +726,7 @@ async function me() {
         m.kycTier >= 1 ? el("span", { class: "pill" }, "Verified") : el("a", { class: "btn small", href: "#/verify" }, "Verify")),
       el("div", { class: "row" }, el("div", {}, el("b", {}, "Next of kin"), el("small", {}, m.nextOfKin ? `${m.nextOfKin.full_name} · ${m.nextOfKin.relationship}` : "Not added — needed before a big prize is claimed")))),
     el("details", { class: "card" }, el("summary", {}, m.nextOfKin ? "Change next of kin" : "Add next of kin"), nok),
+    el("a", { class: "btn ghost", href: "#/support" }, "Help and support"), el("p"),
     await purchasesSection(),
     el("h2", {}, "Play within your limits"),
     el("div", { class: "card" },
@@ -727,7 +759,7 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 
 let renderId = 0;

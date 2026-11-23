@@ -399,6 +399,91 @@ async function nokPage() {
   return nodes;
 }
 
+const TOPIC_TEXT = { PAYMENT: "Payment", PRIZE: "Prize", ACCOUNT: "Account", TECHNICAL: "Technical", COMPLAINT: "Complaint", OTHER: "Other" };
+const TICKET_TONE = { OPEN: "gold", WAITING_PLAYER: "", CLOSED: "grey" };
+const TICKET_STATUS = { OPEN: "Needs reply", WAITING_PLAYER: "Waiting for player", CLOSED: "Closed" };
+let supportLookup = "", supportFilter = "";
+
+async function supportPage() {
+  if (!can("SUPPORT", "COMPLIANCE", "AUDITOR")) return [el("h1", {}, "Support"), el("p", { class: "sub" }, "Your role does not include support.")];
+  const act = can("SUPPORT", "COMPLIANCE");
+  const nodes = [el("h1", {}, "Support"),
+    el("div", { class: "lock" }, "Never reset a PIN, change a phone number, raise a limit or move money for a caller — and never ask for a PIN or a code. Players do those themselves, with a code sent to their own phone. If you suspect someone is trying to take over an account, lock it.")];
+
+  // Player lookup
+  const found = el("div");
+  const show = async (phone) => {
+    const r = await get("/v1/admin/support/player?phone=" + encodeURIComponent(phone));
+    const pl = r.player;
+    const kids = [el("div", { class: "tiles" },
+      el("div", { class: "tile " + (r.lock ? "bad" : pl.status === "ACTIVE" ? "ok" : "warn") }, el("span", {}, pl.phone), el("b", {}, pl.name ?? "Not verified"),
+        el("small", {}, `${r.lock ? "Locked" : pl.status === "ACTIVE" ? "Active" : pl.status.toLowerCase()} · ${pl.verified ? "verified" : "not verified"} · since ${when(pl.since)}${pl.pinLocked ? " · PIN locked after wrong attempts" : ""}`)),
+      el("div", { class: "tile" }, el("span", {}, "Spending limit"), el("b", {}, r.limits ? naira(r.limits.daily_kobo) + " a day" : "—"), el("small", {}, r.exclusion ? `On a ${r.exclusion.kind === "COOL_OFF" ? "break" : "self-exclusion"}${r.exclusion.ends_at ? " until " + when(r.exclusion.ends_at) : ""}` : "")),
+      el("div", { class: "tile" }, el("span", {}, "Winnings"), el("b", {}, naira(r.winningsKobo)), el("small", {}, r.owedKobo ? `owes ${naira(r.owedKobo)}` : "")),
+      el("div", { class: "tile" }, el("span", {}, "Cards"), el("b", {}, num(r.cards.total)), el("small", {}, `${num(r.cards.revealed)} scratched · ${num(r.cards.cancelled)} cancelled`)))];
+    if (r.lock) {
+      kids.push(el("div", { class: "note bad" }, `Locked by ${r.lock.locked_by_name} on ${when(r.lock.locked_at)}: ${r.lock.reason}`));
+      if (can("COMPLIANCE")) kids.push(el("div", { class: "actions" }, el("button", { class: "btn", onclick: action(async () => {
+        const reason = prompt("How was the player's identity confirmed?"); if (!reason) return;
+        await post(`/v1/admin/support/player/${pl.id}/unlock`, { reason }); await show(phone); return "Account unlocked.";
+      }, false) }, "Unlock (Compliance, not the person who locked it)")));
+    } else if (act && pl.status === "ACTIVE") {
+      kids.push(el("div", { class: "actions" }, el("button", { class: "btn danger", onclick: action(async () => {
+        const reason = prompt("Why lock this account? (It signs the player out everywhere at once.)"); if (!reason) return;
+        await post(`/v1/admin/support/player/${pl.id}/lock`, { reason }); await show(phone); return "Account locked and signed out. Compliance must unlock it.";
+      }, false) }, "Lock account")));
+    }
+    const sect = (title, rows, head, fn) => rows.length ? [el("h2", {}, title), table(head, rows.map(fn))] : [];
+    kids.push(...sect("Purchases", r.orders, ["When", "Cycle", "#Cards", "#Amount", "Status"], (o) => el("tr", {}, td(when(o.created_at)), td(o.cycle), td(num(o.quantity), true), td(naira(o.amount_kobo), true), td(o.status.toLowerCase()))),
+      ...sect("Prizes", r.claims, ["Prize", "Status", "Claim by"], (c) => el("tr", {}, td(c.title + (c.claimed_by_next_of_kin ? " (next of kin)" : "")), td(c.status.toLowerCase()), td(when(c.expires_at)))),
+      ...sect("Withdrawals", r.payouts, ["When", "#Amount", "Status"], (p) => el("tr", {}, td(when(p.created_at)), td(naira(p.amount_kobo), true), td(p.status.toLowerCase()))),
+      ...sect("Bank accounts", r.bankAccounts, ["Bank code", "Name matches", "Usable from"], (b) => el("tr", {}, td(b.bank_code), td(b.name_match ? "Yes" : "No"), td(when(b.usable_from)))),
+      ...sect("Text messages sent", r.texts, ["When", "Message", "Status"], (t) => el("tr", {}, td(when(t.created_at)), td(t.body), td(t.status.toLowerCase()))),
+      ...sect("Requests", r.tickets, ["Updated", "Subject", "Status"], (t) => el("tr", {}, td(when(t.updated_at)), td(el("a", { href: "#/ticket/" + t.id }, t.subject)), td(TICKET_STATUS[t.status]))));
+    found.replaceChildren(el("div", { class: "card" }, ...kids));
+  };
+  const look = el("form", { class: "card", onsubmit: action(async () => { supportLookup = v(look, "phone"); await show(supportLookup); }, false) },
+    el("b", {}, "Find a player"), el("p", { class: "sub" }, "Every lookup is recorded in the audit trail."),
+    el("div", { class: "form" }, input("Phone number", { name: "phone", inputmode: "tel", required: true, value: supportLookup }), el("button", { class: "btn ghost", type: "submit" }, "Look up")));
+  nodes.push(look, found);
+  if (supportLookup) show(supportLookup).catch(() => {});
+
+  // Queue
+  const { tickets } = await get("/v1/admin/support/tickets" + (supportFilter ? "?status=" + supportFilter : ""));
+  nodes.push(el("h2", {}, "Requests"),
+    el("div", { class: "chips" }, [["", "All"], ["OPEN", "Needs reply"], ["WAITING_PLAYER", "Waiting for player"], ["CLOSED", "Closed"]].map(([v2, t]) =>
+      el("button", { class: "btn ghost" + (supportFilter === v2 ? " on" : ""), onclick: () => { supportFilter = v2; render(); } }, t))),
+    el("div", { class: "card" }, tickets.length ? table(["Updated", "Player", "Topic", "Subject", "Status"], tickets.map((t) =>
+      el("tr", {}, td(when(t.updated_at)), td(`${t.player_name ?? "—"} (${t.player_phone})`), td(TOPIC_TEXT[t.topic]),
+        td([el("a", { href: "#/ticket/" + t.id }, t.subject), t.escalated ? " " : null, t.escalated ? pill("Compliance", "red") : null]),
+        td(pill(TICKET_STATUS[t.status], TICKET_TONE[t.status]))))) : el("p", { class: "sub" }, "No requests.")));
+  return nodes;
+}
+
+async function ticketPage(id) {
+  const t = await get("/v1/admin/support/tickets/" + id);
+  const act = can("SUPPORT", "COMPLIANCE") && t.status !== "CLOSED";
+  const nodes = [el("a", { href: "#/support" }, "← Support"), el("h1", {}, t.subject),
+    el("p", { class: "sub" }, `${t.player_name ?? "—"} (${t.player_phone}) · ${TOPIC_TEXT[t.topic]} · opened ${when(t.created_at)} · `, pill(TICKET_STATUS[t.status], TICKET_TONE[t.status]), t.escalated ? " " : null, t.escalated ? pill("Passed to Compliance", "red") : null),
+    el("div", { class: "card" }, t.messages.map((m) => el("div", { class: "check" + (m.author === "STAFF" ? " yes" : "") }, el("i", {}, m.author === "STAFF" ? "S" : "P"),
+      el("div", {}, m.body, el("small", {}, `${m.author === "STAFF" ? m.staff_name : "Player"} · ${when(m.created_at)}`)))))];
+  if (act) {
+    const form = el("form", { class: "card", onsubmit: action(async (e) => {
+      const close = e.submitter?.dataset.close === "1";
+      await post(`/v1/admin/support/tickets/${id}/reply`, { message: v(form, "message"), close });
+      return close ? "Replied and closed. The player has been told." : "Reply sent. The player has been told by text.";
+    }) }, el("div", { class: "form" }, input("Reply (the player sees it in the app; the text only says a reply is waiting)", { name: "message", rows: 4, required: true, maxlength: 2000 }, true)),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Send reply"), el("button", { class: "btn ghost", type: "submit", "data-close": "1" }, "Send and close")));
+    nodes.push(form, el("div", { class: "actions" },
+      el("button", { class: "btn ghost", onclick: action(async () => { await post(`/v1/admin/support/tickets/${id}/close`); return "Closed."; }) }, "Close without reply"),
+      can("SUPPORT") && !t.escalated ? el("button", { class: "btn danger", onclick: action(async () => {
+        const reason = prompt("Why does Compliance need to look at this?"); if (!reason) return;
+        await post(`/v1/admin/support/tickets/${id}/escalate`, { reason }); return "Passed to Compliance.";
+      }) }, "Pass to Compliance") : null));
+  }
+  return nodes;
+}
+
 async function dashboard() {
   const d = await get("/v1/admin/dashboard");
   const live = d.cycles.find((c) => ["OPEN", "CLOSED", "DRAWN", "SETTLING"].includes(c.status)) ?? d.cycles[0];
@@ -918,7 +1003,7 @@ async function auditPage() {
 
 // --- Router ------------------------------------------------------------------------------------
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, finance, merchandise, audit: auditPage, access };
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, audit: auditPage, access };
 let renderId = 0;
 
 async function render() {
@@ -933,7 +1018,7 @@ async function render() {
   document.getElementById("whoRoles").textContent = me.roles.map((r) => ROLE_TEXT[r] ?? r).join(", ");
   const [name = "dashboard", arg] = location.hash.replace(/^#\/?/, "").split("/");
   const screen = ROUTES[name] ?? dashboard;
-  const nav = name === "cycle" ? "cycles" : ROUTES[name] ? name : "dashboard";
+  const nav = name === "cycle" ? "cycles" : name === "ticket" ? "support" : ROUTES[name] ? name : "dashboard";
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === nav));
   try {
     const nodes = await screen(arg);
