@@ -5,7 +5,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { seedDemo } from "@wiifarm/api/seed-demo.ts";
-import { adminSignIn, answerDialogs, apiPlayer, assertClean, assertFits, newPage, playerSignIn, sleep, startStack, toast, visit, type Stack } from "./harness.ts";
+import { adminSignIn, answerDialogs, apiPlayer, assertClean, assertFits, newPage, playerSignIn, sleep, startStack, toast, untranslated, visit, watchServerData, type Stack } from "./harness.ts";
 
 let s: Stack;
 before(async () => { s = await startStack(); });
@@ -20,6 +20,7 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await apiPlayer(s, phone, "Hauwa Sani");
   const p = await newPage(s);
   answerDialogs(p);
+  const serverData = watchServerData(p);
   await playerSignIn(p, s, phone);
   // The newest open cycle is shown first; the player buys 20 of its cards.
   await p.waitForSelector(".hero .tag:has-text('Quick Cycle')");
@@ -201,6 +202,17 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await p.waitForSelector("main .note:has-text('the whole cycle is exactly what was promised')", { timeout: 60_000 });
   assert.equal(await p.locator("main .card:has-text('Check the whole cycle') .tick.no").count(), 0);
   await assertClean(p, "player through the whole cycle");
+
+  // The same screens in Hausa: draw results, both checks, and a delivered prize.
+  await visit(p, s.base + "/#/me");
+  await p.click('.lang button:has-text("Hausa")');
+  await visit(p, s.base + "/#/draw");
+  await p.click('button:has-text("Tabbatar da zaɓen")');
+  await p.waitForSelector("main .note:has-text('An tabbatar')");
+  await p.click('button:has-text("Duba dukan zagayen")');
+  await p.waitForSelector("main .note:has-text('dukan zagayen daidai yake')", { timeout: 60_000 });
+  for (const r of ["/#/wallet", "/#/cards", "/#/home", "/#/me", "/#/inbox"]) { await visit(p, s.base + r); await p.waitForSelector("main h1, main .hero"); }
+  assert.deepEqual(await untranslated(p, serverData), [], "text shown in English in Hausa mode");
 
   // Every admin screen fits a phone.
   await assertFits(a, s.base, ["/admin#/dashboard", "/admin#/cycles", `/admin#/cycle/${cycleId}`, "/admin#/approvals", "/admin#/payouts", "/admin#/refunds", "/admin#/nok", "/admin#/support",

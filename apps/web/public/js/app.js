@@ -3,6 +3,7 @@
 // content from the server can never run as script.
 import { api, clearKey, stableKey } from "/js/api.js";
 import { verifyCycle, verifyDraw, verifyTicket } from "/js/verify.js";
+import { count as countOf, formatDate, lang, setLang, tr } from "/js/i18n.js";
 
 const view = document.getElementById("view");
 const state = { me: null, cycles: [], cycleId: null, cycle: null };
@@ -14,7 +15,9 @@ const remember = (id) => { state.cycleId = id; try { localStorage.setItem("cycle
 
 // --- Small helpers ----------------------------------------------------------------
 
-/** Creates an element. Text is always inserted as text, never parsed as HTML. */
+const TRANSLATED_ATTRS = new Set(["placeholder", "aria-label", "title"]);
+
+/** Creates an element. Text is always inserted as text, never parsed as HTML, and passes through tr() for the player's language. */
 function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -22,26 +25,44 @@ function el(tag, props = {}, ...children) {
     if (k === "class") node.className = v;
     else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
     else if (k === "hidden" || k === "disabled" || k === "selected" || k === "open") node[k] = Boolean(v);
-    else node.setAttribute(k, v === true ? "" : String(v));
+    else node.setAttribute(k, v === true ? "" : TRANSLATED_ATTRS.has(k) ? tr(String(v)) : String(v));
   }
   for (const c of children.flat()) {
     if (c === undefined || c === null || c === false) continue;
-    node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    node.append(c instanceof Node ? c : document.createTextNode(typeof c === "string" ? tr(c) : String(c)));
   }
   return node;
 }
 
 const naira = (kobo) => "₦" + (kobo / 100).toLocaleString("en-NG", { maximumFractionDigits: 2 });
-const when = (iso) => new Date(iso).toLocaleString("en-NG", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const when = formatDate;
+const plural = countOf;
 const cashOf = (outcome) => { const m = /^CASH:(\d+)$/.exec(outcome); return m ? Number(m[1]) : 0; };
 
 function toast(message) {
   const t = document.getElementById("toast");
-  t.textContent = message;
+  t.textContent = tr(message);
   t.classList.add("on");
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => t.classList.remove("on"), 3500);
+}
+
+/** English / Hausa switch. The choice is kept on this phone. */
+function langSwitch() {
+  const pick = (l) => () => { setLang(l); frame(); render(); };
+  return el("div", { class: "lang", role: "group", "aria-label": "Language" },
+    el("button", { type: "button", "aria-pressed": String(lang() === "en"), onclick: pick("en") }, "English"),
+    el("button", { type: "button", "aria-pressed": String(lang() === "ha"), onclick: pick("ha") }, "Hausa"));
+}
+
+/** Translates the fixed parts of the page (banner, tab labels), keeping the English to translate from. */
+function frame() {
+  for (const node of [document.getElementById("modeBanner"), ...document.querySelectorAll("#tabs a")]) {
+    const text = [...node.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+    if (!text) continue;
+    text.en ??= text.textContent.trim();
+    text.textContent = tr(text.en);
+  }
 }
 
 const go = (route) => { if (location.hash === "#/" + route) render(); else location.hash = "#/" + route; };
@@ -59,7 +80,8 @@ function action(fn) {
     try {
       await fn(event);
     } catch (err) {
-      if (err.status === 401) { state.me = null; toast("Please sign in again."); go("login"); }
+      // A 401 means an expired session only when the player was signed in; on the sign-in screen it is a wrong PIN.
+      if (err.status === 401 && state.me) { state.me = null; toast("Please sign in again."); go("login"); }
       else toast(err.message || "Something went wrong. Please try again.");
     } finally {
       if (btn?.isConnected) btn.disabled = false;
@@ -93,7 +115,7 @@ async function refreshBell() {
   const unread = (await api.get("/v1/notifications").catch(() => ({ unread: 0 }))).unread;
   count.hidden = unread === 0;
   count.textContent = unread > 9 ? "9+" : String(unread);
-  bell.setAttribute("aria-label", unread ? `Messages, ${unread} unread` : "Messages");
+  bell.setAttribute("aria-label", tr(unread ? `Messages, ${unread} unread` : "Messages"));
 }
 
 async function inbox() {
@@ -184,7 +206,7 @@ const VOID_TEXT = "This cycle was cancelled. Every card was refunded in full to 
 
 async function home() {
   const c = await loadCycle();
-  if (!c) return [el("h1", {}, "WiiFarm Rewards"), el("div", { class: "card" }, el("p", {}, "No prize cycle is open right now. Please check back soon."))];
+  if (!c) return [langSwitch(), el("h1", {}, "WiiFarm Rewards"), el("div", { class: "card" }, el("p", {}, "No prize cycle is open right now. Please check back soon."))];
 
   const sold = c.total_tickets - c.tickets_remaining;
   const instant = c.prizes.filter((p) => p.stage === "INSTANT").map((p) => p.cash_kobo);
@@ -195,6 +217,7 @@ async function home() {
   // A winner is told straight away, whichever cycle the prize came from.
   const waiting = state.me ? (await api.get("/v1/claims")).claims.filter((p) => p.status === "ENTITLED").length : 0;
   const nodes = [
+    langSwitch(),
     waiting ? el("a", { class: "btn gold", href: "#/wallet" }, `🎉 You have ${plural(waiting, "prize")} to claim`) : null,
     waiting ? el("p") : null,
     el("div", { class: "hero" },
@@ -255,8 +278,8 @@ function signup() {
     if (codeBlock.hidden) {
       const r = await api.post("/v1/auth/otp", { phone: val(form, "phone") });
       phone = r.phone;
-      hint.textContent = r.devCode ? `Simulation: your code is ${r.devCode}. In the live service it arrives by SMS.` : "We sent a code by SMS.";
-      codeBlock.hidden = false; phoneInput.readOnly = true; submit.textContent = "Create account";
+      hint.textContent = tr(r.devCode ? `Simulation: your code is ${r.devCode}. In the live service it arrives by SMS.` : "We sent a code by SMS.");
+      codeBlock.hidden = false; phoneInput.readOnly = true; submit.textContent = tr("Create account");
       form.elements.code.focus();
     } else {
       await api.post("/v1/auth/register", { phone, code: val(form, "code"), pin: val(form, "pin") });
@@ -327,11 +350,11 @@ async function buy() {
   const refresh = () => {
     out.textContent = qty;
     total.textContent = naira(qty * c.ticket_price_kobo);
-    pay.textContent = "Pay " + naira(qty * c.ticket_price_kobo);
+    pay.textContent = tr("Pay " + naira(qty * c.ticket_price_kobo));
     const over = qty > maxQty;
     warn.hidden = !over && !exclusion;
-    warn.textContent = exclusion ? "You are taking a break from play, so buying is switched off."
-      : maxQty === 0 ? "You have reached your spending limit for now." : `You can buy up to ${maxQty} more within your spending limit.`;
+    warn.textContent = tr(exclusion ? "You are taking a break from play, so buying is switched off."
+      : maxQty === 0 ? "You have reached your spending limit for now." : `You can buy up to ${maxQty} more within your spending limit.`);
     pay.disabled = over || Boolean(exclusion);
   };
   fill.style.width = Math.min(100, (spending.dailyKobo / Math.max(1, limits.dailyKobo)) * 100) + "%";
@@ -709,7 +732,7 @@ async function supportScreen() {
 async function me() {
   await loadMe();
   const m = state.me;
-  if (!m) return [el("h1", {}, "My account"), el("div", { class: "stack" }, el("a", { class: "btn", href: "#/signup" }, "Create an account"), el("a", { class: "btn ghost", href: "#/login" }, "Sign in"))];
+  if (!m) return [el("h1", {}, "My account"), langSwitch(), el("div", { class: "stack" }, el("a", { class: "btn", href: "#/signup" }, "Create an account"), el("a", { class: "btn ghost", href: "#/login" }, "Sign in"))];
   const options = [100000, 200000, 500000, 1000000, 2000000];
   const limitSelect = el("select", { name: "daily" }, options.map((v) => el("option", { value: v, selected: v === m.limits.dailyKobo }, naira(v) + " a day")));
   if (!options.includes(m.limits.dailyKobo)) limitSelect.prepend(el("option", { value: m.limits.dailyKobo, selected: true }, naira(m.limits.dailyKobo) + " a day"));
@@ -741,13 +764,14 @@ async function me() {
           toast(r.pending ? "Increase requested — it starts in 24 hours." : "Limit updated."); render();
         }) }, "Save limit"),
         el("button", { class: "btn ghost", onclick: action(async () => {
-          if (!confirm("Take a 7-day break? You will not be able to buy cards until it ends, and it cannot be cancelled.")) return;
+          if (!confirm(tr("Take a 7-day break? You will not be able to buy cards until it ends, and it cannot be cancelled."))) return;
           await api.post("/v1/me/exclusion", { kind: "COOL_OFF", days: 7 }); toast("7-day break started."); render();
         }) }, "Take a 7-day break"),
         el("button", { class: "btn ghost danger", onclick: action(async () => {
-          if (!confirm("Exclude yourself from play? This cannot be undone here.")) return;
+          if (!confirm(tr("Exclude yourself from play? This cannot be undone here."))) return;
           await api.post("/v1/me/exclusion", { kind: "SELF_EXCLUSION" }); toast("You are now excluded from buying."); render();
         }) }, "Exclude myself"))),
+    el("h2", {}, "Language"), langSwitch(),
     el("button", { class: "btn ghost", onclick: action(async () => { await api.post("/v1/auth/logout"); state.me = null; await loadMe(); go("home"); }) }, "Sign out"),
   ];
 }
@@ -786,4 +810,5 @@ async function render() {
 }
 
 window.addEventListener("hashchange", render);
+frame();
 loadMe().catch(() => {}).finally(render);

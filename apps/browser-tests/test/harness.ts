@@ -188,3 +188,25 @@ export async function visit(page: Page, url: string): Promise<void> {
   if (page.url() === url) await page.reload();
   else await page.goto(url);
 }
+
+/** Every string the server sent as data (not error messages), so they can be told apart from the app's own text. */
+export function watchServerData(page: Page): Set<string> {
+  const seen = new Set<string>();
+  const walk = (v: unknown, key = ""): void => {
+    if (key === "error") return;
+    if (typeof v === "string") seen.add(v);
+    else if (Array.isArray(v)) v.forEach((x) => walk(x));
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, k);
+  };
+  page.on("response", async (r) => {
+    if (!r.url().includes("/v1/") || !(r.headers()["content-type"] ?? "").includes("json")) return;
+    try { walk(await r.json()); } catch { /* not JSON */ }
+  });
+  return seen;
+}
+
+/** English text the player app showed in Hausa mode, other than server data. */
+export async function untranslated(page: Page, serverData: Set<string>): Promise<string[]> {
+  const missing: string[] = await page.evaluate(() => [...((window as any).__i18nMissing as Set<string>)]);
+  return missing.filter((t) => !serverData.has(t) && !serverData.has(t.trim()));
+}
