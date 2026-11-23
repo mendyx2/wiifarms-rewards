@@ -218,6 +218,7 @@ New **Access & licences** page in the admin app.
 | `player.test.ts` | Demo card pays nothing; sign-up (weak PIN refused), verification, purchase, scratching with a finger, the phone's check of each card, revisiting a card shows the same result, winnings equal the sum of wins, withdrawal needs the right PIN, limits (lower now, raise later, buying stops), the security message in the inbox; the session cookie is unreadable by page scripts, forged cross-site changes are refused, the app never turns text into HTML, sign-out ends the session; every player screen fits a 320 px phone |
 | `lifecycle.test.ts` | A cycle from draft to archive: drafter cannot approve, escrow ₦1 short refused, locked after approval; the draw needs two operators and the appointed auditor, the auditor cannot execute, it runs once; the player is told, verifies the draw on the phone, adds next of kin, claims with PIN; fulfilment dispatches, staff never see the handover code, a wrong code is refused; Finance reconciles and signs off; close-out by two people publishes every card; the player checks the whole cycle; every admin screen fits a phone |
 | `hausa.test.ts` | Every player screen in Hausa with nothing left in English (other than names from the server); the switch applies to the tab bar and is remembered after a reload; server error messages appear in Hausa; switching back restores English. `lifecycle.test.ts` also repeats its draw, verification and prize screens in Hausa |
+| `installable.test.ts` | Install icons and manifest; nothing personal kept on the phone; offline screen in English and Hausa; recovery when back online; the staff app never served offline; install prompt and *Not now* |
 | `operations.test.ts` | Refund requested by Compliance and approved by Finance, seen by the player; cycle cancellation requested by a manager, approved by Compliance, seen by players; reconciliation against a statement, sign-off with an explanation, expenses recorded and reversed, spreadsheet with formulas neutralised; auditors see but cannot act; staff access granted by two security administrators, disabling immediate; a licence recorded by one person and verified by another |
 
 The whole browser suite takes about a minute and passed four runs in a row, one with the processor saturated.
@@ -262,6 +263,18 @@ The player app can be used in **English or Hausa**. A switch on the home screen 
 
 **Found while doing this:** a wrong PIN on the sign-in screen showed "Please sign in again" rather than "Wrong phone number or PIN", because the app treated every refusal of that kind as an expired session. It now does that only when the player was already signed in. A test covers it.
 
+## Installable app and offline screen
+
+The player app can be **added to the home screen** and opens like an app, full screen, with the WiiFarm icon.
+- **Android:** when Chrome allows installing, an *Add to home screen* card appears on the home screen (it can be put off with *Not now*, which is remembered) and stays available on the Me page.
+- **iPhone:** the same card explains the two taps in Safari (Share, then Add to Home Screen). Those two words are left in English in the Hausa version because that is what the iPhone shows.
+
+**With no connection** the app still opens and shows a plain *You are offline* screen (in English or Hausa) with the tab bar, instead of the browser's error page, and reassures the player that what they bought or won is safe. When the connection returns the screen updates by itself, still signed in.
+
+**What is kept on the phone, and what is not.** Only the app's own public files — the page, styles, scripts, language file and icons. Nothing from the API is ever stored, so no balances, card results, messages or personal details stay on the phone, and a shared or lost phone gives nothing away beyond what any visitor could download. The staff app is never served from the phone's copy. The app always fetches its files fresh when online, so a player never runs an outdated version after an update.
+
+Tested in `installable.test.ts`: the icons are real PNGs of the stated sizes (including one shaped for Android's round masks); the phone's copy contains no `/v1/` or staff-app entries after a signed-in session; offline opening, the offline screen in both languages, and automatic recovery; the install prompt offered once per request; *Not now* remembered.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -280,7 +293,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 
 ## Still to do in Phase 2
 
-1. ~~Player web app connected to the API~~ — done (see above). Hausa and automated browser tests in CI done. Remaining: installable app with an offline screen; texts and notifications in the player's language.
+1. ~~Player web app connected to the API~~ — done (see above). Hausa, installable app with an offline screen, and automated browser tests in CI done. Remaining: texts and notifications in the player's language.
 2. ~~Admin web app connected to the API~~ — done for cycles, approvals, draw, payouts, audit and compliance (see above).
 3. **Public verifier page**: check a card, re-run a draw.
 4. ~~Merchandise module~~ — done (see above). Remaining: photo and document uploads, carrier tracking.

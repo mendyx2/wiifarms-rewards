@@ -242,6 +242,15 @@ const HA = {
   "A payment or refund": "Biya ko mayar da kuɗi", "A prize or withdrawal": "Kyauta ko cirewa", "My account": "Asusuna",
   "Something is not working": "Wani abu baya aiki", "I want to make a complaint": "Ina son yin ƙorafi", "Something else": "Wani abu dabam",
 
+  // --- Offline and installing ---
+  "You are offline": "Ba ka da haɗin intanet",
+  "WiiFarm Rewards needs a connection to show your cards, results and winnings. Anything you have already bought or won is safe.": "WiiFarm Rewards yana bukatar haɗin intanet don nuna katunanka, sakamako da kuɗin nasararka. Duk abin da ka riga ka saya ko ka ci yana nan lafiya.",
+  "This page will update by itself when you are back online.": "Wannan shafin zai sabunta kansa idan haɗinka ya dawo.",
+  "Add WiiFarm Rewards to your home screen": "Saka WiiFarm Rewards a allon farko na wayarka",
+  "Open it like an app, with one tap. It uses very little space.": "Buɗe shi kamar manhaja, da taɓawa ɗaya. Ba ya ɗaukar wuri da yawa.",
+  "Add to home screen": "Saka a allon farko", "Not now": "Ba yanzu ba",
+  "In Safari, tap the Share button, then Add to Home Screen.": "A Safari, taɓa maɓallin Share, sannan Add to Home Screen.",
+
   // --- Server messages (shown to players) ---
   "Wrong phone number or PIN.": "Lambar waya ko PIN ba daidai ba ne.",
   "Too many wrong attempts. Try again in a few minutes or reset your PIN.": "Kuskure ya yi yawa. Sake gwadawa bayan 'yan mintuna ko ka sake saita PIN ɗinka.",

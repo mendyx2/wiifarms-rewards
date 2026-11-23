@@ -260,6 +260,7 @@ async function home() {
     nodes.push(el("h2", {}, "Other cycles"), el("div", { class: "card" }, others.map((o) =>
       el("div", { class: "row" }, el("button", { class: "link", onclick: () => { remember(o.id); render(); } }, o.name), el("span", { class: "pill grey" }, STATUS_TEXT[o.status] ?? o.status)))));
   }
+  nodes.push(installCard({ dismissible: true }));
   nodes.push(el("p", { class: "muted" }, "18+ only. Play within your limits. This is a simulation: no real money is taken or paid."));
   return nodes;
 }
@@ -732,7 +733,7 @@ async function supportScreen() {
 async function me() {
   await loadMe();
   const m = state.me;
-  if (!m) return [el("h1", {}, "My account"), langSwitch(), el("div", { class: "stack" }, el("a", { class: "btn", href: "#/signup" }, "Create an account"), el("a", { class: "btn ghost", href: "#/login" }, "Sign in"))];
+  if (!m) return [el("h1", {}, "My account"), langSwitch(), installCard(), el("div", { class: "stack" }, el("a", { class: "btn", href: "#/signup" }, "Create an account"), el("a", { class: "btn ghost", href: "#/login" }, "Sign in"))];
   const options = [100000, 200000, 500000, 1000000, 2000000];
   const limitSelect = el("select", { name: "daily" }, options.map((v) => el("option", { value: v, selected: v === m.limits.dailyKobo }, naira(v) + " a day")));
   if (!options.includes(m.limits.dailyKobo)) limitSelect.prepend(el("option", { value: m.limits.dailyKobo, selected: true }, naira(m.limits.dailyKobo) + " a day"));
@@ -771,7 +772,7 @@ async function me() {
           if (!confirm(tr("Exclude yourself from play? This cannot be undone here."))) return;
           await api.post("/v1/me/exclusion", { kind: "SELF_EXCLUSION" }); toast("You are now excluded from buying."); render();
         }) }, "Exclude myself"))),
-    el("h2", {}, "Language"), langSwitch(),
+    el("h2", {}, "Language"), langSwitch(), installCard(),
     el("button", { class: "btn ghost", onclick: action(async () => { await api.post("/v1/auth/logout"); state.me = null; await loadMe(); go("home"); }) }, "Sign out"),
   ];
 }
@@ -786,15 +787,61 @@ const ROUTES = {
   wallet: { screen: wallet, tab: "wallet", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 
+// --- Offline and installing -------------------------------------------------------------------
+
+function offlineScreen() {
+  return [el("div", { class: "offline" },
+    el("div", { class: "pic", "aria-hidden": "true" }, "📶"),
+    el("h1", {}, "You are offline"),
+    el("p", {}, "WiiFarm Rewards needs a connection to show your cards, results and winnings. Anything you have already bought or won is safe."),
+    el("p", { class: "muted" }, "This page will update by itself when you are back online."),
+    el("button", { class: "btn", onclick: () => render() }, "Try again"))];
+}
+window.addEventListener("online", () => { if (view.querySelector(".offline")) render(); });
+
+// Android offers its own install prompt; it is kept until the player asks for it.
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; if (/^#\/(me|home)?$/.test(location.hash || "#/")) render(); });
+window.addEventListener("appinstalled", () => { installPrompt = null; });
+const installed = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const onIPhone = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+const installDismissed = () => { try { return localStorage.getItem("installDismissed") === "1"; } catch { return false; } };
+
+/** "Add to home screen", where the phone supports it and the app is not already installed. */
+function installCard({ dismissible = false } = {}) {
+  if (installed() || (dismissible && installDismissed())) return null;
+  const notNow = dismissible ? el("button", { class: "btn small ghost", type: "button", onclick: () => {
+    try { localStorage.setItem("installDismissed", "1"); } catch { /* storage unavailable */ }
+    card.remove();
+  } }, "Not now") : null;
+  let card;
+  if (installPrompt) {
+    card = el("div", { class: "card install" },
+      el("b", {}, "Add WiiFarm Rewards to your home screen"), el("p", { class: "muted" }, "Open it like an app, with one tap. It uses very little space."),
+      el("div", { class: "row" }, el("button", { class: "btn small", type: "button", onclick: async () => {
+        const p = installPrompt; installPrompt = null;
+        await p.prompt(); await p.userChoice.catch(() => null); render();
+      } }, "Add to home screen"), notNow));
+  } else if (onIPhone()) {
+    card = el("div", { class: "card install" },
+      el("b", {}, "Add WiiFarm Rewards to your home screen"), el("p", { class: "muted" }, "In Safari, tap the Share button, then Add to Home Screen."), notNow);
+  } else return null;
+  return card;
+}
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => { /* the app still works without it */ });
+
 let renderId = 0;
+let meLoaded = false;
 async function render() {
   const mine = ++renderId;
   const [name = "home", arg] = location.hash.replace(/^#\/?/, "").split("/");
-  let route = ROUTES[name] ?? ROUTES.home;
-  if (route.auth && !state.me) route = ROUTES.signup;
-  else if (route.verified && state.me.kycTier < 1) route = ROUTES.verify;
-  document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === route.tab));
   try {
+    if (!meLoaded) { await loadMe(); meLoaded = true; }
+    let route = ROUTES[name] ?? ROUTES.home;
+    if (route.auth && !state.me) route = ROUTES.signup;
+    else if (route.verified && state.me.kycTier < 1) route = ROUTES.verify;
+    document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === route.tab));
     const nodes = await route.screen(arg);
     if (mine !== renderId) return; // a newer navigation has taken over
     view.replaceChildren(...nodes.flat().filter(Boolean));
@@ -803,6 +850,7 @@ async function render() {
   } catch (err) {
     if (mine !== renderId) return;
     if (err.status === 401) { state.me = null; location.hash = "#/login"; return; }
+    if (err.code === "OFFLINE") { view.replaceChildren(...offlineScreen()); window.scrollTo(0, 0); return; }
     view.replaceChildren(el("h1", {}, "Something went wrong"), el("p", { class: "muted" }, err.message || "Please try again."),
       el("button", { class: "btn", onclick: () => render() }, "Try again"));
   }
@@ -811,4 +859,4 @@ async function render() {
 
 window.addEventListener("hashchange", render);
 frame();
-loadMe().catch(() => {}).finally(render);
+render();
