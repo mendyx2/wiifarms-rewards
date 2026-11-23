@@ -388,8 +388,12 @@ test("scratch: every result verifies against the published fingerprint; reveal p
     assert.ok(verifyTicket(input, steps, root), "published root must match");
     // Claiming a different outcome for the same card does not verify.
     assert.ok(!verifyTicket({ ...input, outcome: pr.outcome === "NONE" ? "CASH:1000000" : "NONE" }, steps, root));
-    if (r.ticket.result.cashKobo) { wins++; winTotal += r.ticket.result.cashKobo; }
+    if (r.ticket.result.cashKobo) { wins++; winTotal += r.ticket.result.cashKobo; assert.equal(r.ticket.result.acceptedAt, null); }
   }
+  // Revealed prizes wait for the player to accept them; accepting all moves them into the wallet once.
+  assert.equal(ok(await api("GET", "/v1/wallet", { token: p.token })).balanceKobo, 0);
+  const [all1, all2] = await Promise.all([1, 2].map(() => api("POST", "/v1/tickets/accept-all", { token: p.token })));
+  assert.equal(ok(all1!).acceptedKobo + ok(all2!).acceptedKobo, winTotal);
   assert.equal(ok(await api("GET", "/v1/wallet", { token: p.token })).balanceKobo, winTotal);
   // Reveal again, many times at once: same answer, nothing more is paid.
   const again = await Promise.all(mine.slice(0, 5).flatMap((t: any) => [1, 2, 3].map(() => api("POST", `/v1/tickets/${t.id}/reveal`, { token: p.token }))));
@@ -786,6 +790,9 @@ test("refunds and cancelled cycles: two people, original payment only, prizes fo
   const { total: w1, next: p1Unscratched } = await scratchUntil(p1, p1Cards, 2);
   const p3Cards = await cards(p3);
   const { total: w3 } = await scratchUntil(p3, p3Cards, 1);
+  // p3 accepts the prize into the wallet; p1 leaves both prizes waiting to be accepted.
+  ok(await api("POST", "/v1/tickets/accept-all", { token: p3.token }));
+  assert.equal(ok(await api("GET", "/v1/wallet", { token: p1.token })).balanceKobo, 0);
   const wallet = async (p: Player) => ok(await api("GET", "/v1/wallet", { token: p.token }));
   const orderOf = async (p: Player) => (await pool.query("SELECT id FROM orders WHERE user_id = $1 AND cycle_id = $2 AND status = 'FULFILLED'", [p.id, v.id])).rows[0].id as string;
   const revenue = async () => 0 - (await pool.query("SELECT coalesce(sum(e.amount_kobo),0)::bigint AS b FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id WHERE a.code = $1", [`TICKET_REVENUE:${v.id}`])).rows[0].b;
@@ -865,7 +872,8 @@ test("refunds and cancelled cycles: two people, original payment only, prizes fo
     const o = ok(await api("GET", "/v1/orders", { token: p.token })).orders[0];
     assert.equal(o.status, "REFUNDED"); assert.equal(o.refund_reason, "CYCLE_VOID");
   }
-  // Instant prizes already revealed are honoured; unscratched cards can no longer be revealed.
+  // Instant prizes already revealed are honoured — accepted for the winner even though they never tapped Accept;
+  // unscratched cards can no longer be revealed.
   assert.equal((await wallet(p1)).balanceKobo, w1);
   fails(await api("POST", `/v1/tickets/${p1Unscratched.id}/reveal`, { token: p1.token }), 409, "CARD_CANCELLED");
   // The payment that arrives after cancellation is refunded automatically.
@@ -1623,4 +1631,47 @@ test("pop-ups, prize pictures and live activity: two people for any announcement
   const act = ok(await api("GET", `/v1/cycles/${cycleA.id}/activity`));
   assert.equal(typeof act.soldLastHour, "number");
   assert.ok(act.recentWins.every((w: any) => Object.keys(w).sort().join() === "at,cashKobo"));
+});
+
+test("accepting instant prizes: the player taps Accept to move a prize into the wallet, once; prizes left waiting are accepted for them when the season closes", async () => {
+  const { revealClosedCycles } = await import("../src/modules/tickets.ts");
+  const policy = config.policy!;
+  config.policy = { ...POLICY, prizeShareBp: 10_000, instantShareBp: 9_100 }; // 10 of 11 cards win, so wins are certain
+  const ft = admins.fulfilment!.token;
+  const ring = ok(await api("POST", "/v1/admin/skus", { token: ft, body: { name: "Key ring B", advertisedValueKobo: 10_000, serialised: true } })).id;
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId: ring, supplierId, warehouseId, poReference: "PO-ACC", serialNumbers: ["SN-ACC-1", "SN-ACC-2"], acquisitionCostKobo: 5_000, landedCostKobo: 6_000 } }));
+  const cyc = await openCycle({ total: 11, closeInMs: 3000, cap: 11, name: "Accept check", priceKobo: 50_000, escrowKobo: 500_000, tiers: [
+    { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 10 },
+    { stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Key ring B", skuId: ring, quantity: 2, drawOrder: 1 }] });
+  config.policy = policy;
+  const p = await newPlayer(), other = await newPlayer();
+  await buy(p, cyc.id, 4);
+  const mine = ok(await api("GET", `/v1/tickets?cycleId=${cyc.id}`, { token: p.token })).tickets;
+  const results = [];
+  for (const t of mine.slice(0, 3)) results.push(ok(await api("POST", `/v1/tickets/${t.id}/reveal`, { token: p.token })).ticket);
+  const win = results.find((t) => t.result.cashKobo)!, lose = results.find((t) => !t.result.cashKobo);
+  const wallet = async () => ok(await api("GET", "/v1/wallet", { token: p.token })).balanceKobo;
+  assert.equal(await wallet(), 0, "revealing does not pay");
+
+  fails(await api("POST", `/v1/tickets/${win.id}/accept`, { token: other.token }), 404, "NOT_FOUND");
+  if (lose) fails(await api("POST", `/v1/tickets/${lose.id}/accept`, { token: p.token }), 409, "NO_PRIZE");
+  fails(await api("POST", `/v1/tickets/${mine[3].id}/accept`, { token: p.token }), 409, "NO_PRIZE"); // not scratched yet
+  const twice = await Promise.all([1, 2, 3].map(() => api("POST", `/v1/tickets/${win.id}/accept`, { token: p.token })));
+  assert.equal(twice.reduce((s, r) => s + ok(r).acceptedKobo, 0), 50_000, "accepted once, however often it is tapped");
+  assert.ok(ok(twice[0]!).ticket.result.acceptedAt);
+  assert.equal(await wallet(), 50_000);
+  await assert.rejects(pool.query("UPDATE tickets SET prize_accepted_at = NULL WHERE id = $1", [win.id]), /cannot be accepted again or altered/);
+  if (lose) await assert.rejects(pool.query("UPDATE tickets SET prize_accepted_at = now() WHERE id = $1", [lose.id]), /only a revealed winning card/);
+
+  // The season closes: the other revealed wins and the unscratched card are settled for the player.
+  const waitingWins = results.filter((t) => t.result.cashKobo).length - 1;
+  await sleep(Math.max(0, cyc.closeAt - Date.now()) + 200);
+  await closeDueCycles(ctx);
+  await revealClosedCycles(ctx);
+  const after = ok(await api("GET", `/v1/tickets?cycleId=${cyc.id}`, { token: p.token })).tickets;
+  assert.ok(after.every((t: any) => t.result && (!t.result.cashKobo || t.result.acceptedAt)), "every win accepted");
+  const total = after.reduce((s: number, t: any) => s + t.result.cashKobo, 0);
+  assert.equal(await wallet(), total);
+  assert.ok(total >= 50_000 * (1 + waitingWins));
+  assert.ok((await pool.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'ticket.prize_accepted' AND details->>'automatic' = 'true' AND entity_id = ANY($1)", [after.map((t: any) => t.id)])).rows[0].n >= waitingWins);
 });

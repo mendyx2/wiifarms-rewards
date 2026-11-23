@@ -227,11 +227,15 @@ async function home() {
 
   // A winner is told straight away, whichever cycle the prize came from.
   const waiting = state.me ? (await api.get("/v1/claims")).claims.filter((p) => p.status === "ENTITLED").length : 0;
+  const toAcceptKobo = state.me ? (await api.get("/v1/tickets")).tickets
+    .filter((t) => t.status === "REVEALED" && t.result?.cashKobo && !t.result.acceptedAt).reduce((s, t) => s + t.result.cashKobo, 0) : 0;
   const activity = c.status === "OPEN" ? await api.get(`/v1/cycles/${c.id}/activity`).catch(() => null) : null;
   const inv = await myInvite();
   setTimeout(() => { if (location.hash === "" || location.hash === "#/home" || location.hash === "#/") popups(c).catch(() => {}); }, 400);
   const nodes = [
     langSwitch(),
+    toAcceptKobo ? el("a", { class: "btn gold", href: "#/cards" }, `🎉 You have ${naira(toAcceptKobo)} in winnings to accept`) : null,
+    toAcceptKobo ? el("p") : null,
     waiting ? el("a", { class: "btn gold", href: "#/wallet" }, `🎉 You have ${plural(waiting, "prize")} to claim`) : null,
     waiting ? el("p") : null,
     el("div", { class: "hero" },
@@ -479,8 +483,18 @@ async function cards() {
   // Every card the player holds, in every cycle, so nothing is hidden when a new cycle opens.
   const tickets = (await api.get("/v1/tickets")).tickets;
   const waiting = tickets.filter((t) => !t.result);
+  const toAccept = tickets.filter((t) => t.status === "REVEALED" && t.result?.cashKobo && !t.result.acceptedAt);
+  const toAcceptKobo = toAccept.reduce((s, t) => s + t.result.cashKobo, 0);
   const nodes = [el("h1", {}, "My cards"),
     el("p", { class: "muted" }, tickets.length ? `${plural(tickets.length, "card")} · ${waiting.length} to scratch` : "You have no cards yet.")];
+  if (toAccept.length) {
+    nodes.push(el("button", { class: "btn gold accept", onclick: action(async () => {
+      const r = await api.post("/v1/tickets/accept-all");
+      toast(`${naira(r.acceptedKobo)} added to your wallet.`);
+      await loadMe();
+      render();
+    }) }, `Accept all winnings (${naira(toAcceptKobo)})`), el("p"));
+  }
   if (waiting.length > 1) {
     nodes.push(el("p", {}, el("button", { class: "btn small ghost", onclick: action(async () => {
       for (const t of waiting) await api.post(`/v1/tickets/${t.id}/reveal`);
@@ -500,6 +514,7 @@ async function cards() {
       return el("a", { class: "ticket" + (t.result ? (cash ? " win" : " done") : ""), href: "#/card/" + t.id },
         el("code", {}, t.serial),
         el("b", {}, t.result ? (cash ? "Won " + naira(cash) : "No instant win") : "Tap to scratch"),
+        cash && !t.result.acceptedAt ? el("span", { class: "to-accept" }, "Tap to accept") : null,
         el("span", {}, "In final draw ✓"));
     })));
   }
@@ -507,9 +522,10 @@ async function cards() {
   return nodes;
 }
 
-function resultNodes(cashKobo, demo) {
+function resultNodes(cashKobo, demo, accepted = false) {
   return cashKobo
-    ? [el("div", { class: "muted" }, "You won"), el("div", { class: "big" }, naira(cashKobo)), el("div", { class: "muted" }, demo ? "Demo only — nothing is paid" : "Added to your winnings")]
+    ? [el("div", { class: "muted" }, "You won"), el("div", { class: "big" }, naira(cashKobo)),
+       el("div", { class: "muted" }, demo ? "Demo only — nothing is paid" : accepted ? "Added to your wallet" : "Tap Accept to add it to your wallet")]
     : [el("div", { class: "big none" }, "No instant win"), el("div", { class: "muted" }, demo ? "Demo card" : "Still in the final draw")];
 }
 
@@ -533,17 +549,27 @@ async function card(id) {
   // answers with the same result every time and credits a prize only once.
   const disclose = async () => {
     revealed = await api.post(`/v1/tickets/${id}/reveal`);
-    result.replaceChildren(...resultNodes(revealed.ticket.result.cashKobo, false));
+    result.replaceChildren(...resultNodes(revealed.ticket.result.cashKobo, false, Boolean(revealed.ticket.result.acceptedAt)));
   };
   const showAfter = async () => {
     revealBtn.hidden = true;
     const cash = revealed.ticket.result.cashKobo;
     if (cash && !ticket.result) { navigator.vibrate?.(60); confetti(); toast("You won " + naira(cash) + "!"); }
     const inv = cash ? await myInvite() : null;
+    // Accept moves the prize into the wallet. (If the player never taps it, it is accepted for them when the season closes.)
+    const accept = cash && !revealed.ticket.result.acceptedAt ? el("button", { class: "btn gold accept", onclick: action(async () => {
+      const r = await api.post(`/v1/tickets/${id}/accept`);
+      revealed.ticket = r.ticket;
+      result.replaceChildren(...resultNodes(cash, false, true));
+      accept.remove();
+      toast(`${naira(cash)} added to your wallet.`);
+      await loadMe();
+    }) }, `Accept ${naira(cash)}`) : null;
     // Checked on this phone against the fingerprint from the public cycle page.
     const verified = await verifyTicket(revealed.proof, cycle.commitment.ticket_merkle_root).catch(() => false);
     const next = tickets.find((t) => !t.result && t.id !== id);
     after.replaceChildren(
+      accept,
       el("div", { class: "entered" }, el("span", { class: "tick" }, "✓"),
         el("div", {}, el("b", {}, "Entered in the final draw"), el("br"), el("span", { class: "muted" }, when(cycle.draw_at) + " · this card is in, win or lose"))),
       el("div", { class: "entered" }, el("span", { class: "tick" + (verified ? "" : " no") }, verified ? "✓" : "!"),
@@ -579,7 +605,8 @@ function demo() {
   const cash = [0, 0, 0, 50000, 0, 100000, 0, 0][Math.floor(Math.random() * 8)];
   const result = el("div", {}, ...resultNodes(cash, true)), after = el("div", { hidden: true });
   const surface = scratchSurface(result, { onStart: async () => {}, onDone: () => { after.hidden = false; } });
-  after.append(el("p"), el("div", { class: "note" }, "That is how it works. On a real card the result is fixed before you buy, and your phone checks it against the published fingerprint."),
+  const accept = cash ? el("button", { class: "btn gold accept", type: "button", onclick: () => { accept.remove(); toast("Demo only — nothing is paid"); } }, `Accept ${naira(cash)}`) : null;
+  after.append(el("p"), accept, el("div", { class: "note" }, "That is how it works. On a real card the result is fixed before you buy, and your phone checks it against the published fingerprint."),
     el("div", { class: "stack" }, el("a", { class: "btn gold", href: "#/" + nextStep() }, "Buy scratch cards"), el("button", { class: "btn ghost", onclick: () => render() }, "Try another demo card")));
   return [el("h1", {}, "Demo card"), el("div", { class: "note warn" }, "Practice only. Demo cards are free, are not entered in the draw and cannot win anything."),
     surface.wrap, el("p"), el("button", { class: "btn ghost", onclick: () => surface.revealNow() }, "Reveal now"), after];

@@ -49,7 +49,7 @@ export function firstWavePlan(total: number): {
   return { instant, draw };
 }
 
-export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number; closeInMinutes?: number } = {}): Promise<{ cycleId: string; admins: Record<string, Admin> }> {
+export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number; closeInMinutes?: number; instant?: [number, number][] } = {}): Promise<{ cycleId: string; admins: Record<string, Admin> }> {
   const people: Record<string, Role> = { manager: "CYCLE_MANAGER", operations: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", support: "SUPPORT", compliance: "COMPLIANCE", auditor: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
   const admins: Record<string, Admin> = {};
   for (const name of Object.keys(people)) {
@@ -85,6 +85,7 @@ export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number
     name: opts.name ?? "Harvest Cycle 1", ticketPriceKobo: TICKET_PRICE_KOBO, totalTickets: total, maxTicketsPerAccount: 200,
     salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: close, drawAt: close });
   const plan = firstWavePlan(total);
+  if (opts.instant) { plan.instant = opts.instant; plan.draw = []; } // a custom instant table (tests)
   for (const [cashKobo, quantity] of plan.instant) {
     await cycles.addPrizeTier(ctx, m, id, { stage: "INSTANT", kind: "CASH", title: `₦${(cashKobo / 100).toLocaleString("en-NG")}`, cashKobo, quantity });
   }

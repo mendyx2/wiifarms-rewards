@@ -264,6 +264,14 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     }
     return tickets.createOrder(ctx, actorOf(u.id, req), u, req.body.cycleId, req.body.quantity, idemKey(req), payWith);
   });
+  app.post<{ Params: { id: string } }>("/v1/tickets/:id/accept", { schema: idParam }, async (req) => {
+    const u = await player(req);
+    return tickets.acceptPrize(ctx, actorOf(u.id, req), u.id, req.params.id);
+  });
+  app.post("/v1/tickets/accept-all", async (req) => {
+    const u = await player(req);
+    return tickets.acceptAllPrizes(ctx, actorOf(u.id, req), u.id);
+  });
   app.get("/v1/me/referrals", async (req) => referrals.referralSummary(ctx, (await player(req)).id));
   app.post<{ Body: { paymentRef: string } }>("/v1/simulated-gateway/pay", { schema: body({ paymentRef: str(64) }) }, async (req) => {
     const u = await player(req);

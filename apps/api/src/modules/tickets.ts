@@ -283,12 +283,15 @@ export interface TicketView {
   id: string; cycleId: string; serial: string; status: string; soldAt: string | null;
   enteredInFinalDraw: boolean;
   /** Present only after the card has been revealed. */
-  result?: { outcome: string; cashKobo: number; revealedAt: string };
+  result?: { outcome: string; cashKobo: number; revealedAt: string; acceptedAt?: string | null };
 }
 
-function view(t: { id: string; cycle_id: string; serial: string; status: string; sold_at: Date | null; revealed_at: Date | null; revealed_outcome: string | null }): TicketView {
+function view(t: { id: string; cycle_id: string; serial: string; status: string; sold_at: Date | null; revealed_at: Date | null; revealed_outcome: string | null; prize_accepted_at?: Date | null }): TicketView {
   const v: TicketView = { id: t.id, cycleId: t.cycle_id, serial: t.serial, status: t.status, soldAt: t.sold_at?.toISOString() ?? null, enteredInFinalDraw: t.status !== "CANCELLED" };
-  if (t.revealed_at && t.revealed_outcome) v.result = { outcome: t.revealed_outcome, cashKobo: cashOf(t.revealed_outcome), revealedAt: t.revealed_at.toISOString() };
+  if (t.revealed_at && t.revealed_outcome) {
+    const cashKobo = cashOf(t.revealed_outcome);
+    v.result = { outcome: t.revealed_outcome, cashKobo, revealedAt: t.revealed_at.toISOString(), ...(cashKobo ? { acceptedAt: t.prize_accepted_at?.toISOString() ?? null } : {}) };
+  }
   return v;
 }
 
@@ -299,7 +302,7 @@ const cashOf = (outcome: string): number => {
 
 export async function listTickets(ctx: Ctx, userId: string, cycleId?: string): Promise<TicketView[]> {
   const r = await ctx.pool.query(
-    `SELECT id, cycle_id, serial, status, sold_at, revealed_at, revealed_outcome FROM tickets
+    `SELECT id, cycle_id, serial, status, sold_at, revealed_at, revealed_outcome, prize_accepted_at FROM tickets
      WHERE owner_id = $1 AND ($2::uuid IS NULL OR cycle_id = $2) ORDER BY sold_at DESC, id`, [userId, cycleId ?? null]);
   return r.rows.map(view);
 }
@@ -347,17 +350,9 @@ async function revealInTx(ctx: Ctx, db: Db, ticketId: string, actor: Actor, owne
     t.status = "REVEALED"; t.revealed_at = updated.rows[0]!.revealed_at; t.revealed_outcome = plain.o; t.revealed_salt = Buffer.from(plain.s, "hex");
 
     const cash = cashOf(plain.o);
-    if (cash > 0) {
-      const tier = await one<{ id: string }>(db, "SELECT id FROM prize_tiers WHERE cycle_id = $1 AND stage = 'INSTANT' AND outcome_code = $2", [t.cycle_id, plain.o]);
-      const cycle = await getCycle(db, t.cycle_id);
-      // The ledger reference and the unique claim are both keyed by the ticket: a second credit is impossible.
-      await post(db, { kind: "INSTANT_PRIZE", reference: `ticket:${t.id}:instant`, cycleId: t.cycle_id, debit: accounts.prizeExpense(t.cycle_id), credit: accounts.playerWinnings(t.owner_id), amountKobo: cash });
-      await db.query(
-        `INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at)
-         VALUES ($1, 'INSTANT', $2, $3, 'PAID', now() + make_interval(days => $4))`,
-        [t.id, tier!.id, t.owner_id, cycle.claim_window_days]);
-    }
     await audit(db, actor, "ticket.revealed", "ticket", t.id, { cycleId: t.cycle_id, instantCashKobo: cash });
+    // The player accepts the prize themselves; a card revealed by the system (after the season closes) is accepted at once.
+    if (cash > 0 && !ownerId) await acceptInTx(db, t.id, actor);
   }
 
   const tree = await treeFor(db, t.cycle_id);
@@ -376,6 +371,61 @@ async function unwrapCycleKey(ctx: Ctx, db: Db, cycleId: string): Promise<Buffer
   return ctx.keys.unwrap(secrets!.wrapped_data_key, cycleKeyContext(cycleId));
 }
 
+/**
+ * Moves a revealed instant prize into the winner's wallet, once. The ledger
+ * reference, the unique claim and the database rule on the card each make a
+ * second credit impossible. Returns the amount accepted (0 if already accepted).
+ */
+async function acceptInTx(db: Db, ticketId: string, actor: Actor, ownerId?: string): Promise<number> {
+  const t = await one<{ id: string; cycle_id: string; owner_id: string | null; status: string; revealed_outcome: string | null; prize_accepted_at: Date | null }>(
+    db, "SELECT id, cycle_id, owner_id, status, revealed_outcome, prize_accepted_at FROM tickets WHERE id = $1 FOR NO KEY UPDATE", [ticketId]);
+  if (!t || !t.owner_id || (ownerId && t.owner_id !== ownerId)) throw notFound("Card not found.");
+  if (t.status === "CANCELLED") throw conflict("CARD_CANCELLED", "This card was cancelled.");
+  const cash = t.revealed_outcome ? cashOf(t.revealed_outcome) : 0;
+  if (t.status !== "REVEALED" || !cash) throw conflict("NO_PRIZE", "This card has no prize to accept.");
+  if (t.prize_accepted_at) return 0;
+  const tier = await one<{ id: string }>(db, "SELECT id FROM prize_tiers WHERE cycle_id = $1 AND stage = 'INSTANT' AND outcome_code = $2", [t.cycle_id, t.revealed_outcome]);
+  const cycle = await getCycle(db, t.cycle_id);
+  await post(db, { kind: "INSTANT_PRIZE", reference: `ticket:${t.id}:instant`, cycleId: t.cycle_id, debit: accounts.prizeExpense(t.cycle_id), credit: accounts.playerWinnings(t.owner_id), amountKobo: cash });
+  await db.query(
+    `INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at)
+     VALUES ($1, 'INSTANT', $2, $3, 'PAID', now() + make_interval(days => $4))`,
+    [t.id, tier!.id, t.owner_id, cycle.claim_window_days]);
+  await db.query("UPDATE tickets SET prize_accepted_at = now() WHERE id = $1", [t.id]);
+  await audit(db, actor, "ticket.prize_accepted", "ticket", t.id, { cycleId: t.cycle_id, cashKobo: cash, automatic: !ownerId });
+  return cash;
+}
+
+/** The player accepts one revealed instant prize into their wallet. Safe to repeat. */
+export async function acceptPrize(ctx: Ctx, actor: Actor, userId: string, ticketId: string): Promise<{ acceptedKobo: number; ticket: TicketView }> {
+  return withTx(ctx.pool, async (db) => {
+    const acceptedKobo = await acceptInTx(db, ticketId, actor, userId);
+    const t = await one<Parameters<typeof view>[0]>(db, "SELECT id, cycle_id, serial, status, sold_at, revealed_at, revealed_outcome, prize_accepted_at FROM tickets WHERE id = $1", [ticketId]);
+    return { acceptedKobo, ticket: view(t!) };
+  });
+}
+
+/** The player accepts every revealed instant prize they have not yet accepted. */
+export async function acceptAllPrizes(ctx: Ctx, actor: Actor, userId: string): Promise<{ acceptedKobo: number; cards: number }> {
+  const waiting = await ctx.pool.query<{ id: string }>(
+    "SELECT id FROM tickets WHERE owner_id = $1 AND status = 'REVEALED' AND revealed_outcome LIKE 'CASH:%' AND prize_accepted_at IS NULL", [userId]);
+  let acceptedKobo = 0;
+  await withTx(ctx.pool, async (db) => { for (const { id } of waiting.rows) acceptedKobo += await acceptInTx(db, id, actor, userId); });
+  return { acceptedKobo, cards: waiting.rows.length };
+}
+
+/**
+ * Accepts, for their winners, every revealed prize still waiting in a cycle:
+ * run when the season closes and before it is cancelled, so no prize is lost
+ * by not tapping Accept. In the caller's transaction.
+ */
+export async function acceptWaitingInTx(db: Db, cycleId: string): Promise<number> {
+  const waiting = await db.query<{ id: string }>(
+    "SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'REVEALED' AND revealed_outcome LIKE 'CASH:%' AND prize_accepted_at IS NULL", [cycleId]);
+  for (const { id } of waiting.rows) await acceptInTx(db, id, SYSTEM);
+  return waiting.rows.length;
+}
+
 export async function revealTicket(ctx: Ctx, actor: Actor, userId: string, ticketId: string): Promise<RevealResult> {
   return withTx(ctx.pool, (db) => revealInTx(ctx, db, ticketId, actor, userId));
 }
@@ -391,7 +441,8 @@ export async function revealClosedCycles(ctx: Ctx): Promise<number> {
   revealing = true;
   try {
     const due = await ctx.pool.query<{ id: string }>(
-      "SELECT c.id FROM cycles c WHERE c.status = 'CLOSED' AND EXISTS (SELECT 1 FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'SOLD')");
+      `SELECT c.id FROM cycles c WHERE c.status = 'CLOSED' AND EXISTS (SELECT 1 FROM tickets t WHERE t.cycle_id = c.id
+         AND (t.status = 'SOLD' OR (t.revealed_outcome LIKE 'CASH:%' AND t.prize_accepted_at IS NULL)))`);
     let n = 0;
     for (const { id } of due.rows) n += await autoRevealCycle(ctx, id);
     return n;
@@ -404,6 +455,8 @@ export async function revealClosedCycles(ctx: Ctx): Promise<number> {
 export async function autoRevealCycle(ctx: Ctx, cycleId: string): Promise<number> {
   const cycle = await getCycle(ctx.pool, cycleId);
   if (!["CLOSED", "DRAWN", "SETTLING"].includes(cycle.status)) throw conflict("NOT_CLOSED", "Cards are auto-revealed only after the cycle closes.");
+  // Prizes revealed by players but not yet accepted are accepted for them first.
+  await withTx(ctx.pool, (db) => acceptWaitingInTx(db, cycleId));
   const pending = await ctx.pool.query<{ id: string }>("SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'SOLD' ORDER BY leaf_index", [cycleId]);
   // In batches: one key-service call and one transaction per 500 cards, not per card.
   const BATCH = 500;

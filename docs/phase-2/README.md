@@ -221,6 +221,7 @@ New **Access & licences** page in the admin app.
 | `installable.test.ts` | Install icons and manifest; nothing personal kept on the phone; offline screen in English and Hausa; recovery when back online; the staff app never served offline; install prompt and *Not now* |
 | `wallet.test.ts` | An invite link fills in the code at sign-up; the friend's purchase pays the inviter 2.5%; the wallet buys cards only with the right PIN |
 | `engage.test.ts` | Invite screen and share links carry the link, code and "18+ only"; live activity and a ticking countdown; a true sales milestone shown once; achievements; link previews; pop-ups appear only after a second person approves, once, in Hausa for Hausa readers; prize pictures accepted before sales open, refused after, and fake image files refused |
+| `accept.test.ts` | A winning card scratched with a finger shows the prize but pays nothing until Accept; Accept adds it to the wallet once; returning to the card shows it accepted |
 | `operations.test.ts` | Refund requested by Compliance and approved by Finance, seen by the player; cycle cancellation requested by a manager, approved by Compliance, seen by players; reconciliation against a statement, sign-off with an explanation, expenses recorded and reversed, spreadsheet with formulas neutralised; auditors see but cannot act; staff access granted by two security administrators, disabling immediate; a licence recorded by one person and verified by another |
 
 The whole browser suite takes about a minute and passed four runs in a row, one with the processor saturated.
@@ -298,6 +299,11 @@ Built from management's instructions of 23 November 2026.
 - **Every player has an invite code from sign-up; there is no separate affiliate sign-up.** Invite links look like `/r/ABC2345` and fill the code in automatically; it can also be typed.
 - **The referrer earns 2.5% of every card purchase their invited friends make** (₦12.50 per ₦500 card), paid straight into their wallet (`WR_REFERRAL_BP`). **It is paid from the operator's 50%, never from prize money**: it is booked as a cost of the season (`REFERRAL_EXPENSE`), and the finance reports show it as its own line, with the season's contribution after commissions.
 - **Safeguards:** who referred an account is fixed when it is opened and cannot be changed, even in the database. One level only — no earnings from people your friends invite. If a purchase is refunded (or the season cancelled) its commission is taken back automatically; a referrer who had already withdrawn it shows as owing, and Compliance is alerted. People on the staff and exclusion register earn nothing. Referrers never see who their friends are — only counts and amounts.
+
+### Digital cards: scratch, then Accept
+- Every card is digital. The player scratches it by swiping a finger across it on their phone (or taps *Reveal now*); the result underneath was fixed before sale and the phone checks it against the published fingerprint.
+- A winning card shows **Accept ₦…**. Tapping it moves the prize into the wallet, once only (repeat taps, retries and two phones at once still pay once; the database refuses a second acceptance or an acceptance on a losing card). *My cards* has **Accept all winnings**, and the home screen reminds the player of winnings waiting.
+- **No prize is lost by not tapping.** Prizes still waiting are accepted for the player when the season closes, when it is cancelled (revealed prizes are honoured), and for cards revealed automatically after close. A refunded purchase forfeits its unaccepted prizes, as it forfeits accepted ones.
 
 ### The wallet
 - One wallet per player holds **winnings and referral earnings**, in the double-entry ledger. It can be **withdrawn from ₦500** to a bank account in the player's own verified name, with the PIN (as before), **or spent on cards**.

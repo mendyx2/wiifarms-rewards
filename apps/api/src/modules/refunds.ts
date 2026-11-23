@@ -8,6 +8,7 @@ import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { getCycle } from "./cycles.ts";
 import { winningsBalance } from "./wallet.ts";
 import { reverseReferral } from "./referrals.ts";
+import { acceptWaitingInTx } from "./tickets.ts";
 
 /**
  * Refunds and cancelled cycles.
@@ -251,7 +252,9 @@ export async function decideVoid(ctx: Ctx, admin: Admin, cycleId: string, approv
       await db.query("UPDATE orders SET status = 'REFUNDED' WHERE id = $1", [o.id]);
       refundedKobo += o.amount_kobo;
     }
-    // Unscratched cards can no longer be revealed; prizes already revealed are kept by their winners.
+    // Prizes already revealed are kept by their winners: any not yet accepted are accepted for them now.
+    await acceptWaitingInTx(db, cycleId);
+    // Unscratched cards can no longer be revealed.
     const cancelled = await db.query("UPDATE tickets SET status = 'CANCELLED' WHERE cycle_id = $1 AND status IN ('SOLD','REVEALED')", [cycleId]);
     const released = await db.query("UPDATE stock_units SET status = 'IN_STOCK', reserved_cycle_id = NULL WHERE reserved_cycle_id = $1 AND status = 'RESERVED'", [cycleId]).catch(dbRule);
 

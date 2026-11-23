@@ -67,6 +67,14 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   await p.click("text=Reveal all");
   await p.waitForFunction(() => document.querySelectorAll(".ticket.done, .ticket.win").length === 10);
   const wins = await p.$$eval(".ticket.win b", (els) => els.map((e) => Number(e.textContent!.replace(/[^\d]/g, ""))));
+  // Revealed prizes wait for the player to accept them into the wallet.
+  if (wins.length) {
+    assert.equal(await p.locator(".ticket.win .to-accept").count(), wins.length);
+    await p.click('button:has-text("Accept all winnings")');
+    await toast(p, /added to your wallet/);
+    await p.waitForSelector(".ticket.win");
+    assert.equal(await p.locator(".to-accept").count(), 0);
+  }
   await p.click("#tabs a[data-tab=wallet]");
   await p.waitForSelector(".balance");
   assert.equal(Number((await p.innerText(".balance")).replace(/[^\d]/g, "")), wins.reduce((a, b) => a + b, 0));
