@@ -93,7 +93,10 @@ export async function openCase(ctx: Ctx, admin: Admin, input: { winnerPhone: str
     await notify(db, { userId: winner.id, kind: "NOK_CASE_OPENED", urgent: true, link: "#/wallet", dedupeKey: `nok:${id}:opened`,
       title: "Someone has asked to claim your prizes",
       body: `Your next of kin has asked to claim your waiting prizes because we could not reach you. If you did not expect this, sign in or contact support within ${WAITING_DAYS} days and nothing will be passed on.`,
-      sms: `Your next of kin has asked to claim your waiting prizes. If you did not expect this, sign in to the app or contact support within ${WAITING_DAYS} days.` });
+      sms: `Your next of kin has asked to claim your waiting prizes. If you did not expect this, sign in to the app or contact support within ${WAITING_DAYS} days.`,
+      ha: { title: "Wani ya nemi karɓar kyaututtukanka",
+        body: `Magajinka ya nemi karɓar kyaututtukanka da ke jira saboda ba mu iya samun ka ba. Idan ba ka yi tsammanin haka ba, shiga manhajar ko ka tuntuɓi masu taimako cikin kwana ${WAITING_DAYS} kuma ba za a miƙa komai ba.`,
+        sms: `Magajinka ya nemi karɓar kyaututtukanka da ke jira. Idan ba ka yi tsammanin haka ba, shiga manhajar ko ka tuntuɓi masu taimako cikin kwana ${WAITING_DAYS}.` } });
     await audit(db, adminActor(admin), "nok.case_opened", "user", winner.id, { caseId: id, reason: input.reason, documents, claimant: claimant.id });
     return { id, decideFrom: new Date(r.rows[0]!.opened_at.getTime() + WAITING_DAYS * 864e5).toISOString() };
   });
@@ -139,11 +142,15 @@ export async function decideCase(ctx: Ctx, admin: Admin, caseId: string, approve
       await db.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1", [c.winner_user_id]);
       await db.query("UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL", [c.winner_user_id]);
     }
+    const whatHa = [moved.rows.length ? `kyauta ${moved.rows.length}` : "", balance > 0 ? `${naira(balance)} na kuɗin nasara` : ""].filter(Boolean).join(" da ");
     const what = [moved.rows.length ? `${moved.rows.length} prize${moved.rows.length === 1 ? "" : "s"}` : "", balance > 0 ? `${naira(balance)} in winnings` : ""].filter(Boolean).join(" and ");
     await notify(db, { userId: c.claimant_user_id, kind: "NOK_APPROVED", urgent: true, link: "#/wallet", dedupeKey: `nok:${c.id}:approved`,
       title: "Prizes passed to you as next of kin",
       body: `Your claim as next of kin was approved: ${what} ${moved.rows.length + (balance > 0 ? 1 : 0) === 1 ? "is" : "are"} now in your account. Complete each prize claim within ${CLAIMANT_DAYS} days.`,
-      sms: `Your claim as next of kin was approved: ${what} now in your account. Complete each prize claim in the app within ${CLAIMANT_DAYS} days.` });
+      sms: `Your claim as next of kin was approved: ${what} now in your account. Complete each prize claim in the app within ${CLAIMANT_DAYS} days.`,
+      ha: { title: "An ba ka kyaututtuka a matsayin magaji",
+        body: `An amince da buƙatarka a matsayin magaji: ${whatHa} yanzu suna cikin asusunka. Ka kammala karɓar kowace kyauta cikin kwana ${CLAIMANT_DAYS}.`,
+        sms: `An amince da buƙatarka a matsayin magaji: ${whatHa} yanzu suna cikin asusunka. Ka kammala karɓar kowace kyauta a manhajar cikin kwana ${CLAIMANT_DAYS}.` } });
     await audit(db, adminActor(admin), "nok.case_approved", "user", c.winner_user_id, { caseId: c.id, ...transferred });
     return { status: "APPROVED", transferred };
   });

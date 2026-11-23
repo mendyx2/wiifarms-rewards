@@ -116,7 +116,9 @@ export async function staffReply(ctx: Ctx, admin: Admin, ticketId: string, input
     // The text only says a reply is waiting: the reply itself stays in the app, where only the player can read it.
     await notify(db, { userId: t.user_id, kind: "SUPPORT_REPLY", link: "#/support", dedupeKey: `support:${ticketId}:${n}`,
       title: `Reply about "${t.subject}"`, body: "Support has replied to your request. Open it to read the reply.",
-      sms: "Support has replied to your request. Open the app to read it." });
+      sms: "Support has replied to your request. Open the app to read it.",
+      ha: { title: `Amsa game da "${t.subject}"`, body: "Masu taimako sun amsa buƙatarka. Buɗe ta don karanta amsar.",
+        sms: "Masu taimako sun amsa buƙatarka. Buɗe manhajar don karanta ta." } });
     await audit(db, adminActor(admin), "support.staff_replied", "support_ticket", ticketId, { closed: Boolean(input.close) });
     return { status };
   });
@@ -199,7 +201,9 @@ export async function lockPlayer(ctx: Ctx, admin: Admin, userId: string, reason:
     await db.query("UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL", [userId]); // signed out everywhere at once
     await notify(db, { userId, kind: "SECURITY", urgent: true, dedupeKey: `lock:${userId}:${Date.now()}`,
       title: "Your account has been locked", body: "We locked your account to protect it. Contact support to unlock it.",
-      sms: "We have locked your account to protect it. Contact support to unlock it." });
+      sms: "We have locked your account to protect it. Contact support to unlock it.",
+      ha: { title: "An kulle asusunka", body: "Mun kulle asusunka don kare shi. Tuntuɓi masu taimako don buɗe shi.",
+        sms: "Mun kulle asusunka don kare shi. Tuntuɓi masu taimako don buɗe shi." } });
     await audit(db, adminActor(admin), "support.player_locked", "user", userId, { reason: why });
     return { locked: true };
   });

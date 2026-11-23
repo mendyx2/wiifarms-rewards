@@ -251,7 +251,12 @@ export async function dispatchClaim(ctx: Ctx, admin: Admin, claimId: string, inp
     await notify(db, { userId: who.user_id, kind: "PRIZE_DISPATCHED", urgent: true, link: "#/wallet", dedupeKey: `claim:${claimId}:dispatched`,
       title: row.method === "DELIVERY" ? `Your ${who.title} is on its way` : `Your ${who.title} is ready to collect`,
       body: "Your handover code is in the app. Give it only when the prize is in your hands.",
-      sms: `Your ${who.title} is ${row.method === "DELIVERY" ? "on its way" : "ready to collect"}. Your handover code is in the app: give it only when the prize is in your hands.` });
+      sms: `Your ${who.title} is ${row.method === "DELIVERY" ? "on its way" : "ready to collect"}. Your handover code is in the app: give it only when the prize is in your hands.`,
+      ha: {
+        title: row.method === "DELIVERY" ? `${who.title} naka yana kan hanya` : `${who.title} naka yana shirye don ka zo ka karɓa`,
+        body: "Lambar karɓa naka tana cikin manhajar. Ka ba da ita ne kawai idan kyautar tana hannunka.",
+        sms: `${who.title} naka ${row.method === "DELIVERY" ? "yana kan hanya" : "yana shirye don ka zo ka karɓa"}. Lambar karɓa tana cikin manhajar: ka ba da ita ne kawai idan kyautar tana hannunka.`,
+      } });
     return { status: "DISPATCHED" };
   });
 }
@@ -293,7 +298,8 @@ export async function confirmHandover(ctx: Ctx, admin: Admin, claimId: string, i
     await audit(db, adminActor(admin), "claim.handed_over", "prize_claim", claimId, { photoRef: input.photoRef });
     const who = (await one<{ user_id: string; title: string }>(db, "SELECT pc.user_id, pt.title FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id WHERE pc.id = $1", [claimId]))!;
     await notify(db, { userId: who.user_id, kind: "PRIZE_DELIVERED", link: "#/wallet", dedupeKey: `claim:${claimId}:delivered`,
-      title: `${who.title} received`, body: "Your prize has been handed over and recorded. Enjoy it!" });
+      title: `${who.title} received`, body: "Your prize has been handed over and recorded. Enjoy it!",
+      ha: { title: `An karɓi ${who.title}`, body: "An miƙa maka kyautarka kuma an rubuta. Ka ji daɗinta!" } });
     return { status: "DELIVERED" };
   });
 }
@@ -301,7 +307,8 @@ export async function confirmHandover(ctx: Ctx, admin: Admin, claimId: string, i
 export async function notifyExpired(db: Db, c: { id: string; user_id: string; prize_tier_id: string }): Promise<void> {
   const title = (await one<{ title: string }>(db, "SELECT title FROM prize_tiers WHERE id = $1", [c.prize_tier_id]))!.title;
   await notify(db, { userId: c.user_id, kind: "CLAIM_EXPIRED", link: "#/wallet", dedupeKey: `claim:${c.id}:expired`,
-    title: "Claim period ended", body: `The claim period for your ${title} has ended, so it is no longer available, as the published rules say.` });
+    title: "Claim period ended", body: `The claim period for your ${title} has ended, so it is no longer available, as the published rules say.`,
+    ha: { title: "Lokacin karɓa ya ƙare", body: `Lokacin karɓar ${title} naka ya ƙare, don haka babu shi yanzu, kamar yadda dokokin da aka wallafa suka faɗa.` } });
 }
 
 /** Run periodically: closes claims whose published claim window has ended without the winner coming forward. */

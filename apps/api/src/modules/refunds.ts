@@ -159,7 +159,10 @@ export async function decideRefund(ctx: Ctx, admin: Admin, refundId: string, app
     await notify(db, { userId: order!.user_id, kind: "REFUND", urgent: true, link: "#/me", dedupeKey: `refund:${rf.id}`,
       title: `${naira(rf.amount_kobo)} refunded`,
       body: `A purchase of yours was refunded (${naira(rf.amount_kobo)}) to the payment it came from, and its cards were cancelled.` + (forfeitedKobo ? ` Prizes won on those cards (${naira(forfeitedKobo)}) are no longer yours.` : "") + " Contact support if you have questions.",
-      sms: `A purchase of ${naira(rf.amount_kobo)} was refunded to the payment it came from and its cards were cancelled. Details are in the app.` });
+      sms: `A purchase of ${naira(rf.amount_kobo)} was refunded to the payment it came from and its cards were cancelled. Details are in the app.`,
+      ha: { title: `An mayar da ${naira(rf.amount_kobo)}`,
+        body: `An mayar maka da kuɗin wata sayayyarka (${naira(rf.amount_kobo)}) ta hanyar da aka biya, kuma an soke katunanta.` + (forfeitedKobo ? ` Kyaututtukan da waɗannan katunan suka ci (${naira(forfeitedKobo)}) ba naka ba ne yanzu.` : "") + " Tuntuɓi masu taimako idan kana da tambayoyi.",
+        sms: `An mayar da sayayyar ${naira(rf.amount_kobo)} ta hanyar da aka biya kuma an soke katunanta. Bayani yana cikin manhajar.` } });
     return { status: "CONFIRMED" };
   });
 }
@@ -226,7 +229,10 @@ export async function decideVoid(ctx: Ctx, admin: Admin, cycleId: string, approv
       const owner = (await one<{ user_id: string }>(db, "SELECT user_id FROM orders WHERE id = $1", [o.id]))!.user_id;
       await notify(db, { userId: owner, kind: "CYCLE_CANCELLED", urgent: true, link: "#/me", dedupeKey: `void:${cycleId}:${o.id}`,
         title: `${cycleName} was cancelled`, body: `${cycleName} was cancelled. Your purchase of ${naira(o.amount_kobo)} has been refunded in full to the payment it came from. Instant prizes you already revealed are yours to keep.`,
-        sms: `${cycleName} was cancelled. Your ${naira(o.amount_kobo)} has been refunded in full. Instant prizes already revealed are yours to keep.` });
+        sms: `${cycleName} was cancelled. Your ${naira(o.amount_kobo)} has been refunded in full. Instant prizes already revealed are yours to keep.`,
+        ha: { title: `An soke ${cycleName}`,
+          body: `An soke ${cycleName}. An mayar maka da sayayyarka ta ${naira(o.amount_kobo)} gaba ɗaya ta hanyar da aka biya. Kyaututtukan nan take da ka riga ka bayyana naka ne.`,
+          sms: `An soke ${cycleName}. An mayar maka da ${naira(o.amount_kobo)} naka gaba ɗaya. Kyaututtukan nan take da aka riga aka bayyana naka ne.` } });
       const r = await db.query<{ id: string }>(
         `INSERT INTO refunds (payment_id, order_id, amount_kobo, reason, status, requested_by, approved_by, decided_at, provider_ref)
          VALUES ($1, $2, $3, 'CYCLE_VOID', 'CONFIRMED', $4, $5, now(), $6) RETURNING id`,

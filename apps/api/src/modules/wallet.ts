@@ -35,7 +35,9 @@ async function send(db: Db, payoutId: string, amountKobo: number): Promise<void>
   const p = await db.query<{ user_id: string }>("UPDATE payouts SET status = 'CONFIRMED', provider = 'SIMULATED', provider_ref = $2 WHERE id = $1 RETURNING user_id", [payoutId, `SIMPO-${payoutId}`]);
   await notify(db, { userId: p.rows[0]!.user_id, kind: "PAYOUT_SENT", urgent: true, link: "#/wallet", dedupeKey: `payout:${payoutId}:sent`,
     title: `${naira(amountKobo)} sent to your bank`, body: `Your withdrawal of ${naira(amountKobo)} has been sent to your bank account.`,
-    sms: `Your withdrawal of ${naira(amountKobo)} has been sent to your bank account.` });
+    sms: `Your withdrawal of ${naira(amountKobo)} has been sent to your bank account.`,
+    ha: { title: `An tura ${naira(amountKobo)} zuwa bankinka`, body: `An tura kuɗin da ka cire, ${naira(amountKobo)}, zuwa asusun bankinka.`,
+      sms: `An tura kuɗin da ka cire, ${naira(amountKobo)}, zuwa asusun bankinka.` } });
   await post(db, { kind: "PAYOUT", reference: `payout:${payoutId}:sent`, debit: accounts.payoutsInTransit(), credit: accounts.gatewayClearing(), amountKobo });
 }
 
@@ -75,7 +77,8 @@ export async function requestPayout(ctx: Ctx, actor: Actor, user: User, input: {
     await audit(db, actor, "payout.requested", "payout", id, { amountKobo: input.amountKobo, requiresApproval, flagged });
     if (requiresApproval) {
       await notify(db, { userId: user.id, kind: "PAYOUT_PENDING", link: "#/wallet", dedupeKey: `payout:${id}:pending`,
-        title: "Withdrawal being checked", body: `Your withdrawal of ${naira(input.amountKobo)} is being checked by a second person, as we do for larger amounts. We will tell you when it is sent.` });
+        title: "Withdrawal being checked", body: `Your withdrawal of ${naira(input.amountKobo)} is being checked by a second person, as we do for larger amounts. We will tell you when it is sent.`,
+        ha: { title: "Ana duba buƙatar cirewa", body: `Wani mutum na biyu yana duba cirewarka ta ${naira(input.amountKobo)}, kamar yadda muke yi wa manyan kuɗi. Za mu sanar da kai idan an tura.` } });
     }
     if (requiresApproval) return { id, status: "PENDING_APPROVAL" };
     await send(db, id, input.amountKobo);
@@ -106,7 +109,9 @@ export async function decidePayout(ctx: Ctx, admin: Admin, payoutId: string, app
       await audit(db, adminActor(admin), "payout.rejected", "payout", p.id, { reason });
       await notify(db, { userId: p.user_id, kind: "PAYOUT_REJECTED", urgent: true, link: "#/wallet", dedupeKey: `payout:${p.id}:rejected`,
         title: "Withdrawal not sent", body: `Your withdrawal of ${naira(p.amount_kobo)} was not sent and the money is back in your winnings. Please contact support for the reason.`,
-        sms: `Your withdrawal of ${naira(p.amount_kobo)} was not sent; the money is back in your winnings. Contact support for details.` });
+        sms: `Your withdrawal of ${naira(p.amount_kobo)} was not sent; the money is back in your winnings. Contact support for details.`,
+        ha: { title: "Ba a tura kuɗin da ka cire ba", body: `Ba a tura cirewarka ta ${naira(p.amount_kobo)} ba kuma kuɗin sun dawo cikin kuɗin nasararka. Da fatan a tuntuɓi masu taimako don sanin dalili.`,
+          sms: `Ba a tura cirewarka ta ${naira(p.amount_kobo)} ba; kuɗin sun dawo cikin kuɗin nasararka. Tuntuɓi masu taimako don bayani.` } });
       return { status: "REJECTED" };
     }
     await db.query("UPDATE payouts SET status = 'APPROVED', approved_by = $2 WHERE id = $1", [p.id, admin.id]);

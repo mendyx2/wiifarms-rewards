@@ -126,12 +126,22 @@ export async function executeDraw(ctx: Ctx, admin: Admin, cycleId: string): Prom
         sms: tier.kind === "CASH"
           ? `Congratulations! Card ${w.serial} won ${title} in the ${cycle.name} draw. It is in your winnings in the app.`
           : `Congratulations! Card ${w.serial} won ${title} in the ${cycle.name} draw. Claim it in the app within ${cycle.claim_window_days} days.`,
+        ha: {
+          title: `Ka ci ${title}!`,
+          body: tier.kind === "CASH"
+            ? `Katinka ${w.serial} ya ci ${title} a zaɓen ƙarshe na ${cycle.name}. An ƙara shi a kuɗin nasararka.`
+            : `Katinka ${w.serial} ya ci ${title} a zaɓen ƙarshe na ${cycle.name}. Ka karɓa a manhajar cikin kwana ${cycle.claim_window_days}.`,
+          sms: tier.kind === "CASH"
+            ? `Murna! Kati ${w.serial} ya ci ${title} a zaɓen ${cycle.name}. Yana cikin kuɗin nasararka a manhajar.`
+            : `Murna! Kati ${w.serial} ya ci ${title} a zaɓen ${cycle.name}. Ka karɓa a manhajar cikin kwana ${cycle.claim_window_days}.`,
+        },
       });
     }
     for (const owner of new Set(entries.rows.map((e) => e.owner_id))) {
       if (winnerOwners.has(owner)) continue;
       await notify(db, { userId: owner, kind: "DRAW_RESULT", link: "#/draw", dedupeKey: `draw:${cycleId}:result:${owner}`,
-        title: `${cycle.name}: the draw has taken place`, body: "Your cards did not win in the final draw this time. You can see the winners and check the draw yourself." });
+        title: `${cycle.name}: the draw has taken place`, body: "Your cards did not win in the final draw this time. You can see the winners and check the draw yourself.",
+        ha: { title: `${cycle.name}: an yi zaɓe`, body: "Katunanka ba su ci a zaɓen ƙarshe a wannan karon ba. Za ka iya ganin masu nasara ka kuma duba zaɓen da kanka." } });
     }
 
     await db.query("UPDATE cycles SET status = 'DRAWN' WHERE id = $1", [cycleId]);

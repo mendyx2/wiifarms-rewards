@@ -19,6 +19,8 @@ let current = (() => {
 })();
 
 export const lang = () => current;
+/** Whether the language was chosen on this phone (rather than guessed from the phone's settings). */
+export const chosenHere = () => { try { return localStorage.getItem(STORE) !== null; } catch { return false; } };
 export function setLang(l) {
   current = l === "ha" ? "ha" : "en";
   try { localStorage.setItem(STORE, current); } catch { /* storage unavailable */ }

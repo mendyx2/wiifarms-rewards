@@ -1365,3 +1365,39 @@ test("support: requests and replies, what staff can see, and locking an account 
   await assert.rejects(pool.query("DELETE FROM player_locks WHERE user_id = $1", [p.id]), /cannot be changed/);
   assert.ok((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND title = 'Your account has been locked'", [p.id])).rows[0].n >= 1);
 });
+
+test("language: a Hausa player's codes, texts and in-app messages are in Hausa, texts stay in the cheap SMS character set, and the choice can change", async () => {
+  const gsm = /^[A-Za-z0-9 \n.,:;!?'"()\-+/&%#*=@_<>]*$/; // characters that keep a text in the standard SMS format
+  const seq = ++phoneSeq;
+  const phone = "0803" + String(1000000 + seq);
+  fails(await api("POST", "/v1/auth/otp", { body: { phone, language: "fr" } }), 400, "INVALID_REQUEST");
+  const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone, language: "ha" } }));
+  const codeText = messenger.sent.at(-1)!.text;
+  assert.ok(codeText.startsWith(`${otp.devCode} ita ce lambar WiiFarm Rewards`), codeText);
+  assert.match(codeText, gsm);
+  const reg = ok(await api("POST", "/v1/auth/register", { body: { phone, code: otp.devCode, pin: "482915", language: "ha" } }));
+  const token = reg.token;
+  assert.equal(ok(await api("GET", "/v1/me", { token })).language, "ha");
+  ok(await api("POST", "/v1/me/verify", { token, body: { kind: "NIN", number: String(10000000000 + seq), fullName: "Hadiza Lawal", dateOfBirth: "1991-02-03", stateCode: "NG-NI" } }));
+
+  // A security alert, in Hausa in the app (with the proper letters) and by text (without them).
+  ok(await api("POST", "/v1/me/bank-accounts", { token, body: { bankCode: "058", accountNumber: "0123456711", accountName: "Hadiza Lawal" } }));
+  const latest = async (channel: string) => (await pool.query("SELECT title, body FROM notifications WHERE user_id = $1 AND channel = $2 ORDER BY created_at DESC, id DESC LIMIT 1", [reg.userId, channel])).rows[0];
+  assert.equal((await latest("IN_APP")).title, "An ƙara asusun banki");
+  const sms = (await latest("SMS")).body as string;
+  assert.ok(sms.startsWith("An kara asusun banki mai karewa da 6711"), sms);
+  assert.ok(sms.endsWith("Ba za mu taba tambayar PIN dinka ba."), sms);
+  assert.match(sms, gsm);
+
+  // Switching to English: later messages are in English; the change is on the record.
+  fails(await api("PUT", "/v1/me/language", { token, body: { language: "xx" } }), 400, "INVALID_REQUEST");
+  ok(await api("PUT", "/v1/me/language", { token, body: { language: "en" } }));
+  ok(await api("POST", "/v1/me/bank-accounts", { token, body: { bankCode: "058", accountNumber: "0123456722", accountName: "Hadiza Lawal" } }));
+  assert.equal((await latest("IN_APP")).title, "Bank account added");
+  assert.ok(((await latest("SMS")).body as string).endsWith("We will never ask for your PIN."));
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'player.language_set' AND entity_id = $1", [reg.userId])).rows[0].n, 1);
+
+  // Players who never chose read English, as before.
+  const other = await newPlayer();
+  assert.equal(ok(await api("GET", "/v1/me", { token: other.token })).language, "en");
+});

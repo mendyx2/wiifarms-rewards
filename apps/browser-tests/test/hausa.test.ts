@@ -5,7 +5,7 @@
 // so are left out of the check. Error messages from the server are checked.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { answerDialogs, apiBuy, apiPlayer, assertClean, assertFits, newPage, scratch, startStack, toast, untranslated, visit, watchServerData, type Stack } from "./harness.ts";
+import { answerDialogs, apiBuy, apiPlayer, assertClean, assertFits, call, playerSignIn, newPage, scratch, startStack, toast, untranslated, visit, watchServerData, type Stack } from "./harness.ts";
 
 let s: Stack;
 before(async () => { s = await startStack(); });
@@ -48,6 +48,8 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await p.fill("input[name=fullName]", "Musa Garba");
   await p.fill("input[name=dob]", "1988-05-02");
   await p.click("text=Tabbatar ka ci gaba");
+  // The account was opened in Hausa, so texts and messages will be in Hausa too.
+  assert.equal(await p.evaluate(async () => (await (await fetch("/v1/me")).json()).language), "ha");
   await p.waitForSelector("text=Katuna nawa?");
 
   // Buying, scratching and checking a card.
@@ -119,6 +121,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await visit(p, s.base + "/#/home");
   await p.waitForSelector(".hero");
   await p.click('.lang button:has-text("English")');
+  await p.waitForFunction(async () => (await (await fetch("/v1/me")).json()).language === "en");
   await p.waitForSelector(".hero .tag:has-text('On sale')");
   await p.reload();
   await p.waitForSelector(".hero .tag:has-text('On sale')");
@@ -146,4 +149,15 @@ test("a returning Hausa player signs in and buys more in Hausa", async () => {
   await p.waitForSelector("text=Yadda muke tabbatar da adalci");
   assert.deepEqual(await untranslated(p, serverData), []);
   await assertClean(p, "returning Hausa player");
+});
+
+test("on a new phone, a player who reads Hausa gets the app in Hausa as soon as they sign in", async () => {
+  const { token } = await apiPlayer(s, "08035550404", "Yusuf Aliyu");
+  await call(s, "PUT", "/v1/me/language", { token, body: { language: "ha" } });
+  const p = await newPage(s); // nothing chosen on this phone yet
+  await playerSignIn(p, s, "08035550404");
+  await p.waitForSelector(".hero .tag:has-text('Ana sayarwa')");
+  assert.match(await p.innerText("#tabs"), /Kuɗin nasara/);
+  assert.equal(await p.evaluate(() => localStorage.getItem("lang")), "ha");
+  await assertClean(p, "new phone");
 });

@@ -28,11 +28,20 @@ export function nextSendTime(now: Date, urgent: boolean): Date {
   return new Date(target.getTime() - LAGOS_OFFSET_MS);
 }
 
+/** The languages messages are written in. */
+export type Lang = "en" | "ha";
+export const LANGS: readonly Lang[] = ["en", "ha"];
+
+/** The same message in Hausa. Every message a player can receive has one. */
+export interface Hausa { title: string; body: string; sms?: string }
+
 export interface Notice {
   userId: string;
   kind: string;
   title: string;
   body: string;
+  /** Used instead of title, body and sms when the player reads Hausa. */
+  ha: Hausa;
   /** App screen, e.g. "#/wallet". */
   link?: string;
   /** Text-message version. Omit for in-app only. */
@@ -42,18 +51,26 @@ export interface Notice {
   dedupeKey: string;
 }
 
-const SMS_FOOTER = " - WiiFarm Rewards. We will never ask for your PIN.";
+const SMS_FOOTER: Record<Lang, string> = {
+  en: " - WiiFarm Rewards. We will never ask for your PIN.",
+  ha: " - WiiFarm Rewards. Ba za mu taba tambayar PIN dinka ba.",
+};
 
 /**
  * Keeps texts in the standard SMS character set: one non-standard character
  * (such as ₦ in a prize name typed by staff) would switch the whole message to
- * a format that holds less than half as many characters, at higher cost.
+ * a format that holds less than half as many characters, at higher cost. For the
+ * same reason Hausa texts write the hooked letters ɓ ɗ ƙ ƴ as b d k y, as is
+ * usual in Hausa text messages (the app itself shows the proper letters).
  */
 export function smsText(text: string): string {
-  return text.replaceAll("₦", "N").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-").replace(/…/g, "...");
+  return text.replaceAll("₦", "N").replace(/ɓ/g, "b").replace(/Ɓ/g, "B").replace(/ɗ/g, "d").replace(/Ɗ/g, "D").replace(/ƙ/g, "k").replace(/Ƙ/g, "K").replace(/ƴ/g, "y").replace(/Ƴ/g, "Y").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-").replace(/…/g, "...");
 }
 
-export async function notify(db: Db, n: Notice): Promise<void> {
+export async function notify(db: Db, notice: Notice): Promise<void> {
+  // Written in the language the player reads, as it stands when the event happens.
+  const lang = (await one<{ language: Lang }>(db, "SELECT language FROM users WHERE id = $1", [notice.userId]))?.language ?? "en";
+  const n = lang === "ha" ? { ...notice, title: notice.ha.title, body: notice.ha.body, sms: notice.sms === undefined ? undefined : notice.ha.sms ?? notice.sms } : notice;
   await db.query(
     `INSERT INTO notifications (user_id, channel, kind, title, body, link, dedupe_key, status, sent_at)
      VALUES ($1, 'IN_APP', $2, $3, $4, $5, $6, 'SENT', now()) ON CONFLICT (dedupe_key, channel) DO NOTHING`,
@@ -62,7 +79,7 @@ export async function notify(db: Db, n: Notice): Promise<void> {
     await db.query(
       `INSERT INTO notifications (user_id, channel, kind, title, body, link, dedupe_key, status, not_before)
        VALUES ($1, 'SMS', $2, $3, $4, $5, $6, 'QUEUED', $7) ON CONFLICT (dedupe_key, channel) DO NOTHING`,
-      [n.userId, n.kind, n.title, smsText(n.sms + SMS_FOOTER), n.link ?? null, n.dedupeKey, nextSendTime(new Date(), Boolean(n.urgent))]);
+      [n.userId, n.kind, n.title, smsText(n.sms + SMS_FOOTER[lang]), n.link ?? null, n.dedupeKey, nextSendTime(new Date(), Boolean(n.urgent))]);
   }
 }
 
@@ -133,6 +150,11 @@ export async function sendClaimReminders(ctx: Ctx): Promise<number> {
         title: `Your ${c.title} is waiting`,
         body: `You won ${c.title} in ${c.cycle}. Claim it within ${left} day${left === 1 ? "" : "s"}, or it will no longer be available.`,
         sms: `You won ${c.title} in ${c.cycle}. Claim it in the app within ${left} days.`,
+        ha: {
+          title: `${c.title} naka yana jiranka`,
+          body: `Ka ci ${c.title} a ${c.cycle}. Ka karɓa cikin kwana ${left}, idan ba haka ba ba za a samu shi ba.`,
+          sms: `Ka ci ${c.title} a ${c.cycle}. Ka karɓa a manhajar cikin kwana ${left}.`,
+        },
       });
       n++;
     }

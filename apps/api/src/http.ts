@@ -15,6 +15,7 @@ import * as refunds from "./modules/refunds.ts";
 import * as finance from "./modules/finance.ts";
 import * as archive from "./modules/archive.ts";
 import * as notifications from "./modules/notify.ts";
+import { LANGS, type Lang } from "./modules/notify.ts";
 import * as governance from "./modules/governance.ts";
 import * as nok from "./modules/nok.ts";
 import * as support from "./modules/support.ts";
@@ -152,13 +153,16 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.get("/health", async () => ({ ok: true, mode: "SIMULATED" }));
 
   // ---- Sign-up and sign-in ---------------------------------------------------------
-  app.post<{ Body: { phone: string } }>("/v1/auth/otp", { schema: body({ phone: str(20) }) }, async (req) => {
+  const langField = { enum: [...LANGS] };
+  app.post<{ Body: { phone: string; language?: Lang } }>("/v1/auth/otp", { schema: body({ phone: str(20), language: langField }, ["language"]) }, async (req) => {
     authLimit(req.ip);
-    return identity.requestOtp(ctx, req.body.phone);
+    return identity.requestOtp(ctx, req.body.phone, req.body.language);
   });
-  app.post<{ Body: { phone: string; code: string; pin: string } }>("/v1/auth/register", { schema: body({ phone: str(20), code: str(6), pin: str(6) }) }, async (req, reply) => {
+  app.post<{ Body: { phone: string; code: string; pin: string; language?: Lang } }>("/v1/auth/register", {
+    schema: body({ phone: str(20), code: str(6), pin: str(6), language: langField }, ["language"]),
+  }, async (req, reply) => {
     authLimit(req.ip);
-    const r = await identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip);
+    const r = await identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip, req.body.language);
     setSession(reply, r.token);
     return r;
   });
@@ -184,7 +188,12 @@ export function buildServer(ctx: Ctx): FastifyInstance {
       exclusion: (await identity.activeExclusion(db, u.id)) ?? null,
       nextOfKin: (await db.query("SELECT full_name, relationship FROM next_of_kin WHERE user_id = $1", [u.id])).rows[0] ?? null,
     }));
-    return { id: u.id, phoneLast4: u.phone_e164.slice(-4), fullName: u.full_name, kycTier: u.kyc_tier, stateCode: u.state_code, ...extra };
+    return { id: u.id, phoneLast4: u.phone_e164.slice(-4), fullName: u.full_name, kycTier: u.kyc_tier, stateCode: u.state_code, language: u.language, ...extra };
+  });
+  app.put<{ Body: { language: Lang } }>("/v1/me/language", { schema: body({ language: langField }) }, async (req) => {
+    const u = await player(req);
+    await identity.setLanguage(ctx, actorOf(u.id, req), u.id, req.body.language);
+    return { language: req.body.language };
   });
   app.post<{ Body: identity.KycInput }>("/v1/me/verify", {
     schema: body({ kind: { enum: ["NIN", "BVN"] }, number: str(11), fullName: str(120), dateOfBirth: str(10), stateCode: str(8) }),

@@ -91,8 +91,8 @@ test("Android's install prompt is offered on request, and can be put off for goo
   });
   await p.click('.install button:has-text("Add to home screen")');
   await p.waitForFunction(() => (window as any).__prompted === true);
-  await p.waitForSelector("h1:has-text('My account')");
-  assert.equal(await p.locator(".install").count(), 0, "offered once per prompt");
+  // Once used, the prompt is gone (the phone offers it again only if the player declines).
+  await p.waitForSelector(".install", { state: "detached", timeout: 5000 });
 
   await p.evaluate(() => {
     const e: any = new Event("beforeinstallprompt", { cancelable: true });
@@ -110,9 +110,11 @@ test("Android's install prompt is offered on request, and can be put off for goo
     e.prompt = async () => {}; e.userChoice = Promise.resolve({ outcome: "dismissed" });
     window.dispatchEvent(e);
   });
-  await p.waitForSelector(".hero");
-  assert.equal(await p.locator(".install").count(), 0, "not offered again on the home screen after Not now");
   await p.goto(s.base + "/#/me");
-  await p.waitForSelector(".install"); // still available on the Me page for someone who changes their mind
+  await p.waitForSelector(".install"); // the prompt is available, and still offered on the Me page for someone who changes their mind
+  await p.goto(s.base + "/#/home");
+  await p.waitForSelector(".hero");
+  await p.waitForLoadState("networkidle");
+  assert.equal(await p.locator(".install").count(), 0, "not offered again on the home screen after Not now");
   await assertClean(p, "install prompt");
 });

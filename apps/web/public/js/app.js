@@ -3,7 +3,7 @@
 // content from the server can never run as script.
 import { api, clearKey, stableKey } from "/js/api.js";
 import { verifyCycle, verifyDraw, verifyTicket } from "/js/verify.js";
-import { count as countOf, formatDate, lang, setLang, tr } from "/js/i18n.js";
+import { chosenHere, count as countOf, formatDate, lang, setLang, tr } from "/js/i18n.js";
 
 const view = document.getElementById("view");
 const state = { me: null, cycles: [], cycleId: null, cycle: null };
@@ -49,7 +49,11 @@ function toast(message) {
 
 /** English / Hausa switch. The choice is kept on this phone. */
 function langSwitch() {
-  const pick = (l) => () => { setLang(l); frame(); render(); };
+  const pick = (l) => () => {
+    setLang(l); frame(); render();
+    // Texts and messages from us follow the same choice.
+    if (state.me) { state.me.language = l; api.put("/v1/me/language", { language: l }).catch(() => {}); }
+  };
   return el("div", { class: "lang", role: "group", "aria-label": "Language" },
     el("button", { type: "button", "aria-pressed": String(lang() === "en"), onclick: pick("en") }, "English"),
     el("button", { type: "button", "aria-pressed": String(lang() === "ha"), onclick: pick("ha") }, "Hausa"));
@@ -97,6 +101,11 @@ const val = (form, name) => form.elements[name].value.trim();
 async function loadMe() {
   try {
     const me = await api.get("/v1/me");
+    if (me.language !== lang()) {
+      // A choice made on this phone is kept and passed on to the account; on a new phone the account's choice is used.
+      if (chosenHere()) { me.language = lang(); api.put("/v1/me/language", { language: lang() }).catch(() => {}); }
+      else { setLang(me.language); frame(); }
+    }
     state.me = { ...me, balanceKobo: (await api.get("/v1/wallet")).balanceKobo };
   } catch (err) {
     if (err.status !== 401) throw err;
@@ -277,13 +286,13 @@ function signup() {
     el("p", { class: "muted" }, "Avoid easy PINs like 111111 or 123456."));
   const form = el("form", { onsubmit: action(async () => {
     if (codeBlock.hidden) {
-      const r = await api.post("/v1/auth/otp", { phone: val(form, "phone") });
+      const r = await api.post("/v1/auth/otp", { phone: val(form, "phone"), language: lang() });
       phone = r.phone;
       hint.textContent = tr(r.devCode ? `Simulation: your code is ${r.devCode}. In the live service it arrives by SMS.` : "We sent a code by SMS.");
       codeBlock.hidden = false; phoneInput.readOnly = true; submit.textContent = tr("Create account");
       form.elements.code.focus();
     } else {
-      await api.post("/v1/auth/register", { phone, code: val(form, "code"), pin: val(form, "pin") });
+      await api.post("/v1/auth/register", { phone, code: val(form, "code"), pin: val(form, "pin"), language: lang() });
       await loadMe();
       go(nextStep());
     }

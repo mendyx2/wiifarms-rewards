@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { notify } from "./notify.ts";
+import { notify, smsText, type Lang } from "./notify.ts";
 import { audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { hashPin, keyedHash, newOtp, newToken, sha256, verifyPin } from "../crypto.ts";
@@ -15,6 +15,7 @@ export interface User {
   identity_hash: Buffer | null;
   state_code: string | null;
   status: string;
+  language: Lang;
 }
 
 const OTP_TTL_MINUTES = 10;
@@ -45,7 +46,7 @@ function assertPin(pin: string): void {
 
 // --- One-time codes -----------------------------------------------------------
 
-export async function requestOtp(ctx: Ctx, phoneInput: string): Promise<{ phone: string; devCode?: string }> {
+export async function requestOtp(ctx: Ctx, phoneInput: string, lang: Lang = "en"): Promise<{ phone: string; devCode?: string }> {
   const phone = normalisePhone(phoneInput);
   const code = newOtp();
   const hash = keyedHash(ctx.config.hashKey, "otp", `${phone}:${code}`);
@@ -69,7 +70,9 @@ export async function requestOtp(ctx: Ctx, phoneInput: string): Promise<{ phone:
   // In simulation there is no SMS provider, so the code is returned to the caller.
   // Sent straight to the provider and never stored: not in the outbox, not in logs.
   try {
-    await ctx.messenger.send(phone, `${code} is your WiiFarm Rewards code. It expires in ${OTP_TTL_MINUTES} minutes. Never share it: we will never ask for it.`);
+    await ctx.messenger.send(phone, smsText(lang === "ha"
+      ? `${code} ita ce lambar WiiFarm Rewards dinka. Za ta kare cikin minti ${OTP_TTL_MINUTES}. Kada ka ba kowa ita: ba za mu taba tambayar ta ba.`
+      : `${code} is your WiiFarm Rewards code. It expires in ${OTP_TTL_MINUTES} minutes. Never share it: we will never ask for it.`));
   } catch {
     throw new AppError(503, "SMS_UNAVAILABLE", "We could not send the code just now. Please try again in a minute.");
   }
@@ -100,7 +103,7 @@ async function createSession(ctx: Ctx, db: Db, userId: string): Promise<string> 
 }
 
 /** Verifies the code and creates the account (or, for an existing number, resets the PIN). */
-export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string, pin: string, ip?: string): Promise<{ token: string; userId: string }> {
+export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string, pin: string, ip?: string, lang?: Lang): Promise<{ token: string; userId: string }> {
   const phone = normalisePhone(phoneInput);
   assertPin(pin);
   const pinHash = await hashPin(pin);
@@ -117,9 +120,11 @@ export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string
       await audit(db, { type: "PLAYER", id: userId, ip }, "player.pin_reset", "user", userId);
       await notify(db, { userId, kind: "SECURITY", urgent: true, link: "#/me", dedupeKey: `pin-reset:${userId}:${Date.now()}`,
         title: "Your PIN was changed", body: "Your PIN was changed and you were signed out on other devices. If this was not you, contact support at once.",
-        sms: "Your PIN was just changed. If this was not you, contact support at once." });
+        sms: "Your PIN was just changed. If this was not you, contact support at once.",
+        ha: { title: "An canja PIN ɗinka", body: "An canja PIN ɗinka kuma an fitar da kai a sauran na'urori. Idan ba kai ba ne, tuntuɓi masu taimako nan take.",
+          sms: "An canja PIN ɗinka yanzu. Idan ba kai ba ne, tuntuɓi masu taimako nan take." } });
     } else {
-      const created = await db.query<{ id: string }>("INSERT INTO users (phone_e164, pin_hash) VALUES ($1, $2) RETURNING id", [phone, pinHash]);
+      const created = await db.query<{ id: string }>("INSERT INTO users (phone_e164, pin_hash, language) VALUES ($1, $2, $3) RETURNING id", [phone, pinHash, lang ?? "en"]);
       userId = created.rows[0]!.id;
       await db.query("INSERT INTO rg_limits (user_id) VALUES ($1)", [userId]);
       await audit(db, { type: "PLAYER", id: userId, ip }, "player.registered", "user", userId);
@@ -177,12 +182,20 @@ export async function authenticate(ctx: Ctx, token: string | undefined): Promise
   if (!token) throw unauthorized();
   const user = await one<User>(
     ctx.pool,
-    `SELECT u.id, u.phone_e164, u.full_name, u.date_of_birth::text, u.kyc_tier, u.identity_hash, u.state_code, u.status
+    `SELECT u.id, u.phone_e164, u.full_name, u.date_of_birth::text, u.kyc_tier, u.identity_hash, u.state_code, u.status, u.language
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`,
     [sha256(token)]);
   if (!user || user.status !== "ACTIVE") throw unauthorized();
   return user;
+}
+
+/** The language the player's texts and messages are written in. */
+export async function setLanguage(ctx: Ctx, actor: Actor, userId: string, lang: Lang): Promise<void> {
+  await withTx(ctx.pool, async (db) => {
+    const r = await db.query("UPDATE users SET language = $2 WHERE id = $1 AND language <> $2", [userId, lang]);
+    if (r.rowCount) await audit(db, actor, "player.language_set", "user", userId, { language: lang });
+  });
 }
 
 export async function logout(ctx: Ctx, token: string): Promise<void> {
@@ -377,7 +390,9 @@ export async function addBankAccount(ctx: Ctx, actor: Actor, user: User, input: 
     // Warns the real owner if someone else has got into the account and is trying to divert winnings.
     await notify(db, { userId: user.id, kind: "SECURITY", urgent: true, link: "#/wallet", dedupeKey: `bank-added:${r.rows[0]!.id}:${Date.now()}`,
       title: "Bank account added", body: `A bank account ending ${input.accountNumber.slice(-4)} was added to your account. If this was not you, contact support before it can receive winnings.`,
-      sms: `A bank account ending ${input.accountNumber.slice(-4)} was added to your account. If this was not you, contact support now.` });
+      sms: `A bank account ending ${input.accountNumber.slice(-4)} was added to your account. If this was not you, contact support now.`,
+      ha: { title: "An ƙara asusun banki", body: `An ƙara asusun banki mai ƙarewa da ${input.accountNumber.slice(-4)} a asusunka. Idan ba kai ba ne, tuntuɓi masu taimako kafin ya karɓi kuɗin nasara.`,
+        sms: `An ƙara asusun banki mai ƙarewa da ${input.accountNumber.slice(-4)} a asusunka. Idan ba kai ba ne, tuntuɓi masu taimako yanzu.` } });
     return { id: r.rows[0]!.id, nameMatch, usableFrom: r.rows[0]!.usable_from.toISOString() };
   });
 }
