@@ -21,7 +21,7 @@ export const GAME_CORE_VERSION = engineVersion();
 
 export interface CycleRow {
   id: string; name: string; mode: string; state_code: string; status: string;
-  ticket_price_kobo: number; total_tickets: number; max_tickets_per_account: number; max_tickets_per_day: number;
+  ticket_price_kobo: number; total_tickets: number; max_tickets_per_account: number; max_tickets_per_day: number; levels: number;
   prize_share_bp: number; instant_share_bp: number;
   sales_open_at: Date; sales_close_at: Date; draw_at: Date; claim_window_days: number;
   rules_document_ref: string | null; auditor_admin_id: string | null; created_by: string;
@@ -52,6 +52,8 @@ function asConflict(err: unknown): never {
 export interface NewCycle {
   name: string; ticketPriceKobo: number; totalTickets: number; maxTicketsPerAccount: number;
   salesOpenAt: string; salesCloseAt: string; drawAt: string; claimWindowDays?: number;
+  /** Sold in this many equal levels, each holding its share of the instant prizes (default 1). */
+  levels?: number;
 }
 
 export async function createCycle(ctx: Ctx, admin: Admin, input: NewCycle): Promise<{ id: string }> {
@@ -61,16 +63,20 @@ export async function createCycle(ctx: Ctx, admin: Admin, input: NewCycle): Prom
     throw badRequest("INVALID_PRICE", "Ticket price must be between ₦200 and ₦500.");
   }
   const policy = ctx.config.policy ?? POLICY;
+  const levels = input.levels ?? 1;
+  if (!Number.isInteger(levels) || levels < 1 || levels > 20 || input.totalTickets % levels !== 0) {
+    throw badRequest("INVALID_LEVELS", "The number of cards must divide equally into the levels (1 to 20).");
+  }
   return withTx(ctx.pool, async (db) => {
     // Every cycle is SIMULATED in Phase 2. Real-money cycles cannot be created through this API at all.
     const r = await db.query<{ id: string }>(
       `INSERT INTO cycles (name, mode, ticket_price_kobo, total_tickets, max_tickets_per_account,
                            sales_open_at, sales_close_at, draw_at, claim_window_days, created_by,
-                           prize_share_bp, instant_share_bp, max_tickets_per_day)
-       VALUES ($1, 'SIMULATED', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+                           prize_share_bp, instant_share_bp, max_tickets_per_day, levels)
+       VALUES ($1, 'SIMULATED', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
       [input.name, input.ticketPriceKobo, input.totalTickets, input.maxTicketsPerAccount,
         input.salesOpenAt, input.salesCloseAt, input.drawAt, input.claimWindowDays ?? 90, admin.id,
-        policy.prizeShareBp, policy.instantShareBp, policy.cardsPerDay]).catch(asConflict);
+        policy.prizeShareBp, policy.instantShareBp, policy.cardsPerDay, levels]).catch(asConflict);
     await audit(db, adminActor(admin), "cycle.created", "cycle", r.rows[0]!.id, { ...input });
     return { id: r.rows[0]!.id };
   });
@@ -214,8 +220,15 @@ export async function commitCycle(ctx: Ctx, admin: Admin, cycleId: string): Prom
     const instant = tiers.rows.filter((t) => t.stage === "INSTANT").map((t) => ({ outcome: t.outcome_code, count: t.quantity }));
 
     // The generation seed is used once and never stored: the published
-    // commitment, not the seed, is what fixes the outcomes.
-    const outcomes = generateOutcomes(cycle.total_tickets, instant, randomBytes(32));
+    // commitment, not the seed, is what fixes the outcomes. Each level gets its
+    // own share of every instant prize (spread as evenly as whole prizes allow),
+    // shuffled within the level, so instant cash is released level by level.
+    const L = cycle.levels, size = cycle.total_tickets / L;
+    const outcomes: string[] = [];
+    for (let i = 0; i < L; i++) {
+      const share = instant.map((t) => ({ outcome: t.outcome, count: levelShare(t.count, L, i) }));
+      outcomes.push(...generateOutcomes(size, share, randomBytes(32)));
+    }
 
     const dataKey = randomBytes(32);
     const serials = new Set<string>();
@@ -248,7 +261,8 @@ export async function commitCycle(ctx: Ctx, admin: Admin, cycleId: string): Prom
       [cycleId, await ctx.keys.wrap(dataKey, cycleKeyContext(cycleId)), seal(dataKey, drawSecret, `draw-secret:${cycleId}`), ctx.beacon.source, beaconRound]);
     dataKey.fill(0);
 
-    const prizeTableHash = sha256(JSON.stringify(tiers.rows));
+    // With levels, how the prizes are spread across them is part of what is published.
+    const prizeTableHash = sha256(JSON.stringify(L > 1 ? { levels: L, tiers: tiers.rows } : tiers.rows));
     await db.query(
       `INSERT INTO cycle_commitments (cycle_id, game_core_version, ticket_merkle_root, prize_table_sha256, draw_secret_commitment, kms_key_ref)
        VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -259,6 +273,9 @@ export async function commitCycle(ctx: Ctx, admin: Admin, cycleId: string): Prom
     return { merkleRoot: root.toString("hex"), tickets: cycle.total_tickets };
   });
 }
+
+/** How many of a prize tier's `count` prizes go into level `i` of `levels` (the first levels take any remainder). */
+export const levelShare = (count: number, levels: number, i: number): number => Math.floor(count / levels) + (i < count % levels ? 1 : 0);
 
 export async function openCycle(ctx: Ctx, admin: Admin, cycleId: string): Promise<void> {
   requireRole(admin, "CYCLE_MANAGER");
@@ -279,7 +296,8 @@ export async function closeIfDue(db: Db, cycleId: string, actor: Actor = SYSTEM)
   if (cycle.status !== "OPEN") return false;
   const timeUp = cycle.sales_close_at.getTime() <= Date.now();
   // Called after every sale: a cheap existence check first, the full count only when closing.
-  const soldOut = !(await one(db, "SELECT 1 FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' LIMIT 1", [cycleId]));
+  // Cards held for a payment in progress are not sold yet: the cycle stays open until they are paid for or released.
+  const soldOut = !(await one(db, "SELECT 1 FROM tickets WHERE cycle_id = $1 AND status IN ('UNSOLD','RESERVED') LIMIT 1", [cycleId]));
   if (!soldOut && !timeUp) return false;
   const unsold = await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]);
   await db.query("UPDATE cycles SET status = 'CLOSED' WHERE id = $1", [cycleId]);
@@ -291,7 +309,7 @@ export async function closeIfDue(db: Db, cycleId: string, actor: Actor = SYSTEM)
 export async function closeDueCycles(ctx: Ctx): Promise<string[]> {
   const due = await ctx.pool.query<{ id: string }>(
     `SELECT c.id FROM cycles c WHERE c.status = 'OPEN'
-       AND (c.sales_close_at <= now() OR NOT EXISTS (SELECT 1 FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'UNSOLD'))`);
+       AND (c.sales_close_at <= now() OR NOT EXISTS (SELECT 1 FROM tickets t WHERE t.cycle_id = c.id AND t.status IN ('UNSOLD','RESERVED')))`);
   const closed: string[] = [];
   for (const { id } of due.rows) {
     if (await withTx(ctx.pool, (db) => closeIfDue(db, id))) closed.push(id);
@@ -315,6 +333,28 @@ export async function ticketsRemaining(db: Db | Ctx["pool"], cycleId: string): P
   return n;
 }
 
+/**
+ * Which level is on sale and how many of its cards are left, with the instant
+ * cash it holds. Reused for two seconds, like the remaining count.
+ */
+const levelCache = new Map<string, { at: number; value: unknown }>();
+export async function levelStatus(db: Db | Ctx["pool"], cycleId: string): Promise<unknown> {
+  const hit = levelCache.get(cycleId);
+  if (hit && Date.now() - hit.at < 2000) return hit.value;
+  const c = await getCycle(db, cycleId);
+  const size = c.total_tickets / c.levels;
+  const min = (await one<{ m: number | null }>(db, "SELECT min(leaf_index) AS m FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]))!.m;
+  const index = min === null ? c.levels - 1 : Math.floor(min / size);
+  const left = min === null ? 0 : (await one<{ n: number }>(db,
+    "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' AND leaf_index >= $2 AND leaf_index < $3", [cycleId, index * size, (index + 1) * size]))!.n;
+  const tiers = await db.query<{ cash_kobo: number; quantity: number }>("SELECT cash_kobo, quantity FROM prize_tiers WHERE cycle_id = $1 AND stage = 'INSTANT'", [cycleId]);
+  const cashIn = (i: number) => tiers.rows.reduce((s, t) => s + Number(t.cash_kobo) * levelShare(t.quantity, c.levels, i), 0);
+  const value = { levels: c.levels, size, current: index + 1, leftInLevel: left, instantCashInLevelKobo: cashIn(index) };
+  if (levelCache.size > 50) levelCache.clear();
+  levelCache.set(cycleId, { at: Date.now(), value });
+  return value;
+}
+
 export async function listPublicCycles(ctx: Ctx): Promise<unknown[]> {
   const r = await ctx.pool.query<{ id: string; tickets_remaining: number }>(
     `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
@@ -330,10 +370,11 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
     ctx.pool,
     `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.rules_document_ref, encode(c.rules_sha256, 'hex') AS rules_sha256,
-            c.prize_share_bp, c.instant_share_bp
+            c.prize_share_bp, c.instant_share_bp, c.levels
      FROM cycles c WHERE c.id = $1 AND (c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id)))`, [cycleId]);
   if (!c) throw notFound("Cycle not found.");
   c.tickets_remaining = await ticketsRemaining(ctx.pool, cycleId);
+  c.level = await levelStatus(ctx.pool, cycleId);
   const tiers = await ctx.pool.query<{ stage: string; kind: string; title: string; cash_kobo: number | null; quantity: number; draw_order: number | null }>(
     `SELECT p.id, p.stage, p.kind, p.title, p.cash_kobo, p.quantity, p.draw_order, EXISTS (SELECT 1 FROM prize_images i WHERE i.prize_tier_id = p.id) AS has_image
      FROM prize_tiers p WHERE p.cycle_id = $1 ORDER BY p.stage DESC, p.draw_order NULLS LAST, p.cash_kobo DESC`, [cycleId]);
@@ -373,7 +414,7 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
   if (!admin.roles.length) throw notFound();
   const c = await one<Record<string, unknown> & { status: string; draw_at: Date; total_tickets: number }>(
     ctx.pool,
-    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day, c.levels,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.financial_model_ref, c.rules_document_ref,
             encode(c.rules_sha256, 'hex') AS rules_sha256, c.escrow_reference, c.escrow_funded_kobo,
             c.auditor_admin_id, au.full_name AS auditor_name, c.created_by, cb.full_name AS created_by_name,

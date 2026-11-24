@@ -99,7 +99,8 @@ async function dayTotals(db: Db, day: string): Promise<{ records: Totals; ledger
   const records = (await one<{ c: number; r: number; p: number }>(db,
     `SELECT (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider <> 'WALLET' AND ${inDay("verified_at")})::bigint AS c,
             (SELECT coalesce(sum(rf.amount_kobo), 0) FROM refunds rf JOIN payments p ON p.id = rf.payment_id
-              WHERE rf.status = 'CONFIRMED' AND p.provider <> 'WALLET' AND ${inDay("coalesce(rf.decided_at, rf.created_at)")})::bigint AS r,
+              WHERE rf.status = 'CONFIRMED' AND p.provider <> 'WALLET' AND coalesce(rf.provider_ref, '') NOT LIKE 'WALLET-%'
+                AND ${inDay("coalesce(rf.decided_at, rf.created_at)")})::bigint AS r,
             (SELECT coalesce(sum(amount_kobo), 0) FROM payouts WHERE status = 'CONFIRMED' AND ${inDay("updated_at")})::bigint AS p`, [day]))!;
   const ledger = (await one<{ c: number; r: number; p: number }>(db,
     `SELECT coalesce(sum(e.amount_kobo) FILTER (WHERE e.amount_kobo > 0), 0)::bigint AS c,
@@ -235,7 +236,10 @@ export async function periodSummary(ctx: Ctx, admin: Admin, from: string, to: st
     `SELECT
        (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider <> 'WALLET' AND ${inRange("verified_at")})::bigint AS collected_kobo,
        (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider = 'WALLET' AND ${inRange("verified_at")})::bigint AS wallet_sales_kobo,
-       (SELECT coalesce(sum(amount_kobo), 0) FROM refunds WHERE status = 'CONFIRMED' AND ${inRange("coalesce(decided_at, created_at)")})::bigint AS refunded_kobo,
+       (SELECT coalesce(sum(rf.amount_kobo), 0) FROM refunds rf JOIN payments p ON p.id = rf.payment_id WHERE rf.status = 'CONFIRMED'
+          AND p.provider <> 'WALLET' AND coalesce(rf.provider_ref, '') NOT LIKE 'WALLET-%' AND ${inRange("coalesce(rf.decided_at, rf.created_at)")})::bigint AS refunded_kobo,
+       (SELECT coalesce(sum(rf.amount_kobo), 0) FROM refunds rf JOIN payments p ON p.id = rf.payment_id WHERE rf.status = 'CONFIRMED'
+          AND (p.provider = 'WALLET' OR rf.provider_ref LIKE 'WALLET-%') AND ${inRange("coalesce(rf.decided_at, rf.created_at)")})::bigint AS refunded_to_wallets_kobo,
        (SELECT coalesce(sum(e.amount_kobo), 0) FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
           WHERE a.code LIKE 'REFERRAL_EXPENSE:%' AND ${inRange("e.created_at")})::bigint AS referral_commissions_kobo,
        (SELECT coalesce(sum(e.amount_kobo), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id JOIN ledger_accounts a ON a.id = e.account_id
@@ -248,7 +252,7 @@ export async function periodSummary(ctx: Ctx, admin: Admin, from: string, to: st
   const byCategory = (await ctx.pool.query(
     `SELECT category, sum(CASE WHEN reverses IS NULL THEN amount_kobo ELSE -amount_kobo END)::bigint AS amount_kobo
      FROM operating_expenses WHERE incurred_on BETWEEN $1::date AND $2::date GROUP BY category ORDER BY 2 DESC`, [from, to])).rows;
-  const net = s.collected_kobo! + s.wallet_sales_kobo! - s.refunded_kobo!;
+  const net = s.collected_kobo! + s.wallet_sales_kobo! - s.refunded_kobo! - s.refunded_to_wallets_kobo!;
   return { from, to, ...s, net_sales_kobo: net, result_kobo: net - s.cash_prizes_kobo! - s.referral_commissions_kobo! - s.operating_expenses_kobo!, expensesByCategory: byCategory,
     note: "Cash prizes are counted when awarded. Merchandise prize costs are shown per cycle in the cycle results. Sales include cards bought from players' wallets; referral commissions are paid from the operator's share." };
 }

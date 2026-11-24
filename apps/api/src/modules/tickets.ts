@@ -6,7 +6,8 @@ import { newToken, open } from "../crypto.ts";
 import { lockKey, one, withTx, type Db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { accounts, post } from "../ledger.ts";
-import { assertSimulated, closeIfDue, cycleKeyContext, getCycle, ticketAad } from "./cycles.ts";
+import { assertSimulated, closeIfDue, cycleKeyContext, getCycle, ticketAad, type CycleRow } from "./cycles.ts";
+import { naira, notify } from "./notify.ts";
 import { activeExclusion, getLimits, onExclusionRegister, type User } from "./identity.ts";
 import { creditReferral } from "./referrals.ts";
 import { winningsBalance } from "./wallet.ts";
@@ -147,6 +148,14 @@ export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: s
     await db.query(
       "INSERT INTO payments (order_id, provider, provider_ref, method, amount_kobo, status) VALUES ($1, 'SIMULATED', $2, 'SIMULATED', $3, 'INITIATED')",
       [orderId, paymentRef, amountKobo]);
+    // Hold the cards now, for the payment window, so this payment is sure to get them: nobody else can buy them
+    // meanwhile. With a real provider the payment link expires before the hold does.
+    await lockKey(db, `cycle-sale:${cycleId}`);
+    const hold = await pickCards(db, cycle, quantity);
+    if (hold.rows.length < quantity) {
+      throw conflict("NOT_ENOUGH_CARDS", hold.rows.length === 0 ? "This cycle is sold out." : `Only ${hold.rows.length} cards are left.`);
+    }
+    await db.query("UPDATE tickets SET status = 'RESERVED', order_id = $2 WHERE id = ANY($1::uuid[])", [hold.rows.map((r) => r.id), orderId]);
     await audit(db, actor, "order.created", "order", orderId, { cycleId, quantity, amountKobo });
     return { orderId, status: "PENDING", quantity, amountKobo, paymentRef };
   });
@@ -182,7 +191,8 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
       `INSERT INTO payment_events (provider, provider_event_id, signature_valid, payload, processed_at)
        VALUES ($1, $2, true, $3, now()) ON CONFLICT (provider, provider_event_id) DO NOTHING`,
       [notice.provider, notice.eventId, JSON.stringify(notice)]);
-    if (!fresh.rowCount || order.status !== "PENDING") {
+    // A payment can still arrive after its hold was released (EXPIRED) or its season cancelled (CANCELLED).
+    if (!fresh.rowCount || !["PENDING", "EXPIRED", "CANCELLED"].includes(order.status)) {
       const ids = await db.query<{ id: string }>("SELECT id FROM tickets WHERE order_id = $1 ORDER BY sold_at, id", [order.id]);
       return { orderId: order.id, status: order.status, ticketIds: ids.rows.map((r) => r.id) };
     }
@@ -199,15 +209,23 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
 
     const ticketIds = await settleOrder(ctx, db, order, "GATEWAY");
     if (!ticketIds) {
-      // Paid, but the cards are gone (sold out or closed meanwhile): refund in full, automatically.
+      // Last resort, which the hold makes rare: the payment arrived after its cards were released and none are
+      // left (or the season was cancelled). The money is never kept without a card, and never sent back through
+      // the bank: it goes straight into the player's wallet, to spend on cards or withdraw.
       await post(db, { kind: "REFUND", reference: `order:${order.id}:refund-due`, cycleId: order.cycle_id, debit: accounts.gatewayClearing(), credit: accounts.refundsPayable(), amountKobo: order.amount_kobo });
-      const refund = await db.query<{ id: string }>(
-        "INSERT INTO refunds (payment_id, order_id, amount_kobo, reason, status) VALUES ($1, $2, $3, 'NO_TICKET_ISSUED', 'CONFIRMED') RETURNING id", [payment.id, order.id, order.amount_kobo]);
-      // The simulated gateway refunds instantly; a real one confirms later by webhook.
-      await post(db, { kind: "REFUND", reference: `refund:${refund.rows[0]!.id}`, cycleId: order.cycle_id, debit: accounts.refundsPayable(), credit: accounts.gatewayClearing(), amountKobo: order.amount_kobo });
+      const credit = await db.query<{ id: string }>(
+        "INSERT INTO refunds (payment_id, order_id, amount_kobo, reason, status, provider_ref) VALUES ($1, $2, $3, 'NO_TICKET_ISSUED', 'CONFIRMED', $4) RETURNING id",
+        [payment.id, order.id, order.amount_kobo, `WALLET-${order.id}`]);
+      await post(db, { kind: "REFUND", reference: `refund:${credit.rows[0]!.id}`, cycleId: order.cycle_id, memo: "Payment arrived after the cards were released: credited to the wallet",
+        debit: accounts.refundsPayable(), credit: accounts.playerWinnings(order.user_id), amountKobo: order.amount_kobo });
       await db.query("UPDATE orders SET status = 'REFUNDED' WHERE id = $1", [order.id]);
-      await audit(db, SYSTEM, "order.refunded_no_ticket", "order", order.id, { amountKobo: order.amount_kobo });
-      return { orderId: order.id, status: "REFUNDED", ticketIds: [] };
+      await audit(db, SYSTEM, "order.credited_to_wallet", "order", order.id, { amountKobo: order.amount_kobo });
+      await notify(db, { userId: order.user_id, kind: "WALLET_CREDIT", urgent: true, link: "#/wallet", dedupeKey: `order:${order.id}:credited`,
+        title: `${naira(order.amount_kobo)} is in your wallet`, body: `Your payment of ${naira(order.amount_kobo)} arrived after the cards held for you had been released, so it has been put in your wallet. Use it to buy cards, or withdraw it.`,
+        sms: `Your payment of ${naira(order.amount_kobo)} arrived late, so it is in your WiiFarm wallet. Use it for cards or withdraw it.`,
+        ha: { title: `${naira(order.amount_kobo)} yana cikin jakarka`, body: `Biyanka na ${naira(order.amount_kobo)} ya iso bayan an saki katunan da aka riƙe maka, don haka an saka shi a jakarka. Ka sayi katuna da shi, ko ka cire shi.`,
+          sms: `Biyanka na ${naira(order.amount_kobo)} ya iso a makare, don haka yana cikin jakarka ta WiiFarm. Ka sayi katuna da shi ko ka cire shi.` } });
+      return { orderId: order.id, status: "CREDITED_TO_WALLET", ticketIds: [] };
     }
 
     return { orderId: order.id, status: "FULFILLED", ticketIds };
@@ -230,7 +248,10 @@ export async function confirmPayment(ctx: Ctx, notice: PaymentNotice): Promise<{
 async function settleOrder(ctx: Ctx, db: Db, order: { id: string; user_id: string; cycle_id: string; quantity: number; amount_kobo: number }, paidWith: PayWith): Promise<string[] | null> {
   await lockKey(db, `cycle-sale:${order.cycle_id}`);
   const cycle = await getCycle(db, order.cycle_id);
-  const picked = cycle.status === "OPEN" ? await pickCards(db, cycle.id, cycle.total_tickets, order.quantity) : { rows: [] as { id: string }[] };
+  // The cards held for this order since it was placed; if the hold was released, any cards still unsold.
+  const held = await db.query<{ id: string }>("SELECT id FROM tickets WHERE order_id = $1 AND status = 'RESERVED' FOR NO KEY UPDATE", [order.id]);
+  const picked = held.rows.length === order.quantity && ["OPEN", "CLOSED"].includes(cycle.status) ? held
+    : cycle.status === "OPEN" ? await pickCards(db, cycle, order.quantity) : { rows: [] as { id: string }[] };
   if (picked.rows.length < order.quantity) return null;
 
   const ticketIds = picked.rows.map((r) => r.id);
@@ -256,14 +277,31 @@ async function settleOrder(ctx: Ctx, db: Db, order: { id: string; user_id: strin
  * random point avoids sorting every unsold card (400,000 in a large season) on
  * each payment.
  */
-async function pickCards(db: Db, cycleId: string, total: number, n: number): Promise<{ rows: { id: string }[] }> {
-  const start = randomInt(total);
-  const sql = (cmp: string) => `SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' AND leaf_index ${cmp} $2
-                                ORDER BY leaf_index LIMIT $3 FOR NO KEY UPDATE SKIP LOCKED`;
-  const a = await db.query<{ id: string }>(sql(">="), [cycleId, start, n]);
-  if (a.rows.length >= n) return a;
-  const b = await db.query<{ id: string }>(sql("<"), [cycleId, start, n - a.rows.length]);
-  return { rows: [...a.rows, ...b.rows] };
+async function pickCards(db: Db, cycle: CycleRow, n: number): Promise<{ rows: { id: string }[] }> {
+  // Levels are sold in order: cards come from the lowest level that still has unsold cards, starting at a
+  // random point within it; an order that empties a level continues into the next.
+  const size = cycle.total_tickets / cycle.levels;
+  const first = (await one<{ m: number | null }>(db, "SELECT min(leaf_index) AS m FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycle.id]))!.m;
+  if (first === null) return { rows: [] };
+  const lo = Math.floor(first / size) * size, hi = lo + size, start = lo + randomInt(size);
+  const take = async (from: number, to: number, k: number) => k <= 0 ? [] : (await db.query<{ id: string }>(
+    `SELECT id FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' AND leaf_index >= $2 AND leaf_index < $3
+     ORDER BY leaf_index LIMIT $4 FOR NO KEY UPDATE SKIP LOCKED`, [cycle.id, from, to, k])).rows;
+  const rows = await take(start, hi, n);
+  rows.push(...await take(lo, start, n - rows.length));
+  rows.push(...await take(hi, cycle.total_tickets, n - rows.length));
+  return { rows };
+}
+
+/**
+ * Run every minute: releases cards held for payments that did not arrive within
+ * the payment window, so others can buy them.
+ */
+export async function releaseExpiredHolds(ctx: Ctx): Promise<number> {
+  const r = await ctx.pool.query(
+    `WITH o AS (UPDATE orders SET status = 'EXPIRED' WHERE status = 'PENDING' AND reserved_until < now() RETURNING id)
+     UPDATE tickets t SET status = 'UNSOLD', order_id = NULL FROM o WHERE t.order_id = o.id AND t.status = 'RESERVED'`);
+  return r.rowCount ?? 0;
 }
 
 /** Simulated gateway: the player "pays" and the gateway notifies us. Only exists in simulation. */

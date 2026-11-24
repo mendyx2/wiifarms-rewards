@@ -7,8 +7,8 @@ export interface Policy { prizeShareBp: number; instantShareBp: number; cardsPer
 export const POLICY: Policy = {
   /** Prizes are paid from this share of full sell-out ticket sales (basis points: 5000 = 50%). */
   prizeShareBp: 5000,
-  /** Share of the prize money allocated to instant cash wins (1000 = 10%). */
-  instantShareBp: 1000,
+  /** Share of the prize money allocated to instant cash wins (500 = 5%: ₦5,000,000 of the first wave's ₦100,000,000). */
+  instantShareBp: 500,
   /** Cards one person may buy per Nigerian calendar day in a cycle. */
   cardsPerDay: 10,
   /** Referral commission on each referred card purchase (250 = 2.5%), paid from the operator's share. */

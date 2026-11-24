@@ -71,12 +71,12 @@ async function buy(p: Player, cycleId: string, quantity: number): Promise<any> {
  * Under 100 cards there is no room for an instant win; the draw cash is ₦1,000.
  */
 async function openCycle(o: { total: number; closeInMs: number; cap: number; name: string; priceKobo?: number;
-  tiers?: object[]; escrowKobo?: number }): Promise<{ id: string; closeAt: number }> {
+  tiers?: object[]; escrowKobo?: number; levels?: number }): Promise<{ id: string; closeAt: number }> {
   const now = Date.now();
   const closeAt = now + o.closeInMs;
   const price = o.priceKobo ?? N200;
   const c = ok(await api("POST", "/v1/admin/cycles", { token: admins.manager!.token, body: {
-    name: o.name, ticketPriceKobo: price, totalTickets: o.total, maxTicketsPerAccount: o.cap,
+    name: o.name, ticketPriceKobo: price, totalTickets: o.total, maxTicketsPerAccount: o.cap, ...(o.levels ? { levels: o.levels } : {}),
     salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: new Date(closeAt).toISOString(), drawAt: new Date(closeAt).toISOString() } }));
   const tier = (b: object) => api("POST", `/v1/admin/cycles/${c.id}/prize-tiers`, { token: admins.manager!.token, body: b });
   const instantBudget = Math.floor(Math.floor(o.total * price / 2) / 10);
@@ -117,7 +117,8 @@ before(async () => {
     payoutApprovalThresholdKobo: 100_000, bankCoolingOffHours: 0, beaconPeriodSeconds: 1, sessionDays: 30,
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 }, cookieSecure: true,
     // Real prize shares; a higher daily card limit so the older tests can buy 20 cards at once (the 10-a-day default has its own test).
-    policy: { ...POLICY, cardsPerDay: 30 },
+    // The older test seasons were sized for a 10% instant share; the real policy (5%) has its own test.
+    policy: { ...POLICY, instantShareBp: 1000, cardsPerDay: 30 },
   };
   messenger = new SimulatedMessenger();
   ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds), messenger };
@@ -244,7 +245,7 @@ test("cycle approval: separation of duties, funding, locking, commitments", asyn
 
 test("season economics: the prize budget is enforced at approval, and each player can buy at most 10 cards a day", async () => {
   const policy = config.policy!;
-  config.policy = { ...POLICY }; // company defaults: 50% to prizes, 10% of that instant, 10 cards a day
+  config.policy = { ...POLICY }; // company defaults: 50% to prizes, 5% of that instant, 10 cards a day
   try {
     const now = Date.now(), mt = admins.manager!.token;
     const draft = async (name: string) => ok(await api("POST", "/v1/admin/cycles", { token: mt, body: { name, ticketPriceKobo: 50_000, totalTickets: 400, maxTicketsPerAccount: 50,
@@ -256,28 +257,28 @@ test("season economics: the prize budget is enforced at approval, and each playe
       ok(await api("POST", `/v1/admin/cycles/${id}/approve`, { token: admins.manager2!.token }));
       return api("POST", `/v1/admin/cycles/${id}/approve`, { token: admins.finance!.token });
     };
-    // 400 cards at ₦500: ₦200,000 at sell-out, so ₦100,000 of prizes, of which ₦10,000 instant cash.
+    // 400 cards at ₦500: ₦200,000 at sell-out, so ₦100,000 of prizes, of which ₦5,000 instant cash.
     const over = await draft("Over budget");
-    await tier(over, { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 21 });
-    await tier(over, { stage: "FINAL_DRAW", kind: "CASH", title: "₦90,000", cashKobo: 9_000_000, quantity: 1, drawOrder: 1 });
+    await tier(over, { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 11 });
+    await tier(over, { stage: "FINAL_DRAW", kind: "CASH", title: "₦95,000", cashKobo: 9_500_000, quantity: 1, drawOrder: 1 });
     const b = ok(await api("GET", `/v1/admin/cycles/${over}`, { token: mt })).budget;
-    assert.deepEqual([b.fullSalesKobo, b.poolKobo, b.instantBudgetKobo, b.drawBudgetKobo, b.instantKobo], [20_000_000, 10_000_000, 1_000_000, 9_000_000, 1_050_000]);
+    assert.deepEqual([b.fullSalesKobo, b.poolKobo, b.instantBudgetKobo, b.drawBudgetKobo, b.instantKobo], [20_000_000, 10_000_000, 500_000, 9_500_000, 550_000]);
     const refused = await approveAll(over, 10_050_000);
     fails(refused, 409, "PRIZE_BUDGET");
-    assert.match(refused.body.error.message, /Instant cash prizes total ₦10,500, above the ₦10,000 allowed \(10% of the ₦100,000 prize money\)/);
+    assert.match(refused.body.error.message, /Instant cash prizes total ₦5,500, above the ₦5,000 allowed \(5% of the ₦100,000 prize money\)/);
     const overDraw = await draft("Draw over budget");
-    await tier(overDraw, { stage: "FINAL_DRAW", kind: "CASH", title: "₦90,001", cashKobo: 9_000_100, quantity: 1, drawOrder: 1 });
-    fails(await approveAll(overDraw, 9_000_100), 409, "PRIZE_BUDGET");
+    await tier(overDraw, { stage: "FINAL_DRAW", kind: "CASH", title: "₦95,001", cashKobo: 9_500_100, quantity: 1, drawOrder: 1 });
+    fails(await approveAll(overDraw, 9_500_100), 409, "PRIZE_BUDGET");
 
     // Exactly on budget is approved.
     const fits = await draft("On budget");
-    await tier(fits, { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 20 });
-    await tier(fits, { stage: "FINAL_DRAW", kind: "CASH", title: "₦90,000", cashKobo: 9_000_000, quantity: 1, drawOrder: 1 });
+    await tier(fits, { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 10 });
+    await tier(fits, { stage: "FINAL_DRAW", kind: "CASH", title: "₦95,000", cashKobo: 9_500_000, quantity: 1, drawOrder: 1 });
     assert.equal(ok(await approveAll(fits, 10_000_000)).status, "APPROVED");
     ok(await api("POST", `/v1/admin/cycles/${fits}/commit`, { token: mt }));
     ok(await api("POST", `/v1/admin/cycles/${fits}/open`, { token: mt }));
     const pub = ok(await api("GET", `/v1/cycles/${fits}`));
-    assert.deepEqual([pub.max_tickets_per_day, pub.prize_share_bp, pub.instant_share_bp], [10, 5000, 1000]);
+    assert.deepEqual([pub.max_tickets_per_day, pub.prize_share_bp, pub.instant_share_bp], [10, 5000, 500]);
 
     // At most 10 cards a day, however they are split.
     const p = await newPlayer();
@@ -348,14 +349,22 @@ test("exclusions: self-exclusion and the staff register block buying", async () 
   fails(await api("POST", "/v1/orders", { token: staffMember.token, key: key(), body: { cycleId: cycleA.id, quantity: 1 } }), 403, "NOT_ELIGIBLE");
 });
 
-test("sell-out under load: no card sold twice, late payer refunded, cycle closes itself", async () => {
-  // 20 cards are sold and 3 are held by an unpaid order; 40 remain unsold. Four players race for 20 each.
+test("sell-out under load: no card sold twice, every payment gets its cards, cycle closes itself", async () => {
+  // 20 cards are sold and 3 are held for an unpaid order. When its payment window passes, the hold is released.
+  const { releaseExpiredHolds } = await import("../src/modules/tickets.ts");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'RESERVED'", [cycleA.id])).rows[0].n, 3);
+  await pool.query("UPDATE orders SET reserved_until = now() - interval '1 second' WHERE cycle_id = $1 AND status = 'PENDING'", [cycleA.id]);
+  assert.equal(await releaseExpiredHolds(ctx), 3);
+  // 40 remain. Four players race for 20 each: the cards are held when the order is placed, so two orders get
+  // them and two are told at once that not enough are left — before anyone pays, so nobody needs a refund.
   const racers = await Promise.all([1, 2, 3, 4].map(() => newPlayer()));
   const orders = await Promise.all(racers.map((p) => api("POST", "/v1/orders", { token: p.token, key: key(), body: { cycleId: cycleA.id, quantity: 20 } })));
-  const results = await Promise.all(racers.map((p, i) => api("POST", "/v1/simulated-gateway/pay", { token: p.token, body: { paymentRef: ok(orders[i]!).paymentRef } })));
-  const statuses = results.map((r) => ok(r).status).sort();
-  assert.deepEqual(statuses, ["FULFILLED", "FULFILLED", "REFUNDED", "REFUNDED"]);
-  players.push(...racers.filter((_, i) => results[i]!.body.status === "FULFILLED"));
+  assert.deepEqual(orders.map((r) => r.status).sort(), [200, 200, 409, 409]);
+  for (const r of orders.filter((o) => o.status === 409)) assert.equal(r.body.error.code, "NOT_ENOUGH_CARDS");
+  const paying = racers.map((p, i) => [p, orders[i]!] as const).filter(([, o]) => o.status === 200);
+  const results = await Promise.all(paying.map(([p, o]) => api("POST", "/v1/simulated-gateway/pay", { token: p.token, body: { paymentRef: o.body.paymentRef } })));
+  assert.deepEqual(results.map((r) => ok(r).status), ["FULFILLED", "FULFILLED"]);
+  players.push(...paying.map(([p]) => p));
 
   const sold = (await pool.query("SELECT id, owner_id, order_id FROM tickets WHERE cycle_id = $1 AND status <> 'UNSOLD'", [cycleA.id])).rows;
   assert.equal(sold.length, 60);
@@ -365,11 +374,10 @@ test("sell-out under load: no card sold twice, late payer refunded, cycle closes
   // Sold out before the closing date: the cycle is closed straight away.
   assert.equal(ok(await api("GET", `/v1/cycles/${cycleA.id}`)).status, "CLOSED");
   fails(await api("POST", "/v1/orders", { token: racers[0]!.token, key: key(), body: { cycleId: cycleA.id, quantity: 1 } }), 409, "SALES_CLOSED");
-  // Revenue is exactly 60 cards; refunds net to zero.
+  // Revenue is exactly 60 cards, and no payment was refunded.
   const rev = (await pool.query("SELECT -balance_kobo AS b FROM ledger_balances WHERE code = $1", [`TICKET_REVENUE:${cycleA.id}`])).rows[0].b;
   assert.equal(rev, 60 * N200);
-  assert.equal((await pool.query("SELECT balance_kobo AS b FROM ledger_balances WHERE code = 'REFUNDS_PAYABLE'")).rows[0].b, 0);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM refunds WHERE reason = 'NO_TICKET_ISSUED'")).rows[0].n, 2);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM refunds")).rows[0].n, 0);
 });
 
 test("scratch: every result verifies against the published fingerprint; reveal pays once", async () => {
@@ -876,8 +884,9 @@ test("refunds and cancelled cycles: two people, original payment only, prizes fo
   // unscratched cards can no longer be revealed.
   assert.equal((await wallet(p1)).balanceKobo, w1);
   fails(await api("POST", `/v1/tickets/${p1Unscratched.id}/reveal`, { token: p1.token }), 409, "CARD_CANCELLED");
-  // The payment that arrives after cancellation is refunded automatically.
-  assert.equal(ok(await api("POST", "/v1/simulated-gateway/pay", { token: p4.token, body: { paymentRef: late.paymentRef } })).status, "REFUNDED");
+  // A payment that arrives after cancellation is never kept without a card: it goes straight into the player's wallet.
+  assert.equal(ok(await api("POST", "/v1/simulated-gateway/pay", { token: p4.token, body: { paymentRef: late.paymentRef } })).status, "CREDITED_TO_WALLET");
+  assert.equal((await wallet(p4)).balanceKobo, 50_000);
   // Merchandise goes back into stock for future cycles.
   assert.deepEqual((await pool.query("SELECT status, reserved_cycle_id FROM stock_units WHERE serial_number IN ('SN-7','SN-8') ORDER BY serial_number")).rows,
     [{ status: "IN_STOCK", reserved_cycle_id: null }, { status: "IN_STOCK", reserved_cycle_id: null }]);
@@ -969,7 +978,7 @@ test("finance: expenses by reversal only, daily reconciliation catches a ledger 
   const s = ok(await api("GET", `/v1/admin/finance/summary?from=${today}&to=${today}`, { token: fin }));
   assert.equal(s.collected_kobo, rec.collectedKobo); assert.equal(s.refunded_kobo, rec.refundedKobo); assert.equal(s.paid_out_kobo, rec.paidOutKobo);
   assert.equal(s.operating_expenses_kobo, 5_500_000);
-  assert.equal(s.result_kobo, s.collected_kobo - s.refunded_kobo - s.cash_prizes_kobo - s.operating_expenses_kobo);
+  assert.equal(s.result_kobo, s.collected_kobo + s.wallet_sales_kobo - s.refunded_kobo - s.refunded_to_wallets_kobo - s.cash_prizes_kobo - s.referral_commissions_kobo - s.operating_expenses_kobo);
   assert.equal(s.days_signed_off, 1); assert.equal(s.days_mismatched, 1);
   fails(await api("GET", `/v1/admin/finance/summary?from=${today}&to=2000-01-01`, { token: fin }), 400, "INVALID_DATE");
 
@@ -1054,19 +1063,21 @@ test("close-out: blocked until every prize is resolved, two people, then every c
   assert.ok(actions.includes("cycle.archive_requested") && actions.includes("cycle.archived"));
 });
 
-test("sell-out rush: when more people pay than there are cards, every card is still sold and only the overflow is refunded", async () => {
-  // 30 cards, 10 buyers of 5 each, all paying at the same instant: exactly 6 must get cards and the
-  // cycle must sell out. Nobody may be refunded while cards remain.
+test("sell-out rush: when more people order than there are cards, the extra orders are turned away before anyone pays", async () => {
+  // 30 cards, 10 buyers of 5 each, ordering at the same instant: exactly 6 orders hold cards, 4 are told at once
+  // that not enough are left, and all 6 payments get their cards. Nobody is refunded.
   for (let round = 0; round < 6; round++) {
     const ft = admins.fulfilment!.token;
     ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId, supplierId, warehouseId, poReference: `PO-R${round}`, serialNumbers: [`SN-R${round}-1`, `SN-R${round}-2`], acquisitionCostKobo: 1, landedCostKobo: 1 } }));
     const c = await openCycle({ total: 30, closeInMs: 3600_000, cap: 30, name: `Race ${round}` });
     const buyers = await Promise.all(Array.from({ length: 10 }, () => newPlayer()));
     const orders = await Promise.all(buyers.map((p) => api("POST", "/v1/orders", { token: p.token, key: key(), body: { cycleId: c.id, quantity: 5 } })));
-    const paid = await Promise.all(buyers.map((p, i) => api("POST", "/v1/simulated-gateway/pay", { token: p.token, body: { paymentRef: ok(orders[i]!).paymentRef } })));
-    const statuses = paid.map((r) => ok(r).status);
-    const unsold = (await pool.query("SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [c.id])).rows[0].n;
-    assert.deepEqual([statuses.filter((x) => x === "FULFILLED").length, statuses.filter((x) => x === "REFUNDED").length, unsold], [6, 4, 0], `round ${round}`);
+    assert.deepEqual([orders.filter((o) => o.status === 200).length, orders.filter((o) => o.status === 409 && o.body.error.code === "NOT_ENOUGH_CARDS").length], [6, 4], `round ${round}`);
+    const paid = await Promise.all(buyers.map((p, i) => [p, orders[i]!] as const).filter(([, o]) => o.status === 200)
+      .map(([p, o]) => api("POST", "/v1/simulated-gateway/pay", { token: p.token, body: { paymentRef: o.body.paymentRef } })));
+    assert.ok(paid.every((r) => ok(r).status === "FULFILLED"), `round ${round}`);
+    const left = (await pool.query("SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status IN ('UNSOLD','RESERVED')", [c.id])).rows[0].n;
+    assert.equal(left, 0);
     assert.equal(ok(await api("GET", `/v1/cycles/${c.id}`)).status, "CLOSED");
   }
 });
@@ -1674,4 +1685,57 @@ test("accepting instant prizes: the player taps Accept to move a prize into the 
   assert.equal(await wallet(), total);
   assert.ok(total >= 50_000 * (1 + waitingWins));
   assert.ok((await pool.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'ticket.prize_accepted' AND details->>'automatic' = 'true' AND entity_id = ANY($1)", [after.map((t: any) => t.id)])).rows[0].n >= waitingWins);
+});
+
+test("levels and held cards: instant cash released level by level as cards sell, and every payment gets its cards", async () => {
+  const { releaseExpiredHolds } = await import("../src/modules/tickets.ts");
+  const mt = admins.manager!.token, now = Date.now();
+  fails(await api("POST", "/v1/admin/cycles", { token: mt, body: { name: "Uneven", ticketPriceKobo: 50_000, totalTickets: 41, maxTicketsPerAccount: 5, levels: 4,
+    salesOpenAt: new Date(now).toISOString(), salesCloseAt: new Date(now + 3600_000).toISOString(), drawAt: new Date(now + 3600_000).toISOString() } }), 400, "INVALID_LEVELS");
+  // 40 cards in 4 levels of 10; 8 instant prizes, so exactly 2 in each level. (A rich prize table needs an overridden policy.)
+  const policy = config.policy!;
+  config.policy = { ...POLICY, prizeShareBp: 10_000, instantShareBp: 10_000 };
+  const cyc = await openCycle({ total: 40, closeInMs: 3600_000, cap: 20, name: "Levels", priceKobo: 50_000, levels: 4, escrowKobo: 400_000,
+    tiers: [{ stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 8 }] });
+  config.policy = policy;
+  const level = async () => ok(await api("GET", `/v1/cycles/${cyc.id}`)).level;
+  assert.deepEqual(await level(), { levels: 4, size: 10, current: 1, leftInLevel: 10, instantCashInLevelKobo: 100_000 });
+
+  // Level 1 sells first; its 10 cards hold exactly its 2 prizes.
+  const a = await newPlayer();
+  await buy(a, cyc.id, 10);
+  const leaf = async (userId: string) => (await pool.query("SELECT leaf_index FROM tickets WHERE cycle_id = $1 AND owner_id = $2 ORDER BY leaf_index", [cyc.id, userId])).rows.map((r: any) => r.leaf_index);
+  assert.deepEqual(await leaf(a.id), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  let wins = 0;
+  for (const t of ok(await api("GET", `/v1/tickets?cycleId=${cyc.id}`, { token: a.token })).tickets) {
+    if (ok(await api("POST", `/v1/tickets/${t.id}/reveal`, { token: a.token })).ticket.result.cashKobo) wins++;
+  }
+  assert.equal(wins, 2, "each level releases exactly its share of the instant prizes");
+  await new Promise((r) => setTimeout(r, 2100)); // the public figures are reused for two seconds
+  assert.deepEqual(await level(), { levels: 4, size: 10, current: 2, leftInLevel: 10, instantCashInLevelKobo: 100_000 });
+
+  // Cards are held from the moment an order is placed; held cards are not on sale to anyone else.
+  const b = await newPlayer(), c = await newPlayer();
+  const held = ok(await api("POST", "/v1/orders", { token: b.token, key: key(), body: { cycleId: cyc.id, quantity: 6 } }));
+  const heldLeaves = (await pool.query("SELECT leaf_index FROM tickets WHERE order_id = $1 AND status = 'RESERVED'", [held.orderId])).rows.map((r: any) => r.leaf_index);
+  assert.equal(heldLeaves.length, 6); assert.ok(heldLeaves.every((i: number) => i >= 10 && i < 20));
+  await buy(c, cyc.id, 4);
+  assert.ok((await leaf(c.id)).every((i: number) => i >= 10 && i < 20), "level 2 is finished before level 3 starts");
+  const next = ok(await api("POST", "/v1/orders", { token: c.token, key: key(), body: { cycleId: cyc.id, quantity: 1 } }));
+  assert.ok((await pool.query("SELECT leaf_index FROM tickets WHERE order_id = $1", [next.orderId])).rows[0].leaf_index >= 20, "held cards are skipped");
+  // Paying for held cards gives exactly those cards.
+  const paid = ok(await api("POST", "/v1/simulated-gateway/pay", { token: b.token, body: { paymentRef: held.paymentRef } }));
+  assert.equal(paid.status, "FULFILLED");
+  assert.deepEqual((await leaf(b.id)).sort((x: number, y: number) => x - y), heldLeaves.sort((x: number, y: number) => x - y));
+  await assert.rejects(pool.query("UPDATE tickets SET status = 'SOLD', owner_id = $2, sold_at = now(), order_id = $3 WHERE order_id = $1",
+    [next.orderId, b.id, held.orderId]), /only be sold to the order holding it/);
+
+  // An unpaid order's hold is released when its payment window passes; if the payment then arrives and cards are
+  // left, it still gets cards.
+  await pool.query("UPDATE orders SET reserved_until = now() - interval '1 second' WHERE id = $1", [next.orderId]);
+  assert.equal(await releaseExpiredHolds(ctx), 1);
+  assert.equal((await pool.query("SELECT status FROM orders WHERE id = $1", [next.orderId])).rows[0].status, "EXPIRED");
+  const late = ok(await api("POST", "/v1/simulated-gateway/pay", { token: c.token, body: { paymentRef: next.paymentRef } }));
+  assert.equal(late.status, "FULFILLED"); assert.equal(late.ticketIds.length, 1);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM refunds rf JOIN orders o ON o.id = rf.order_id WHERE o.cycle_id = $1", [cyc.id])).rows[0].n, 0);
 });

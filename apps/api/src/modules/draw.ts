@@ -47,6 +47,10 @@ export async function executeDraw(ctx: Ctx, admin: Admin, cycleId: string): Prom
   if (pre.status !== "CLOSED") throw conflict("NOT_CLOSED", "The draw can only run on a closed cycle.");
   if (pre.draw_at.getTime() > Date.now()) throw conflict("TOO_EARLY", "The draw cannot run before its published time.");
 
+  // Cards held for a payment still in progress must be settled first: they may become entries.
+  if (await one(ctx.pool, "SELECT 1 FROM tickets WHERE cycle_id = $1 AND status = 'RESERVED' LIMIT 1", [cycleId])) {
+    throw conflict("PAYMENTS_IN_PROGRESS", "Payments for some cards are still in progress. Try again in a few minutes.");
+  }
   // Every sold card is revealed first, so instant prizes are settled before the draw.
   await autoRevealCycle(ctx, cycleId);
 

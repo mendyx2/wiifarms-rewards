@@ -14,14 +14,17 @@ import { SimulatedMessenger } from "./messenger.ts";
 /** First wave: ₦500 cards; 400,000 of them in the real season. The demo uses fewer so it starts quickly. */
 export const TICKET_PRICE_KOBO = 50_000;
 export const FIRST_WAVE_TICKETS = 400_000;
+export const SEASON_DAYS = 90;
 const DEMO_TICKETS = 20_000;
 
 /**
  * The first-wave prize plan, scaled to a season of `total` cards. Prize money is
- * 50% of full sell-out sales and instant cash 10% of that (company policy).
- * At 400,000 cards the instant table below uses exactly the ₦10,000,000 instant
- * budget; smaller demo seasons get the same table scaled down (rounded down, so
- * it never exceeds the budget). Final-draw prizes are a placeholder until the
+ * 50% of full sell-out sales and instant cash 5% of that (company policy).
+ * At 400,000 cards the instant table below is exactly the ₦5,000,000 of instant
+ * cash: by value 8% in ₦10,000 prizes, 10% in ₦5,000, 14% in ₦2,500, 28% in
+ * ₦1,000 and 40% in ₦500 — 5,820 winning cards, about one in 69. Smaller demo
+ * seasons get the same table scaled down (rounded down, so it never exceeds the
+ * budget). Final-draw prizes are a placeholder until the
  * real list (with images) is supplied: one car, then other prizes while they
  * fit the final-draw budget.
  */
@@ -29,10 +32,10 @@ export function firstWavePlan(total: number): {
   instant: [number, number][];
   draw: { title: string; quantity: number; cashKobo?: number; valueKobo?: number; stock?: number; serialised: boolean }[];
 } {
-  const perWave: [number, number][] = [[1_000_000, 100], [500_000, 200], [200_000, 750], [100_000, 2_500], [50_000, 8_000]];
+  const perWave: [number, number][] = [[1_000_000, 40], [500_000, 100], [250_000, 280], [100_000, 1_400], [50_000, 4_000]];
   const instant = perWave.map(([c, q]) => [c, Math.floor((q * total) / FIRST_WAVE_TICKETS)] as [number, number]).filter(([, q]) => q > 0);
   if (!instant.length) instant.push([50_000, 1]);
-  const drawBudget = Math.floor(total * TICKET_PRICE_KOBO * 0.5) - Math.floor(total * TICKET_PRICE_KOBO * 0.5 * 0.1);
+  const drawBudget = Math.floor(total * TICKET_PRICE_KOBO * 0.5) - Math.floor(total * TICKET_PRICE_KOBO * 0.5 * 0.05);
   const candidates = [
     { title: "Car", quantity: 1, valueKobo: 3_000_000_000, stock: 1, serialised: true, minTickets: 200_000 }, // demo value: to be confirmed
     { title: "Electric motorcycle", quantity: 1, valueKobo: 150_000_000, stock: 1, serialised: true, minTickets: 0 },
@@ -49,7 +52,7 @@ export function firstWavePlan(total: number): {
   return { instant, draw };
 }
 
-export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number; closeInMinutes?: number; instant?: [number, number][] } = {}): Promise<{ cycleId: string; admins: Record<string, Admin> }> {
+export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number; closeInMinutes?: number; instant?: [number, number][]; levels?: number } = {}): Promise<{ cycleId: string; admins: Record<string, Admin> }> {
   const people: Record<string, Role> = { manager: "CYCLE_MANAGER", operations: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", support: "SUPPORT", compliance: "COMPLIANCE", auditor: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
   const admins: Record<string, Admin> = {};
   for (const name of Object.keys(people)) {
@@ -78,12 +81,15 @@ export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number
     return id;
   };
 
-  const now = Date.now(), close = new Date(now + (opts.closeInMinutes ?? 7 * 24 * 60) * 60_000).toISOString();
+  // A season runs 90 days; the final draw is at its end.
+  const now = Date.now(), close = new Date(now + (opts.closeInMinutes ?? SEASON_DAYS * 24 * 60) * 60_000).toISOString();
   const m = admins.manager!;
   const total = opts.tickets ?? DEMO_TICKETS;
   const { id } = await cycles.createCycle(ctx, m, {
     name: opts.name ?? "Harvest Cycle 1", ticketPriceKobo: TICKET_PRICE_KOBO, totalTickets: total, maxTicketsPerAccount: 200,
-    salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: close, drawAt: close });
+    salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: close, drawAt: close,
+    // The instant cash is released in 4 levels as cards sell (each level holds a quarter of every prize).
+    levels: opts.levels ?? (total % 4 === 0 ? 4 : 1) });
   const plan = firstWavePlan(total);
   if (opts.instant) { plan.instant = opts.instant; plan.draw = []; } // a custom instant table (tests)
   for (const [cashKobo, quantity] of plan.instant) {

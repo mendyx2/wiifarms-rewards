@@ -524,19 +524,20 @@ async function cycles() {
     const now = Date.now();
     const form = el("form", { class: "card", onsubmit: action(async () => {
       const r = await post("/v1/admin/cycles", {
-        name: v(form, "name"), ticketPriceKobo: toKobo(v(form, "price")), totalTickets: Number(v(form, "total")), maxTicketsPerAccount: Number(v(form, "cap")),
+        name: v(form, "name"), ticketPriceKobo: toKobo(v(form, "price")), totalTickets: Number(v(form, "total")), maxTicketsPerAccount: Number(v(form, "cap")), levels: Number(v(form, "levels")),
         salesOpenAt: new Date(v(form, "open")).toISOString(), salesCloseAt: new Date(v(form, "close")).toISOString(), drawAt: new Date(v(form, "draw")).toISOString() });
       location.hash = "#/cycle/" + r.id;
     }, false) },
-      el("b", {}, "New cycle"), el("p", { class: "sub" }, "All cycles are simulated. Ticket price must be ₦200–₦500. Company policy fixed on each cycle: prizes are paid from 50% of full sell-out sales, 10% of that is instant cash, and each player can buy at most 10 cards a day. Defaults are the first wave."),
+      el("b", {}, "New cycle"), el("p", { class: "sub" }, "All cycles are simulated. Ticket price must be ₦200–₦500. Company policy fixed on each cycle: prizes are paid from 50% of full sell-out sales, 5% of that is instant cash, and each player can buy at most 10 cards a day. A season runs 90 days. Cards are sold in levels, one after another, each holding an equal share of the instant prizes. Defaults are the first wave."),
       el("div", { class: "form" },
         input("Name", { name: "name", required: true, maxlength: 120 }),
         input("Ticket price (₦)", { name: "price", type: "number", min: 200, max: 500, step: 50, value: 500, required: true }),
         input("Number of tickets", { name: "total", type: "number", min: 1, value: 400000, required: true }),
         input("Most tickets per player in the season", { name: "cap", type: "number", min: 1, value: 300, required: true }),
+        input("Levels (instant cash released level by level)", { name: "levels", type: "number", min: 1, max: 20, value: 4, required: true }),
         input("Sales open", { name: "open", type: "datetime-local", value: localInput(new Date(now)), required: true }),
-        input("Sales close (or sell-out)", { name: "close", type: "datetime-local", value: localInput(new Date(now + 14 * 864e5)), required: true }),
-        input("Final draw", { name: "draw", type: "datetime-local", value: localInput(new Date(now + 14 * 864e5)), required: true })),
+        input("Sales close (or sell-out)", { name: "close", type: "datetime-local", value: localInput(new Date(now + 90 * 864e5)), required: true }),
+        input("Final draw", { name: "draw", type: "datetime-local", value: localInput(new Date(now + 90 * 864e5)), required: true })),
       el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Create draft")));
     nodes.push(form);
   }

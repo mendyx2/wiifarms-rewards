@@ -243,6 +243,9 @@ async function home() {
       el("div", { class: "price" }, naira(c.ticket_price_kobo), " ", el("small", {}, "per scratch card")),
       el("div", { class: "bar" }, fill),
       el("div", {}, `${c.tickets_remaining.toLocaleString("en-NG")} of ${c.total_tickets.toLocaleString("en-NG")} cards left`),
+      c.level?.levels > 1 && c.status === "OPEN" ? el("div", { class: "level" },
+        el("b", {}, `Level ${c.level.current} of ${c.level.levels}`),
+        el("span", {}, `${c.level.leftInLevel.toLocaleString("en-NG")} cards left · ${naira(c.level.instantCashInLevelKobo)} instant cash in this level`)) : null,
       el("div", { class: "facts" },
         el("div", {}, el("b", {}, odds), "cards win instant cash"),
         el("div", {}, el("b", {}, instant.length ? `${naira(Math.min(...instant))} – ${naira(Math.max(...instant))}` : "—"), "instant prizes"),
@@ -429,6 +432,7 @@ async function buy() {
       el("div", { class: "chips" }, [1, 3, 5, 10].filter((n) => n <= today.max).map((n) => el("button", { onclick: () => set(n) }, n))),
       el("div", { class: "row" }, el("span", {}, "Total"), total),
       el("p", { class: "muted" }, "More cards, more chances: each card is one entry in the final draw.")),
+    el("p", { class: "muted" }, "All sales are final. When you start paying, your cards are held for you for 15 minutes, so your payment always gets them."),
     el("div", { class: "card" },
       el("div", { class: "row" }, el("span", {}, "Cards today"), el("b", {}, `${today.cards} of ${today.max}`)),
       el("div", { class: "row" }, el("span", {}, "Spent in the last 24 hours"), el("b", {}, `${naira(spending.dailyKobo)} of ${naira(limits.dailyKobo)}`)),
@@ -468,10 +472,12 @@ function paymentStep(order, keyName) {
         const r = await api.post("/v1/simulated-gateway/pay", { paymentRef: order.paymentRef });
         clearKey(keyName);
         if (r.status === "FULFILLED") { remember(order.cycleId ?? state.cycleId); toast("Payment confirmed — your cards are ready."); go("cards"); }
-        else if (r.status === "REFUNDED") {
-          view.replaceChildren(el("h1", {}, "Refunded in full"),
-            el("div", { class: "note warn" }, "Those cards sold out while you were paying, so no cards were issued and your payment has been refunded."),
-            el("a", { class: "btn", href: "#/home" }, "Back to home"));
+        else if (r.status === "CREDITED_TO_WALLET") {
+          // Rare: the payment arrived after the cards held for it had been released and none were left.
+          await loadMe();
+          view.replaceChildren(el("h1", {}, "Your money is in your wallet"),
+            el("div", { class: "note warn" }, "Your payment arrived after the cards held for you had been released, and none were left. Nothing is lost: the money is in your wallet, to buy cards or withdraw."),
+            el("a", { class: "btn", href: "#/wallet" }, "Open my wallet"));
         } else toast("We could not confirm that payment yet. Please try again.");
       }) }, "Confirm simulated payment"),
       el("a", { class: "btn ghost", href: "#/buy" }, "Cancel")),
@@ -792,7 +798,7 @@ async function draw() {
   return nodes;
 }
 
-const REFUND_TEXT = { CYCLE_VOID: "cycle cancelled", INELIGIBLE_PURCHASE: "not eligible to buy", DISPUTED_PAYMENT: "payment disputed", NO_TICKET_ISSUED: "cards sold out while paying", DUPLICATE_CHARGE: "charged twice" };
+const REFUND_TEXT = { CYCLE_VOID: "cycle cancelled", INELIGIBLE_PURCHASE: "not eligible to buy", DISPUTED_PAYMENT: "payment disputed", NO_TICKET_ISSUED: "credited to your wallet", DUPLICATE_CHARGE: "charged twice" };
 
 async function purchasesSection() {
   const orders = (await api.get("/v1/orders")).orders;

@@ -17,6 +17,7 @@ import { SimulatedMessenger } from "@wiifarm/api/messenger.ts";
 import { migrate } from "@wiifarm/api/migrate.ts";
 import { seedDemo } from "@wiifarm/api/seed-demo.ts";
 import { closeDueCycles } from "@wiifarm/api/modules/cycles.ts";
+import { releaseExpiredHolds } from "@wiifarm/api/modules/tickets.ts";
 import { deliverMessages } from "@wiifarm/api/modules/notify.ts";
 
 const adminUrl = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/postgres";
@@ -52,6 +53,7 @@ export async function startStack(): Promise<Stack> {
   // The same background jobs the real server runs (closing cycles on time, sending texts), sped up.
   const jobs = setInterval(() => {
     closeDueCycles(ctx).catch(() => {});
+    releaseExpiredHolds(ctx).catch(() => {});
     deliverMessages(ctx).catch(() => {});
   }, 1000);
   return {

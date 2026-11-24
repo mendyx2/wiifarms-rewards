@@ -6,7 +6,7 @@ import { createPool } from "./db.ts";
 import { buildServer } from "./http.ts";
 import { migrate } from "./migrate.ts";
 import { closeDueCycles } from "./modules/cycles.ts";
-import { revealClosedCycles } from "./modules/tickets.ts";
+import { releaseExpiredHolds, revealClosedCycles } from "./modules/tickets.ts";
 import { expireClaims } from "./modules/inventory.ts";
 import { reconcileYesterday } from "./modules/finance.ts";
 import { deliverMessages, sendClaimReminders } from "./modules/notify.ts";
@@ -22,6 +22,7 @@ const ctx: Ctx = { pool, config, keys: new LocalKeyService(config.masterKey), be
 // Closes cycles that have sold out or reached their published closing time.
 setInterval(() => { closeDueCycles(ctx).catch((e) => console.error("closeDueCycles failed", e)); }, 15_000).unref();
 setInterval(() => { revealClosedCycles(ctx).catch((e) => console.error("revealClosedCycles failed", e)); }, 30_000).unref();
+setInterval(() => { releaseExpiredHolds(ctx).catch((e) => console.error("releaseExpiredHolds failed", e)); }, 60_000).unref();
 // Ends prize claims whose published claim window has passed.
 setInterval(() => { expireClaims(ctx).catch((e) => console.error("expireClaims failed", e)); }, 3600_000).unref();
 // Reconciles the previous day so Finance only has to review and sign off.

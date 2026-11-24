@@ -252,6 +252,9 @@ export async function decideVoid(ctx: Ctx, admin: Admin, cycleId: string, approv
       await db.query("UPDATE orders SET status = 'REFUNDED' WHERE id = $1", [o.id]);
       refundedKobo += o.amount_kobo;
     }
+    // Payments still in progress lose their held cards; if such a payment arrives, it goes into the player's wallet.
+    await db.query("UPDATE orders SET status = 'CANCELLED' WHERE cycle_id = $1 AND status = 'PENDING'", [cycleId]);
+    await db.query("UPDATE tickets SET status = 'UNSOLD', order_id = NULL WHERE cycle_id = $1 AND status = 'RESERVED'", [cycleId]);
     // Prizes already revealed are kept by their winners: any not yet accepted are accepted for them now.
     await acceptWaitingInTx(db, cycleId);
     // Unscratched cards can no longer be revealed.

@@ -287,9 +287,29 @@ Built from management's instructions of 23 November 2026.
 ### Seasons and the prize budget
 - **Rewards are seasonal** (each season is a cycle, as built). **The lottery ("loto") is a separate, continuous product and is not part of this system**: it would need its own licence, rules and certification, and nothing here mixes the two.
 - **First wave: 400,000 cards at ₦500**, ₦200,000,000 at sell-out. `pnpm --filter @wiifarm/api seed:demo --first-wave` creates it in the simulation; the everyday demo uses a scaled-down copy.
-- **Prize money is 50% of full sell-out sales (₦100,000,000), and 10% of that (₦10,000,000) is instant cash.** This is company policy, set in configuration (`WR_PRIZE_SHARE_BP`, `WR_INSTANT_SHARE_BP`) and fixed on each season when it is drafted. Approval is refused if the instant prizes or the final-draw prizes exceed their share; merchandise counts at its advertised value. The admin cycle page shows the budget as it is filled.
-- **Placeholder prize table** for the first wave: instant cash of ₦500 × 8,000, ₦1,000 × 2,500, ₦2,000 × 750, ₦5,000 × 200 and ₦10,000 × 100 (exactly ₦10,000,000; one card in about 35 wins). Final draw: **the single car**, then an electric motorcycle, cash, freezers and rice — about ₦33,000,000 of the ₦90,000,000 final-draw budget. **The car's value (₦30,000,000 in the demo) and the rest of the list are placeholders for management's real list and pictures.**
-- **If not every card sells, the advertised prizes are still given**, so prizes become a larger share of actual sales. This is the operator's risk and is stated on the admin page.
+- **A season runs 90 days**, with the final draw at its end.
+- **Prize money is 50% of full sell-out sales (₦100,000,000), and 5% of that (₦5,000,000) is instant cash**; the rest (₦95,000,000) is for the final draw. This is company policy, set in configuration (`WR_PRIZE_SHARE_BP`, `WR_INSTANT_SHARE_BP`) and fixed on each season when it is drafted. Approval is refused if the instant prizes or the final-draw prizes exceed their share; merchandise counts at its advertised value. The admin cycle page shows the budget as it is filled.
+- **The ₦5,000,000 of instant cash (recommended split):**
+
+| Prize | Share of the ₦5,000,000 | Winning cards | Chance per card |
+|---|---|---|---|
+| ₦10,000 | 8% (₦400,000) | 40 | 1 in 10,000 |
+| ₦5,000 | 10% (₦500,000) | 100 | 1 in 4,000 |
+| ₦2,500 | 14% (₦700,000) | 280 | 1 in 1,429 |
+| ₦1,000 | 28% (₦1,400,000) | 1,400 | 1 in 286 |
+| ₦500 | 40% (₦2,000,000) | 4,000 | 1 in 100 |
+| **All** | **100%** | **5,820** | **about 1 in 69** |
+
+  Most of the money goes to ₦500 and ₦1,000 prizes so that wins are as frequent as the budget allows (₦500 gives the player their card's price back), while 140 prizes of ₦5,000–₦10,000 give people something to talk about.
+- **Instant cash is released in levels as cards sell.** The first wave is sold in 4 levels of 100,000 cards, one after another; each level holds exactly a quarter of every instant prize (₦1,250,000: 10 × ₦10,000, 25 × ₦5,000, 70 × ₦2,500, 350 × ₦1,000 and 1,000 × ₦500), shuffled within the level. Level 2 goes on sale when level 1 has sold out, and so on. The home screen shows the level on sale, the cards left in it and the instant cash it holds. If sales stop early, the prizes in unsold levels are never paid, so the instant-cash cost follows sales exactly. The levels are fixed at approval and are part of the published prize-table fingerprint; the certified engine generates each level separately.
+- **Final draw placeholder:** **the single car**, then an electric motorcycle, cash, freezers and rice — about ₦33,000,000 of the ₦95,000,000 final-draw budget. **The car's value (₦30,000,000 in the demo) and the rest of the list are placeholders for management's real list and pictures.** Every card enters the final draw, win or lose.
+- **If not every card sells, the advertised final-draw prizes are still given**, so prizes become a larger share of actual sales. This is the operator's risk and is stated on the admin page.
+
+### Every payment gets its cards: no refunds for "sold out"
+- **When a player starts paying, their cards are held for them for 15 minutes** (the payment provider's own payment window must be shorter). Held cards are not on sale to anyone else, so a completed payment always gets exactly the cards it was for. If too few cards are left, the player is told before paying anything.
+- Holds whose payment never arrives are released every minute and go back on sale.
+- **Last resort:** if a payment somehow arrives after its hold was released and no cards are left (or after a season was cancelled), the money is never kept without a card and never sent back through the bank: it goes straight into the player's wallet, to buy cards or withdraw, and the player is told by text and in the app.
+- **All sales are final**, as the buy screen says. The only other ways money can go back are the two legal cases, each needing two staff: a purchase by someone who was not allowed to play (a minor, an excluded person, staff, fraud), and a whole season cancelled.
 
 ### Buying: up to 10 cards a day
 - Each person can buy **at most 10 cards per Nigerian calendar day** (`WR_CARDS_PER_DAY`), in any number of purchases. At ₦500 that is exactly the default ₦5,000 daily spending limit. The buy screen shows "cards today", offers 1, 3, 5 or 10, and explains that each card is one entry in the final draw.
@@ -326,7 +346,7 @@ Built in the style of shopping apps such as Temu — invites, sharing, live acti
 
 ### For management to confirm
 1. The real final-draw prize list, the car's model and value, and pictures.
-2. The instant prize table (the placeholder above, or another that fits the ₦10,000,000).
+2. The instant prize split (the recommendation above, or another that fits the ₦5,000,000).
 3. That 2.5% referral commission has no time limit (built: it lasts as long as the friend plays), and whether there should be a ceiling per referrer.
 4. Advertising and promotion rules from the Niger State regulator, which may restrict social-media promotion of gambling and require age-gating; the share messages already say "18+ only".
 

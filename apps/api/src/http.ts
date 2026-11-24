@@ -475,7 +475,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   }, async (req) => admin.addToExclusionRegister(ctx, await staff(req), req.body));
 
   app.post<{ Body: cycles.NewCycle }>("/v1/admin/cycles", {
-    schema: body({ name: str(120), ticketPriceKobo: int(1), totalTickets: int(1, 1_000_000), maxTicketsPerAccount: int(1), salesOpenAt: str(40), salesCloseAt: str(40), drawAt: str(40), claimWindowDays: int(1, 365) }, ["claimWindowDays"]),
+    schema: body({ name: str(120), ticketPriceKobo: int(1), totalTickets: int(1, 1_000_000), maxTicketsPerAccount: int(1), salesOpenAt: str(40), salesCloseAt: str(40), drawAt: str(40), claimWindowDays: int(1, 365), levels: int(1, 20) }, ["claimWindowDays", "levels"]),
   }, async (req) => cycles.createCycle(ctx, await staff(req), req.body));
   app.post<{ Params: { id: string }; Body: cycles.NewTier }>("/v1/admin/cycles/:id/prize-tiers", {
     schema: { ...idParam, ...body({ stage: { enum: ["INSTANT", "FINAL_DRAW"] }, kind: { enum: ["CASH", "MERCHANDISE"] }, title: str(120), cashKobo: int(1), skuId: uuid, quantity: int(1), drawOrder: int(1) }, ["cashKobo", "skuId", "drawOrder"]) },
