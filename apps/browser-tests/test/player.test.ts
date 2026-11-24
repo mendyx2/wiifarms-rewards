@@ -14,6 +14,7 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   await p.waitForSelector(".hero");
   assert.match(await p.innerText(".hero .tag"), /Harvest Cycle 1 · On sale/);
   assert.match(await p.innerText(".facts"), /cards win instant cash/);
+  assert.doesNotMatch(await p.innerText("main"), /\bLevel \d/, "players are not shown the levels");
 
   // A demo card costs nothing and pays nothing.
   await p.click("text=Try a free demo card");

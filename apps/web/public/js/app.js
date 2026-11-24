@@ -243,9 +243,6 @@ async function home() {
       el("div", { class: "price" }, naira(c.ticket_price_kobo), " ", el("small", {}, "per scratch card")),
       el("div", { class: "bar" }, fill),
       el("div", {}, `${c.tickets_remaining.toLocaleString("en-NG")} of ${c.total_tickets.toLocaleString("en-NG")} cards left`),
-      c.level?.levels > 1 && c.status === "OPEN" ? el("div", { class: "level" },
-        el("b", {}, `Level ${c.level.current} of ${c.level.levels}`),
-        el("span", {}, `${c.level.leftInLevel.toLocaleString("en-NG")} cards left · ${naira(c.level.instantCashInLevelKobo)} instant cash in this level`)) : null,
       el("div", { class: "facts" },
         el("div", {}, el("b", {}, odds), "cards win instant cash"),
         el("div", {}, el("b", {}, instant.length ? `${naira(Math.min(...instant))} – ${naira(Math.max(...instant))}` : "—"), "instant prizes"),
@@ -532,7 +529,7 @@ function resultNodes(cashKobo, demo, accepted = false) {
   return cashKobo
     ? [el("div", { class: "muted" }, "You won"), el("div", { class: "big" }, naira(cashKobo)),
        el("div", { class: "muted" }, demo ? "Demo only — nothing is paid" : accepted ? "Added to your wallet" : "Tap Accept to add it to your wallet")]
-    : [el("div", { class: "big none" }, "No instant win"), el("div", { class: "muted" }, demo ? "Demo card" : "Still in the final draw")];
+    : [el("div", { class: "big none" }, "No instant win"), el("div", { class: "muted" }, demo ? "Demo card" : "You still qualify for the final prize draw at the end of the season")];
 }
 
 async function card(id) {

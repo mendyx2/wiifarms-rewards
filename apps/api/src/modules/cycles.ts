@@ -370,11 +370,10 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
     ctx.pool,
     `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.rules_document_ref, encode(c.rules_sha256, 'hex') AS rules_sha256,
-            c.prize_share_bp, c.instant_share_bp, c.levels
+            c.prize_share_bp, c.instant_share_bp
      FROM cycles c WHERE c.id = $1 AND (c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id)))`, [cycleId]);
   if (!c) throw notFound("Cycle not found.");
   c.tickets_remaining = await ticketsRemaining(ctx.pool, cycleId);
-  c.level = await levelStatus(ctx.pool, cycleId);
   const tiers = await ctx.pool.query<{ stage: string; kind: string; title: string; cash_kobo: number | null; quantity: number; draw_order: number | null }>(
     `SELECT p.id, p.stage, p.kind, p.title, p.cash_kobo, p.quantity, p.draw_order, EXISTS (SELECT 1 FROM prize_images i WHERE i.prize_tier_id = p.id) AS has_image
      FROM prize_tiers p WHERE p.cycle_id = $1 ORDER BY p.stage DESC, p.draw_order NULLS LAST, p.cash_kobo DESC`, [cycleId]);
@@ -444,6 +443,8 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
     ...c, tiers, approvals, signoffs, commitment: commitment[0] ?? null, counts: counts[0], draw: drawn[0] ?? null,
     cashCoverRequiredKobo: cashCover,
     budget,
+    // Levels are an operating detail shown to staff only; players are not shown them.
+    level: await levelStatus(ctx.pool, cycleId),
     stockCover: await stockCover(ctx, cycleId),
     voidRequests: (await ctx.pool.query(
       `SELECT v.id, v.reason, v.status, v.requested_at, v.requested_by, rq.full_name AS requested_by_name, v.decided_at, dc.full_name AS decided_by_name, v.decision_reason

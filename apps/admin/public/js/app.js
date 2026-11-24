@@ -568,6 +568,8 @@ async function cycle(id) {
     el("div", { class: "tile" }, el("span", {}, "Sold"), el("b", {}, `${num(c.counts.sold)} / ${num(c.total_tickets)}`), el("small", {}, `${num(c.counts.revealed)} scratched`)),
     el("div", { class: "tile" }, el("span", {}, "Sales window"), el("b", {}, when(c.sales_close_at)), el("small", {}, "opens " + when(c.sales_open_at) + " · closes then or at sell-out")),
     el("div", { class: "tile" }, el("span", {}, "Final draw"), el("b", {}, when(c.draw_at)), el("small", {}, `claims open ${c.claim_window_days} days`)),
+    c.level && c.level.levels > 1 ? el("div", { class: "tile" }, el("span", {}, "Level on sale (staff only)"), el("b", {}, `${c.level.current} of ${c.level.levels}`),
+      el("small", {}, `${num(c.level.leftInLevel)} of ${num(c.level.size)} cards left · ${naira(c.level.instantCashInLevelKobo)} instant cash in this level`)) : null,
     el("div", { class: "tile " + ((c.escrow_funded_kobo ?? 0) >= c.cashCoverRequiredKobo ? "ok" : "warn") }, el("span", {}, "Cash prizes to cover"), el("b", {}, naira(c.cashCoverRequiredKobo)), el("small", {}, c.escrow_reference ? `escrow ${c.escrow_reference}: ${naira(c.escrow_funded_kobo)}` : "escrow not recorded yet"))));
 
   // Prize budget: company policy, fixed on the cycle when drafted.

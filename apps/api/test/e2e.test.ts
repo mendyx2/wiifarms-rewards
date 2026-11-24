@@ -1698,7 +1698,10 @@ test("levels and held cards: instant cash released level by level as cards sell,
   const cyc = await openCycle({ total: 40, closeInMs: 3600_000, cap: 20, name: "Levels", priceKobo: 50_000, levels: 4, escrowKobo: 400_000,
     tiers: [{ stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 8 }] });
   config.policy = policy;
-  const level = async () => ok(await api("GET", `/v1/cycles/${cyc.id}`)).level;
+  // Levels are shown to staff only, never to players.
+  assert.equal(ok(await api("GET", `/v1/cycles/${cyc.id}`)).level, undefined);
+  assert.equal(ok(await api("GET", `/v1/cycles/${cyc.id}`)).levels, undefined);
+  const level = async () => ok(await api("GET", `/v1/admin/cycles/${cyc.id}`, { token: mt })).level;
   assert.deepEqual(await level(), { levels: 4, size: 10, current: 1, leftInLevel: 10, instantCashInLevelKobo: 100_000 });
 
   // Level 1 sells first; its 10 cards hold exactly its 2 prizes.
