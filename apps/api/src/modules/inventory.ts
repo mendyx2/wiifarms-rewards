@@ -6,7 +6,7 @@ import { keyedHash } from "../crypto.ts";
 import { one, withTx, type Db } from "../db.ts";
 import { AppError, badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
-import { onExclusionRegister, type User } from "./identity.ts";
+import { DEFAULT_MAJOR_PRIZE_KOBO, livenessRequired, onExclusionRegister, type User } from "./identity.ts";
 
 const VIEW: Parameters<typeof requireRole>[1][] = ["FULFILMENT", "CYCLE_MANAGER", "FINANCE", "COMPLIANCE", "AUDITOR"];
 const HANDOVER_MAX_ATTEMPTS = 5;
@@ -185,14 +185,17 @@ export async function listClaims(ctx: Ctx, userId: string): Promise<unknown[]> {
 export async function redeemClaim(ctx: Ctx, actor: Actor, user: User, claimId: string, input: { method: "DELIVERY" | "COLLECTION"; address?: string }): Promise<{ status: string }> {
   if (input.method === "DELIVERY" && !input.address?.trim()) throw badRequest("ADDRESS_REQUIRED", "Enter the delivery address.");
   return withTx(ctx.pool, async (db) => {
-    const claim = await one<{ id: string; status: string; expires_at: Date; cycle_id: string; sku_id: string | null; kind: string }>(
+    const claim = await one<{ id: string; status: string; expires_at: Date; cycle_id: string; sku_id: string | null; kind: string; value_kobo: number | null }>(
       db,
-      `SELECT pc.id, pc.status, pc.expires_at, pt.cycle_id, pt.sku_id, pt.kind FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id
+      `SELECT pc.id, pc.status, pc.expires_at, pt.cycle_id, pt.sku_id, pt.kind, s.advertised_value_kobo AS value_kobo
+       FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id LEFT JOIN skus s ON s.id = pt.sku_id
        WHERE pc.id = $1 AND pc.user_id = $2 FOR NO KEY UPDATE OF pc`, [claimId, user.id]);
     if (!claim || claim.kind !== "MERCHANDISE") throw notFound("Prize not found.");
     if (claim.status !== "ENTITLED") throw conflict("ALREADY_CLAIMED", "This prize has already been claimed or is no longer available.");
     if (claim.expires_at.getTime() < Date.now()) throw conflict("CLAIM_EXPIRED", "The claim period for this prize has ended.");
     if (user.kyc_tier < 1) throw forbidden("VERIFICATION_REQUIRED", "Verify your identity before claiming a prize.");
+    // A major prize (the car, motorcycles…) needs the liveness check, so a stolen phone and PIN are not enough.
+    if (user.kyc_tier < 2 && Number(claim.value_kobo ?? 0) >= (ctx.config.majorPrizeKobo ?? DEFAULT_MAJOR_PRIZE_KOBO)) throw livenessRequired();
     if (!(await one(db, "SELECT 1 FROM next_of_kin WHERE user_id = $1", [user.id]))) {
       throw forbidden("NEXT_OF_KIN_REQUIRED", "Add your next of kin before claiming this prize.");
     }

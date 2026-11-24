@@ -272,6 +272,11 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     const u = await player(req);
     return tickets.acceptAllPrizes(ctx, actorOf(u.id, req), u.id);
   });
+  app.post("/v1/me/liveness", async (req) => {
+    const u = await player(req);
+    authLimit(req.ip);
+    return identity.confirmLiveness(ctx, actorOf(u.id, req), u);
+  });
   app.get("/v1/me/referrals", async (req) => referrals.referralSummary(ctx, (await player(req)).id));
   app.post<{ Body: { paymentRef: string } }>("/v1/simulated-gateway/pay", { schema: body({ paymentRef: str(64) }) }, async (req) => {
     const u = await player(req);

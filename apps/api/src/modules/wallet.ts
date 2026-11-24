@@ -5,7 +5,7 @@ import { lockKey, one, withTx, type Db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { accounts, balance, post } from "../ledger.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
-import { onExclusionRegister, type User } from "./identity.ts";
+import { DEFAULT_MAJOR_PRIZE_KOBO, livenessRequired, onExclusionRegister, type User } from "./identity.ts";
 
 const MIN_PAYOUT_KOBO = 50_000; // ₦500
 
@@ -62,6 +62,8 @@ export async function requestPayout(ctx: Ctx, actor: Actor, user: User, input: {
     if (!account.name_match) throw forbidden("NAME_MISMATCH", "Winnings can only be paid to a bank account in your own verified name.");
     if (account.usable_from.getTime() > Date.now()) throw forbidden("BANK_COOLING_OFF", "This bank account was added recently. For your safety it can receive payouts after the waiting period.");
     if ((await winningsBalance(db, user.id)) < input.amountKobo) throw conflict("INSUFFICIENT_WINNINGS", "You do not have that much to withdraw.");
+    // Large withdrawals need the liveness check, like major prizes.
+    if (user.kyc_tier < 2 && input.amountKobo >= (ctx.config.majorPrizeKobo ?? DEFAULT_MAJOR_PRIZE_KOBO)) throw livenessRequired();
 
     // Staff-register match or an open fraud alert puts the payout on hold for a person to review.
     const flagged = (await onExclusionRegister(db, user)) ||

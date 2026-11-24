@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { notify, smsText, type Lang } from "./notify.ts";
 import { ensureReferralCode, findReferrer } from "./referrals.ts";
-import { audit, type Actor } from "../audit.ts";
+import { SYSTEM, audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { hashPin, keyedHash, newOtp, newToken, sha256, verifyPin } from "../crypto.ts";
 import { one, withTx, type Db } from "../db.ts";
@@ -133,6 +133,7 @@ export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string
       await db.query("INSERT INTO rg_limits (user_id) VALUES ($1)", [userId]);
       await ensureReferralCode(db, userId); // every player can invite others from the start
       await audit(db, { type: "PLAYER", id: userId, ip }, "player.registered", "user", userId, referrerId ? { referredBy: referrerId } : {});
+      if (referrerId) await checkReferralVelocity(db, referrerId);
     }
     return { token: await createSession(ctx, db, userId), userId };
   });
@@ -193,6 +194,21 @@ export async function authenticate(ctx: Ctx, token: string | undefined): Promise
     [sha256(token)]);
   if (!user || user.status !== "ACTIVE") throw unauthorized();
   return user;
+}
+
+/**
+ * Fraud rule: an invite code bringing in an unusual number of sign-ups in a day
+ * may be one person opening accounts to farm commissions. Compliance is alerted
+ * (once a day per code) to look before the earnings are withdrawn.
+ */
+export const REFERRAL_SIGNUPS_PER_DAY_ALERT = 20;
+async function checkReferralVelocity(db: Db, referrerId: string): Promise<void> {
+  const n = (await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM users WHERE referred_by = $1 AND created_at > now() - interval '24 hours'", [referrerId]))!.n;
+  if (n < REFERRAL_SIGNUPS_PER_DAY_ALERT) return;
+  const recent = await one(db, "SELECT 1 FROM compliance_alerts WHERE kind = 'REFERRAL_VELOCITY' AND entity_id = $1 AND created_at > now() - interval '24 hours'", [referrerId]);
+  if (recent) return;
+  await db.query("INSERT INTO compliance_alerts (kind, severity, entity_type, entity_id, details) VALUES ('REFERRAL_VELOCITY', 'WARNING', 'user', $1, $2)",
+    [referrerId, JSON.stringify({ signUpsIn24Hours: n })]);
 }
 
 /** The language the player's texts and messages are written in. */
@@ -374,6 +390,32 @@ export async function listBankAccounts(ctx: Ctx, userId: string): Promise<unknow
   return r.rows;
 }
 
+// --- Liveness (tier 2) --------------------------------------------------------------------
+
+export const DEFAULT_MAJOR_PRIZE_KOBO = 10_000_000; // ₦100,000
+
+/** Thrown before a major prize claim or a large withdrawal when the liveness check has not been done. */
+export const livenessRequired = () => forbidden("LIVENESS_REQUIRED", "For this amount we need to see that it is really you. Take the quick selfie check first.");
+
+/**
+ * Liveness check: a live selfie matched to the photo held for the verified
+ * identity. Simulated here (the live service uses the identity provider's
+ * check); raises the player to tier 2. Needed before major prizes and large
+ * withdrawals, so a stolen phone and PIN are not enough to take them.
+ */
+export async function confirmLiveness(ctx: Ctx, actor: Actor, user: User): Promise<{ kycTier: number }> {
+  if (user.kyc_tier < 1) throw forbidden("VERIFICATION_REQUIRED", "Verify your identity first.");
+  if (user.kyc_tier >= 2) return { kycTier: user.kyc_tier };
+  return withTx(ctx.pool, async (db) => {
+    await db.query(
+      "INSERT INTO kyc_verifications (user_id, kind, provider, provider_ref, result) VALUES ($1, 'LIVENESS', 'SIMULATED', $2, 'PASS')",
+      [user.id, newToken().token]);
+    await db.query("UPDATE users SET kyc_tier = 2 WHERE id = $1 AND kyc_tier = 1", [user.id]);
+    await audit(db, actor, "kyc.liveness_passed", "user", user.id);
+    return { kycTier: 2 };
+  });
+}
+
 // --- Bank account (simulated name enquiry) ---------------------------------------------
 
 export async function addBankAccount(ctx: Ctx, actor: Actor, user: User, input: { bankCode: string; accountNumber: string; accountName: string }): Promise<{ id: string; nameMatch: boolean; usableFrom: string }> {
@@ -392,6 +434,15 @@ export async function addBankAccount(ctx: Ctx, actor: Actor, user: User, input: 
        RETURNING id, usable_from`,
       [user.id, input.bankCode, wrappedNumber, accountHash, input.accountName, nameMatch, ctx.config.bankCoolingOffHours]);
     await audit(db, actor, "player.bank_account_added", "bank_account", r.rows[0]!.id, { nameMatch });
+    // Fraud rule: one bank account on two players' profiles suggests one person behind several accounts
+    // (for example to farm referral earnings). Compliance reviews it, and this player's withdrawals wait meanwhile.
+    const others = await db.query<{ user_id: string }>(
+      "SELECT DISTINCT user_id FROM bank_accounts WHERE account_hash = $1 AND user_id <> $2", [accountHash, user.id]);
+    if (others.rows.length) {
+      await db.query("INSERT INTO compliance_alerts (kind, severity, entity_type, entity_id, details) VALUES ('SHARED_BANK_ACCOUNT', 'CRITICAL', 'user', $1, $2)",
+        [user.id, JSON.stringify({ bankAccountId: r.rows[0]!.id, alsoOn: others.rows.map((o) => o.user_id) })]);
+      await audit(db, SYSTEM, "fraud.shared_bank_account", "user", user.id, { others: others.rows.length });
+    }
     // Warns the real owner if someone else has got into the account and is trying to divert winnings.
     await notify(db, { userId: user.id, kind: "SECURITY", urgent: true, link: "#/wallet", dedupeKey: `bank-added:${r.rows[0]!.id}:${Date.now()}`,
       title: "Bank account added", body: `A bank account ending ${input.accountNumber.slice(-4)} was added to your account. If this was not you, contact support before it can receive winnings.`,

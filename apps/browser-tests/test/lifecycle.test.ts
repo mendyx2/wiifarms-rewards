@@ -150,6 +150,15 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await moto.locator("input[name=address]").fill("5 Paiko Road, Minna");
   await moto.locator("input[name=pin]").fill("482915");
   await moto.locator('button:has-text("Claim my prize")').click();
+  // A major prize: the app asks for the selfie check first, then comes back to the prize.
+  await p.waitForSelector("h1:has-text(\"Confirm it's really you\")");
+  await p.click('button:has-text("Take the selfie check")');
+  await toast(p, /you can carry on/);
+  await p.waitForSelector("h2:has-text('My prizes')");
+  await moto.locator("summary").click();
+  await moto.locator("input[name=address]").fill("5 Paiko Road, Minna");
+  await moto.locator("input[name=pin]").fill("482915");
+  await moto.locator('button:has-text("Claim my prize")').click();
   await toast(p, /Prize claimed/);
 
   // --- Fulfilment dispatches; only the winner sees the handover code ---

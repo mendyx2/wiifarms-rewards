@@ -350,6 +350,13 @@ Built in the style of shopping apps such as Temu — invites, sharing, live acti
 3. That 2.5% referral commission has no time limit (built: it lasts as long as the friend plays), and whether there should be a ceiling per referrer.
 4. Advertising and promotion rules from the Niger State regulator, which may restrict social-media promotion of gambling and require age-gating; the share messages already say "18+ only".
 
+## Liveness and fraud rules
+- **Liveness check before anything large.** Claiming a prize worth ₦100,000 or more (merchandise at its advertised value: the car, motorcycles) and withdrawing ₦100,000 or more need a liveness check: a short live selfie matched to the photo held for the player's identity number (simulated here; the identity provider does it in the live service). It is done once and raises the player to tier 2. A stolen phone and PIN are then not enough to take a major prize. The app takes the player to the check and back to what they were doing. Threshold: `WR_MAJOR_PRIZE_KOBO`.
+- **Fraud rules (alerts to Compliance):**
+  - *Same bank account on two players* — suggests one person behind several accounts (for example to farm referral earnings). Critical alert, so that player's withdrawals wait for a person to review.
+  - *Referral surge* — 20 or more sign-ups with one invite code in 24 hours. Warning alert, once a day per code, to look before the earnings are withdrawn.
+  - Existing rules still apply: one account per identity number, payouts only to the player's own verified name, staff and exclusion register checks, PIN for every withdrawal.
+
 ## Differences from the Phase 1 plan
 
 | Plan said | Built | Why |
@@ -377,7 +384,7 @@ Admin: `POST /v1/admin/dev-login` (simulation only) · `GET /v1/admin/dashboard`
 7. ~~Notifications (SMS/in-app); support requests and tools~~ — done (see above). Remaining: WhatsApp.
 8. ~~Reconciliation report and financial reports; operating-expense records~~ — done (see above).
 9. ~~Unclaimed-prize reminders and expiry; the next-of-kin claim process~~ — done.
-10. Tier 2 checks (liveness) before major-prize claims; fraud rules beyond the staff register.
+10. ~~Tier 2 checks (liveness) before major-prize claims; fraud rules beyond the staff register~~ — done (see *Liveness and fraud rules*). Remaining: more fraud rules as real patterns appear.
 
 ## Before any real money (Phase 3 and later — unchanged)
 

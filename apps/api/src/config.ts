@@ -11,6 +11,11 @@ export interface Config {
   simulated: boolean;
   /** Payouts at or above this amount need a second person. Placeholder until management sets it. */
   payoutApprovalThresholdKobo: number;
+  /**
+   * Prizes worth this much or more (merchandise at advertised value), and withdrawals of this much or more,
+   * need a liveness check (a live selfie matched to the verified identity) first. Default ₦100,000.
+   */
+  majorPrizeKobo?: number;
   /** Hours before a newly added bank account can receive a payout. */
   bankCoolingOffHours: number;
   /** Seconds per simulated beacon round. */
@@ -73,6 +78,7 @@ export function loadConfig(): Config {
     simulated: true,
     payoutApprovalThresholdKobo: Number(process.env.PAYOUT_APPROVAL_THRESHOLD_KOBO ?? 10_000_000),
     bankCoolingOffHours: Number(process.env.BANK_COOLING_OFF_HOURS ?? 24),
+    majorPrizeKobo: Number(process.env.WR_MAJOR_PRIZE_KOBO ?? 10_000_000),
     beaconPeriodSeconds: 30,
     sessionDays: 30,
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 },

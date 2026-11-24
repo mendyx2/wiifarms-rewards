@@ -86,6 +86,8 @@ function action(fn) {
     } catch (err) {
       // A 401 means an expired session only when the player was signed in; on the sign-in screen it is a wrong PIN.
       if (err.status === 401 && state.me) { state.me = null; toast("Please sign in again."); go("login"); }
+      // A major prize or a large withdrawal needs the selfie check first; come back here afterwards.
+      else if (err.code === "LIVENESS_REQUIRED") { state.afterLiveness = location.hash; go("liveness"); }
       else toast(err.message || "Something went wrong. Please try again.");
     } finally {
       if (btn?.isConnected) btn.disabled = false;
@@ -885,6 +887,26 @@ async function me() {
   ];
 }
 
+// --- Liveness: the selfie check before a major prize or a large withdrawal -----------------
+
+function liveness() {
+  const back = state.afterLiveness ?? "#/wallet";
+  return [
+    el("h1", {}, "Confirm it's really you"),
+    el("p", { class: "muted" }, "For a major prize or a large withdrawal we check that it is really you, so that someone with your phone and PIN cannot take it. It takes a few seconds and is done once."),
+    el("div", { class: "note warn" }, "Simulation: in the live service your phone's camera takes a short live selfie, which is matched to the photo held for your identity number. Here the button stands in for it."),
+    el("div", { class: "stack" },
+      el("button", { class: "btn gold", onclick: action(async () => {
+        await api.post("/v1/me/liveness");
+        await loadMe();
+        toast("Thank you — you can carry on.");
+        state.afterLiveness = undefined;
+        location.hash = back;
+      }) }, "Take the selfie check"),
+      el("a", { class: "btn ghost", href: back }, "Not now")),
+  ];
+}
+
 // --- Sharing, invites and a little fun -------------------------------------------------------
 //
 // Everything shown here is real: the countdown is to the published closing
@@ -1039,7 +1061,7 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, liveness: { screen: liveness, tab: "wallet", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 
 // --- Offline and installing -------------------------------------------------------------------

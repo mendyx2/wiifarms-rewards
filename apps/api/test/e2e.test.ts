@@ -1742,3 +1742,62 @@ test("levels and held cards: instant cash released level by level as cards sell,
   assert.equal(late.status, "FULFILLED"); assert.equal(late.ticketIds.length, 1);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM refunds rf JOIN orders o ON o.id = rf.order_id WHERE o.cycle_id = $1", [cyc.id])).rows[0].n, 0);
 });
+
+test("major prizes and large withdrawals need the liveness check; fraud rules alert Compliance about shared bank accounts and referral surges", async () => {
+  const { accounts, post } = await import("../src/ledger.ts");
+  const { withTx } = await import("../src/db.ts");
+  const ct = admins.compliance!.token;
+  // A large withdrawal (₦100,000 or more) needs the selfie check first.
+  const p = await newPlayer({ name: "Liveness Player" });
+  await withTx(pool, (db) => post(db, { kind: "ADJUSTMENT", reference: `test:credit:${p.id}`, memo: "test set-up", debit: accounts.companyBank(), credit: accounts.playerWinnings(p.id), amountKobo: 20_000_000 }));
+  const acct = ok(await api("POST", "/v1/me/bank-accounts", { token: p.token, body: { bankCode: "058", accountNumber: "0111222333", accountName: "Liveness Player" } }));
+  const pay = (amountKobo: number) => api("POST", "/v1/payouts", { token: p.token, key: key(), body: { amountKobo, bankAccountId: acct.id, pin: p.pin } });
+  ok(await pay(9_999_900)); // just under: no check needed (held for a second approver, as before)
+  fails(await pay(10_000_000), 403, "LIVENESS_REQUIRED");
+  const unverified = await newPlayer({ verify: false });
+  fails(await api("POST", "/v1/me/liveness", { token: unverified.token }), 403, "VERIFICATION_REQUIRED");
+  assert.equal(ok(await api("POST", "/v1/me/liveness", { token: p.token })).kycTier, 2);
+  assert.equal(ok(await api("GET", "/v1/me", { token: p.token })).kycTier, 2);
+  ok(await pay(10_000_000));
+  assert.equal((await pool.query("SELECT result FROM kyc_verifications WHERE user_id = $1 AND kind = 'LIVENESS'", [p.id])).rows[0].result, "PASS");
+
+  // A major merchandise prize: claiming it needs the check.
+  const ft = admins.fulfilment!.token;
+  const big = ok(await api("POST", "/v1/admin/skus", { token: ft, body: { name: "Big prize", advertisedValueKobo: 10_000_000, serialised: true } })).id;
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId: big, supplierId, warehouseId, poReference: "PO-BIG", serialNumbers: ["SN-BIG-1"], acquisitionCostKobo: 1, landedCostKobo: 1 } }));
+  const policy = config.policy!;
+  config.policy = { ...POLICY, prizeShareBp: 10_000, instantShareBp: 0 };
+  const cyc = await openCycle({ total: 200, closeInMs: 2500, cap: 200, name: "Major prize", priceKobo: 50_000, escrowKobo: 0,
+    tiers: [{ stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Big prize", skuId: big, quantity: 1, drawOrder: 1 }] });
+  config.policy = policy;
+  const w = await newPlayer();
+  await buy(w, cyc.id, 3);
+  ok(await api("PUT", "/v1/me/next-of-kin", { token: w.token, body: { fullName: "Kin Person", relationship: "Sister", phone: "08030009999" } }));
+  await sleep(Math.max(0, cyc.closeAt - Date.now()) + 2200);
+  await closeDueCycles(ctx);
+  for (const a of ["manager", "finance", "auditor"]) ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/sign`, { token: admins[a]!.token }));
+  ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/execute`, { token: admins.manager!.token }));
+  const claim = ok(await api("GET", "/v1/claims", { token: w.token })).claims.find((c: any) => c.title === "Big prize");
+  const redeem = () => api("POST", `/v1/claims/${claim.id}/redeem`, { token: w.token, body: { method: "COLLECTION", pin: w.pin } });
+  fails(await redeem(), 403, "LIVENESS_REQUIRED");
+  ok(await api("POST", "/v1/me/liveness", { token: w.token }));
+  ok(await redeem());
+
+  // Fraud rule: the same bank account on two players' profiles alerts Compliance and holds the second player's withdrawals.
+  const q = await newPlayer({ name: "Second Holder" });
+  ok(await api("POST", "/v1/me/bank-accounts", { token: q.token, body: { bankCode: "058", accountNumber: "0111222333", accountName: "Second Holder" } }));
+  const shared = (await pool.query("SELECT severity, details FROM compliance_alerts WHERE kind = 'SHARED_BANK_ACCOUNT' AND entity_id = $1", [q.id])).rows;
+  assert.equal(shared.length, 1); assert.equal(shared[0].severity, "CRITICAL"); assert.deepEqual(shared[0].details.alsoOn, [p.id]);
+
+  // Fraud rule: 20 sign-ups with one invite code in a day alerts Compliance, once.
+  const r = await newPlayer();
+  const code = ok(await api("GET", "/v1/me/referrals", { token: r.token })).code;
+  for (let i = 0; i < 21; i++) {
+    const seq = ++phoneSeq, phone = "0803" + String(1000000 + seq);
+    const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone } }));
+    ok(await api("POST", "/v1/auth/register", { body: { phone, code: otp.devCode, pin: "482915", referralCode: code } }));
+  }
+  const surge = (await pool.query("SELECT severity, details FROM compliance_alerts WHERE kind = 'REFERRAL_VELOCITY' AND entity_id = $1", [r.id])).rows;
+  assert.equal(surge.length, 1); assert.equal(surge[0].severity, "WARNING"); assert.equal(surge[0].details.signUpsIn24Hours, 20);
+  assert.ok(ok(await api("GET", "/v1/admin/compliance", { token: ct })));
+});
