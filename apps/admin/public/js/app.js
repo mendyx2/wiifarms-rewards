@@ -28,7 +28,7 @@ const naira = (kobo) => ((kobo ?? 0) < 0 ? "−₦" : "₦") + (Math.abs(kobo ??
 const num = (n) => Number(n ?? 0).toLocaleString("en-NG");
 const when = (iso) => (iso ? new Date(iso).toLocaleString("en-NG", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
 const can = (...roles) => roles.some((r) => me.roles.includes(r));
-const ROLE_TEXT = { CYCLE_MANAGER: "Cycle manager", FINANCE: "Finance", PAYOUT_APPROVER: "Payout approver", FULFILMENT: "Fulfilment", SUPPORT: "Support", COMPLIANCE: "Compliance", AUDITOR: "Auditor (read-only)", SECURITY_ADMIN: "Security admin" };
+const ROLE_TEXT = { CYCLE_MANAGER: "Cycle manager", FINANCE: "Finance", PAYOUT_APPROVER: "Payout approver", FULFILMENT: "Fulfilment", SUPPORT: "Support", COMPLIANCE: "Compliance", AUDITOR: "Auditor (read-only)", SECURITY_ADMIN: "Security admin", STOCKIST: "Collection centre" };
 
 function toast(message) {
   const t = document.getElementById("toast");
@@ -912,23 +912,30 @@ async function merchandise() {
         (q.method ? ` · ${q.method === "DELIVERY" ? "delivery to " + q.address : "collection"}` : "") + (q.carrier ? ` · ${q.carrier} ${q.tracking_ref ?? ""}` : "") + (q.handed_over_at ? ` · handed over ${when(q.handed_over_at)}` : "")));
     if (f && q.status === "VERIFIED") {
       const form = el("form", { onsubmit: action(async () => {
-        const body = {}; if (v(form, "carrier")) body.carrier = v(form, "carrier"); if (v(form, "tracking")) body.trackingRef = v(form, "tracking");
+        const body = {}; if (form.elements.carrier && v(form, "carrier")) body.carrier = v(form, "carrier"); if (form.elements.tracking && v(form, "tracking")) body.trackingRef = v(form, "tracking");
         await post(`/v1/admin/fulfilment/${q.id}/dispatch`, body);
         return "Marked as sent. The winner now has a one-time handover code in their app.";
       }) }, el("div", { class: "form" },
-        input(q.method === "DELIVERY" ? "Carrier" : "Collection point (optional)", { name: "carrier" }), input("Tracking reference (optional)", { name: "tracking" }),
-        el("button", { class: "btn", type: "submit" }, q.method === "DELIVERY" ? "Dispatch" : "Ready for collection")));
+        q.centre_name ? el("p", { class: "sub" }, `Goes to ${q.centre_name}: the unit is moved there (recorded) and the winner gets a collection voucher.`)
+          : input(q.method === "DELIVERY" ? "Carrier" : "Collection point (optional)", { name: "carrier" }),
+        q.centre_name ? null : input("Tracking reference (optional)", { name: "tracking" }),
+        el("button", { class: "btn", type: "submit" }, q.method === "DELIVERY" ? "Dispatch" : "Send to the centre")));
       card.append(form);
     }
     if (f && q.status === "DISPATCHED") {
       const form = el("form", { onsubmit: action(async () => {
-        const body = { code: v(form, "code"), photoRef: v(form, "photo") }; if (v(form, "warranty")) body.warrantyDocumentRef = v(form, "warranty");
+        const photoBase64 = await fileBase64(form);
+        if (!photoBase64) throw new Error("Take a photo of the handover.");
+        const body = { code: v(form, "code"), photoBase64, ...(v(form, "idChecked") ? { idChecked: v(form, "idChecked") } : {}) };
+        if (v(form, "warranty")) body.warrantyDocumentRef = v(form, "warranty");
         await post(`/v1/admin/fulfilment/${q.id}/handover`, body);
         return "Handover complete and recorded.";
       }) }, el("p", { class: "sub" }, "Ask the winner for the code shown in their app. Staff cannot see it. Five wrong codes lock the handover."),
         el("div", { class: "form" },
           input("Winner's handover code", { name: "code", inputmode: "numeric", maxlength: 6, required: true, autocomplete: "off" }),
-          input("Handover photo (file reference)", { name: "photo", required: true }), input("Warranty document (optional)", { name: "warranty" }),
+          select("Photo ID checked", "idChecked", [...(q.centre_name ? [] : [["", "Not checked (delivery)"]]), ...ID_TYPES]),
+          el("label", {}, "Handover photo", el("input", { type: "file", name: "photo", accept: "image/png,image/jpeg,image/webp", capture: "environment", required: true })),
+          input("Warranty document (optional)", { name: "warranty" }),
           el("button", { class: "btn", type: "submit" }, "Confirm handover")));
       card.append(form);
     }
@@ -1288,7 +1295,199 @@ function affiliateActions(a) {
   return null;
 }
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, popups: popupsPage, affiliates: affiliatesPage, audit: auditPage, access };
+const ID_TYPES = [["NIN_SLIP", "NIN slip"], ["VOTERS_CARD", "Voter's card"], ["DRIVERS_LICENCE", "Driver's licence"], ["PASSPORT", "Passport"], ["OTHER", "Other photo ID"]];
+const TIER_TEXT = { MEGA: "Mega Stockist", SUB: "Sub Stockist", SPECIALIST: "Specialist partner" };
+const CENTRE_PILL = { PENDING: ["Awaiting approval", "gold"], ACTIVE: ["Approved", ""], SUSPENDED: ["Suspended", "red"], REJECTED: ["Rejected", "grey"] };
+const INCIDENT_KINDS = [["DAMAGED", "Damaged"], ["MISSING", "Missing"], ["WRONG_ITEM", "Wrong item"], ["OTHER", "Other problem"]];
+
+/** The stockist portal (SRS section 14): what a collection centre's staff see. */
+async function portalPage() {
+  const d = await get("/v1/admin/stockist-portal");
+  const c = d.centre, st = d.stats;
+  const nodes = [el("h1", {}, c.name), el("p", { class: "sub" }, `${TIER_TEXT[c.tier] ?? c.tier} · ${c.code} · ${c.area} · approved fee ${naira(c.fee_kobo)} per prize handed over`)];
+  if (c.status !== "ACTIVE") nodes.push(el("div", { class: "note bad" }, "This centre is suspended: do not hand over prizes until WiiFarm says so."));
+  nodes.push(el("div", { class: "tiles" },
+    el("div", { class: "tile" }, el("span", {}, "Assigned units"), el("b", {}, num(st.assigned))),
+    el("div", { class: "tile" }, el("span", {}, "Fulfilled / outstanding"), el("b", {}, `${num(st.fulfilled)} / ${num(st.outstanding)}`)),
+    el("div", { class: "tile " + (st.fulfilmentRate === null || st.fulfilmentRate >= 80 ? "ok" : "warn") }, el("span", {}, "Fulfilment rate"), el("b", {}, st.fulfilmentRate === null ? "—" : `${st.fulfilmentRate}%`)),
+    el("div", { class: "tile" }, el("span", {}, "On the shelf"), el("b", {}, num(st.held))),
+    el("div", { class: "tile " + (st.incidents ? "bad" : "ok") }, el("span", {}, "Open problem reports"), el("b", {}, num(st.incidents)))));
+
+  // Verify a voucher, then hand over.
+  const result = el("div");
+  const verify = el("form", { class: "card", onsubmit: action(async () => {
+    const r = await post("/v1/admin/stockist-portal/verify", { voucherRef: v(verify, "voucher") });
+    result.replaceChildren(handoverForm(r));
+  }, false) },
+    el("b", {}, "Verify a voucher"),
+    el("p", { class: "sub" }, "Enter the voucher reference the winner shows you (WV-…). A voucher can be redeemed only once, and only at the centre it was issued for."),
+    el("div", { class: "form" }, input("Voucher reference", { name: "voucher", required: true, maxlength: 20, autocomplete: "off", placeholder: "WV-XXXX-XXXX" }),
+      el("button", { class: "btn", type: "submit" }, "Verify")), result);
+  nodes.push(el("h2", {}, "Hand over a prize"), verify);
+
+  nodes.push(el("h2", {}, "Waiting for collection"), el("div", { class: "card" }, d.pending.length
+    ? table(["Voucher", "Prize", "Sent", "Claim by"], d.pending.map((x) => el("tr", {}, td(el("span", { class: "mono" }, x.voucher_ref)), td(x.title), td(when(x.dispatched_at)), td(when(x.expires_at)))))
+    : el("p", { class: "sub" }, "Nothing waiting.")));
+
+  nodes.push(el("h2", {}, "Stock at this centre"), el("div", { class: "card" }, d.units.length
+    ? table(["Item", "Serial", "Status", ""], d.units.map((u) => el("tr", {}, td(u.item), td(el("span", { class: "mono" }, u.serial_number ?? "—")),
+      td(u.incident ? pill(`Reported: ${u.incident.toLowerCase().replace("_", " ")}`, "red") : pill(u.status === "DISPATCHED" ? "Awaiting winner" : "On the shelf", "grey")),
+      td(u.incident ? null : el("button", { class: "btn small ghost danger", onclick: action(async () => {
+        const kind = prompt("What is wrong? Type: damaged, missing, wrong item or other", "damaged"); if (!kind) return;
+        const k = { damaged: "DAMAGED", missing: "MISSING", "wrong item": "WRONG_ITEM" }[kind.trim().toLowerCase()] ?? "OTHER";
+        const description = prompt("Describe the problem"); if (!description) return;
+        await post("/v1/admin/stockist-portal/incidents", { unitId: u.id, kind: k, description });
+        return "Reported. Do not hand this unit over until WiiFarm resolves it.";
+      }) }, "Report a problem")))))
+    : el("p", { class: "sub" }, "No units here.")));
+
+  const f = d.fees;
+  nodes.push(el("h2", {}, "Fees and invoices"), el("div", { class: "card" },
+    el("div", { class: "tiles" },
+      el("div", { class: "tile" }, el("span", {}, "Not yet invoiced"), el("b", {}, naira(f.unbilledKobo))),
+      el("div", { class: "tile" }, el("span", {}, "Invoiced, awaiting payment"), el("b", {}, naira(f.invoicedKobo))),
+      el("div", { class: "tile" }, el("span", {}, "Paid"), el("b", {}, naira(f.paidKobo)))),
+    f.unbilledKobo > 0 ? (() => {
+      const form = el("form", { onsubmit: action(async () => {
+        const r = await post("/v1/admin/stockist-portal/invoices", v(form, "theirs") ? { theirReference: v(form, "theirs") } : {});
+        return `Invoice ${r.reference} for ${naira(r.amountKobo)} sent to WiiFarm Finance.`;
+      }) }, el("div", { class: "form" }, input("Your invoice number (optional)", { name: "theirs", maxlength: 60 }), el("button", { class: "btn", type: "submit" }, "Invoice the fees")));
+      return form;
+    })() : null,
+    d.invoices.length ? table(["Invoice", "#Amount", "Status", "Decided"], d.invoices.map((i) => el("tr", {},
+      td([el("b", {}, i.reference), i.their_reference ? el("div", { class: "sub" }, i.their_reference) : null]), td(naira(i.amount_kobo), true),
+      td([pill(i.status === "PAID" ? "Paid" : i.status === "SUBMITTED" ? "Awaiting Finance" : "Rejected", i.status === "PAID" ? "" : i.status === "SUBMITTED" ? "gold" : "grey"),
+        i.payment_ref ? el("div", { class: "mono" }, i.payment_ref) : null, i.reason ? el("div", { class: "sub" }, i.reason) : null]),
+      td(when(i.decided_at))))) : null));
+  return nodes;
+}
+
+/** After a voucher checks out: the identity check, the photo and the winner's code. */
+function handoverForm(r) {
+  const form = el("form", { class: "card", onsubmit: action(async () => {
+    const photoBase64 = await fileBase64(form);
+    if (!photoBase64) throw new Error("Take a photo of the handover.");
+    await post(`/v1/admin/stockist-portal/handover/${r.claimId}`, { code: v(form, "code"), idChecked: v(form, "idChecked"), photoBase64 });
+    return "Handed over and recorded. Thank you.";
+  }) },
+    el("div", { class: "note" }, el("b", {}, `${r.prize}${r.serialNumber ? ` · serial ${r.serialNumber}` : ""}`), el("br"), `Winner: ${r.winnerName} · phone ending ${r.winnerPhoneLast4}`),
+    r.incidentOpen ? el("div", { class: "note bad" }, "This unit has an open problem report: do not hand it over.") : null,
+    el("p", { class: "sub" }, r.instructions),
+    el("div", { class: "form" },
+      select("Photo ID checked (must match the name above)", "idChecked", ID_TYPES),
+      el("label", {}, "Photo of the handover", el("input", { type: "file", name: "photo", accept: "image/png,image/jpeg,image/webp", capture: "environment", required: true })),
+      input("Code read out by the winner", { name: "code", inputmode: "numeric", maxlength: 6, required: true, autocomplete: "off" }),
+      el("button", { class: "btn", type: "submit", disabled: r.incidentOpen }, "Confirm handover")));
+  return form;
+}
+
+/** Collection centres for head-office staff: approvals, fees, stock moves, problem reports, invoices and reports. */
+async function centresPage() {
+  const [{ stockists: list }, rec, out] = await Promise.all([get("/v1/admin/stockists"), get("/v1/admin/reports/stockist-reconciliation"), get("/v1/admin/reports/outstanding-prizes")]);
+  const nodes = [el("h1", {}, "Collection centres"),
+    el("p", { class: "sub" }, "Mega Stockists coordinate regional stock, Sub Stockists handle local collection, specialist partners deliver vehicles and appliances. Fulfilment registers a centre and Compliance approves it; fee changes need Finance. Centre staff use the stockist portal: they verify the winner's voucher, check their photo ID, take a photo and enter the winner's code.")];
+  const mega = list.filter((x) => x.tier === "MEGA" && x.status === "ACTIVE");
+  if (can("FULFILMENT")) {
+    const form = el("form", { class: "card", onsubmit: action(async () => {
+      const tier = v(form, "tier");
+      await post("/v1/admin/stockists", { name: v(form, "name"), tier, ...(tier === "SUB" ? { parentId: v(form, "parent") } : {}), stateCode: v(form, "state"), area: v(form, "area"),
+        address: v(form, "address"), phone: v(form, "phone"), coverage: v(form, "coverage").split(",").map((x) => x.trim()).filter(Boolean),
+        ...(v(form, "hours") ? { openingHours: v(form, "hours") } : {}), feeKobo: Math.round(Number(v(form, "fee")) * 100) });
+      return "Registered. Compliance must approve the centre before winners can choose it.";
+    }) },
+      el("b", {}, "Register a centre"),
+      el("div", { class: "form" },
+        input("Name", { name: "name", required: true, maxlength: 120 }),
+        select("Type", "tier", [["MEGA", "Mega Stockist (regional)"], ["SUB", "Sub Stockist (local)"], ["SPECIALIST", "Specialist partner"]]),
+        select("Mega Stockist (for a Sub Stockist)", "parent", mega.length ? mega.map((m) => [m.id, m.name]) : [["", "None approved yet"]]),
+        select("State", "state", [["NG-NI", "Niger State"]]),
+        input("Town / area", { name: "area", required: true, maxlength: 120 }),
+        input("Address", { name: "address", required: true, maxlength: 300 }),
+        input("Phone", { name: "phone", required: true, maxlength: 20 }),
+        input("Local government areas served (comma-separated)", { name: "coverage", required: true }),
+        input("Opening hours (optional)", { name: "hours", maxlength: 120 }),
+        input("Fee per prize handed over (₦)", { name: "fee", type: "number", min: 0, step: 1, value: "1000", required: true })),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Register")));
+    nodes.push(form);
+  }
+  nodes.push(el("div", { class: "card" }, list.length ? table(["Centre", "Coverage", "#Fee", "#Units held", "Status", ""], list.map((x) => el("tr", {},
+    td([el("b", {}, `${x.code} · ${x.name}`), el("div", { class: "sub" }, `${TIER_TEXT[x.tier]}${x.parent_name ? ` under ${x.parent_name}` : ""} · ${x.area} · ${x.address} · ${x.phone}`),
+      el("div", { class: "mono" }, `registered by ${x.registered_by_name}${x.approved_by_name ? `, approved by ${x.approved_by_name}` : ""}`)]),
+    td(x.coverage.join(", ")),
+    td([naira(x.fee_kobo), x.pending_fee_kobo !== null ? el("div", { class: "sub" }, `change to ${naira(x.pending_fee_kobo)} waiting`) : null], true),
+    td(num(x.units_held), true),
+    td(pill(...(CENTRE_PILL[x.status] ?? [x.status]))),
+    td(el("div", { class: "actions" },
+      can("COMPLIANCE") && x.status === "PENDING" && x.registered_by !== me.id ? [
+        el("button", { class: "btn small", onclick: action(async () => { await post(`/v1/admin/stockists/${x.id}/decision`, { decision: "APPROVE" }); return "Centre approved."; }) }, "Approve"),
+        el("button", { class: "btn small ghost", onclick: action(async () => { const reason = prompt("Why is it rejected?"); if (!reason) return; await post(`/v1/admin/stockists/${x.id}/decision`, { decision: "REJECT", reason }); return "Rejected."; }) }, "Reject")] : null,
+      can("COMPLIANCE") && x.status === "ACTIVE" ? el("button", { class: "btn small ghost danger", onclick: action(async () => { const reason = prompt("Why is the centre suspended?"); if (!reason) return; await post(`/v1/admin/stockists/${x.id}/decision`, { decision: "SUSPEND", reason }); return "Suspended."; }) }, "Suspend") : null,
+      can("COMPLIANCE") && x.status === "SUSPENDED" ? el("button", { class: "btn small ghost", onclick: action(async () => { const reason = prompt("Why is it reinstated?"); if (!reason) return; await post(`/v1/admin/stockists/${x.id}/decision`, { decision: "REINSTATE", reason }); return "Reinstated."; }) }, "Reinstate") : null,
+      can("FULFILMENT") && x.pending_fee_kobo === null && x.status !== "REJECTED" ? el("button", { class: "btn small ghost", onclick: action(async () => {
+        const naira_ = prompt("New fee per prize handed over (₦):"); if (!naira_) return;
+        await post(`/v1/admin/stockists/${x.id}/fee`, { feeKobo: Math.round(Number(naira_) * 100) }); return "Fee change requested: Finance must approve it.";
+      }) }, "Change fee") : null,
+      can("FINANCE") && x.pending_fee_kobo !== null && x.fee_requested_by !== me.id ? [
+        el("button", { class: "btn small", onclick: action(async () => { await post(`/v1/admin/stockists/${x.id}/fee/decision`, { approve: true }); return "New fee approved."; }) }, "Approve fee"),
+        el("button", { class: "btn small ghost", onclick: action(async () => { await post(`/v1/admin/stockists/${x.id}/fee/decision`, { approve: false }); return "Fee change rejected."; }) }, "Reject fee")] : null))))) : el("p", { class: "sub" }, "No centres yet.")));
+
+  // Sending prize stock to a centre ahead of claims.
+  if (can("FULFILMENT")) {
+    const { units } = await get("/v1/admin/stock/movable");
+    const active = list.filter((x) => x.status === "ACTIVE");
+    if (units.length && active.length) {
+      const form = el("form", { class: "card", onsubmit: action(async () => {
+        const unitIds = [...form.querySelectorAll("input[name=unit]:checked")].map((i) => i.value);
+        if (!unitIds.length) throw new Error("Tick the units to move.");
+        const to = v(form, "to");
+        const r = await post("/v1/admin/stock/allocate", { unitIds, toStockistId: to || null, reason: v(form, "reason") });
+        return `${r.moved} unit${r.moved === 1 ? "" : "s"} moved; every move is recorded.`;
+      }) },
+        el("b", {}, "Move prize stock"),
+        el("p", { class: "sub" }, "Units stay reserved to their cycle as prizes; only where they are changes. Units are also moved automatically when a winner's prize is sent to their chosen centre."),
+        table(["", "Item", "Serial", "Cycle", "Now at"], units.slice(0, 200).map((u) => el("tr", {},
+          td(el("input", { type: "checkbox", name: "unit", value: u.id, "aria-label": `${u.item} ${u.serial_number ?? ""}` })), td(u.item), td(el("span", { class: "mono" }, u.serial_number ?? "—")), td(u.cycle ?? "—"), td(u.stockist_name ?? "Warehouse")))),
+        el("div", { class: "form" }, select("Move to", "to", [["", "Warehouse"], ...active.map((x) => [x.id, x.name])]), input("Reason", { name: "reason", required: true, maxlength: 300 }),
+          el("button", { class: "btn", type: "submit" }, "Move")));
+      nodes.push(el("h2", {}, "Stock at centres"), form);
+    }
+  }
+
+  // Problem reports (damaged, missing, wrong item).
+  const { incidents } = await get("/v1/admin/stock/incidents");
+  nodes.push(el("h2", {}, "Damaged or unavailable stock"), el("div", { class: "card" }, incidents.length ? table(["Report", "Centre", "Status", ""], incidents.map((i) => el("tr", {},
+    td([el("b", {}, `${INCIDENT_KINDS.find(([k]) => k === i.kind)?.[1] ?? i.kind}: ${i.item}${i.serial_number ? ` (${i.serial_number})` : ""}`), el("div", { class: "sub" }, i.description),
+      el("div", { class: "mono" }, `${when(i.created_at)} by ${i.reported_by_name}`), i.resolution ? el("div", { class: "sub" }, `Resolved by ${i.resolved_by_name}: ${i.resolution}`) : null]),
+    td(i.stockist ?? "Warehouse"), td(pill(i.status === "OPEN" ? "Open" : "Resolved", i.status === "OPEN" ? "red" : "grey")),
+    td(i.status === "OPEN" && can("FULFILMENT") && i.reported_by !== me.id ? el("button", { class: "btn small", onclick: action(async () => {
+      const resolution = prompt("How was it resolved?"); if (!resolution) return;
+      await post(`/v1/admin/stock/incidents/${i.id}/resolve`, { resolution }); return "Resolved.";
+    }) }, "Resolve") : null)))) : el("p", { class: "sub" }, "No reports.")));
+
+  if (can("FINANCE", "AUDITOR", "FULFILMENT")) {
+    const { invoices } = await get("/v1/admin/stockist-invoices");
+    nodes.push(el("h2", {}, "Centre invoices"), el("div", { class: "card" }, invoices.length ? table(["Invoice", "Centre", "#Amount", "Status", ""], invoices.map((i) => el("tr", {},
+      td([el("b", {}, i.reference), el("div", { class: "sub" }, `${i.fees_count} handover${i.fees_count === 1 ? "" : "s"}${i.their_reference ? ` · their ref ${i.their_reference}` : ""}`)]),
+      td(`${i.stockist_code} · ${i.stockist}`), td(naira(i.amount_kobo), true),
+      td([pill(i.status === "PAID" ? "Paid" : i.status === "SUBMITTED" ? "Awaiting Finance" : "Rejected", i.status === "PAID" ? "" : i.status === "SUBMITTED" ? "gold" : "grey"), i.payment_ref ? el("div", { class: "mono" }, i.payment_ref) : null]),
+      td(i.status === "SUBMITTED" && can("FINANCE") ? el("div", { class: "actions" },
+        el("button", { class: "btn small", onclick: action(async () => { const r = await post(`/v1/admin/stockist-invoices/${i.id}/decision`, { approve: true }); return `Paid (${r.paymentRef}).`; }) }, "Approve and pay"),
+        el("button", { class: "btn small ghost", onclick: action(async () => { const reason = prompt("Why is the invoice rejected?"); if (!reason) return; await post(`/v1/admin/stockist-invoices/${i.id}/decision`, { approve: false, reason }); return "Rejected."; }) }, "Reject")) : null)))) : el("p", { class: "sub" }, "No invoices yet.")));
+  }
+
+  nodes.push(el("h2", {}, "Reconciliation by centre"),
+    rec.totalMismatches ? el("div", { class: "note bad" }, `${rec.totalMismatches} unit record${rec.totalMismatches === 1 ? " does" : "s do"} not add up: investigate before paying invoices.`) : el("div", { class: "note" }, "Every unit at every centre matches its handover records."),
+    el("div", { class: "card" }, table(["Centre", "#On shelf", "#Awaiting collection", "#Handed over", "#Open reports", "#Fees", "#Mismatches"], rec.centres.map((r) => el("tr", {},
+      td(`${r.code} · ${r.name}`), td(num(r.on_shelf), true), td(num(r.awaiting_collection), true), td(num(r.handed_over), true), td(num(r.open_incidents), true), td(naira(r.fees_kobo), true), td(num(r.mismatches), true))))));
+  const STAGE = { ENTITLED: "Won, not yet claimed", ON_HOLD: "On hold", VERIFIED: "Claimed, to send", DISPATCHED: "Out for handover" };
+  nodes.push(el("h2", {}, "Prizes still owed to winners"), el("div", { class: "card" }, out.byStatus.length
+    ? table(["Stage", "#Prizes", "#Value", "#Waiting over 14 days", "#Claim period ends within 7 days"], out.byStatus.map((b) => el("tr", {},
+      td(STAGE[b.status] ?? b.status), td(num(b.prizes), true), td(naira(b.value_kobo), true), td(num(b.older_than_14_days), true), td(num(b.expiring_within_7_days), true))))
+    : el("p", { class: "sub" }, "Nothing owed.")));
+  return nodes;
+}
+
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, popups: popupsPage, affiliates: affiliatesPage, centres: centresPage, portal: portalPage, audit: auditPage, access };
 let renderId = 0;
 
 async function render() {
@@ -1301,7 +1500,11 @@ async function render() {
   if (!me) { view.replaceChildren(...login()); return; }
   document.getElementById("whoName").textContent = me.fullName;
   document.getElementById("whoRoles").textContent = me.roles.map((r) => ROLE_TEXT[r] ?? r).join(", ");
-  const [name = "dashboard", arg] = location.hash.replace(/^#\/?/, "").split("/");
+  // Collection-centre staff see only their portal.
+  const centreOnly = me.roles.includes("STOCKIST");
+  document.querySelectorAll("#nav a").forEach((a) => { a.hidden = centreOnly ? a.dataset.nav !== "portal" : a.dataset.nav === "portal"; });
+  let [name = "dashboard", arg] = location.hash.replace(/^#\/?/, "").split("/");
+  if (centreOnly) name = "portal";
   const screen = ROUTES[name] ?? dashboard;
   const nav = name === "cycle" ? "cycles" : name === "ticket" ? "support" : ROUTES[name] ? name : "dashboard";
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === nav));
@@ -1315,6 +1518,7 @@ async function render() {
     view.replaceChildren(el("h1", {}, err.status === 403 ? "Not available for your role" : "Something went wrong"), el("p", { class: "sub" }, err.message));
   }
   // Badge: things waiting for a second person.
+  if (centreOnly) return;
   get("/v1/admin/cycles").then(async (l) => {
     let n = l.cycles.filter((c) => c.status === "SUBMITTED" || c.void_pending).length;
     if (can("FINANCE", "COMPLIANCE", "AUDITOR")) n += (await get("/v1/admin/refunds?status=AWAITING_APPROVAL")).refunds.length;

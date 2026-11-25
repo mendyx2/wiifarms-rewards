@@ -95,6 +95,17 @@ const HA = {
   "Report {0} sent. Compliance will look into it.": "An aika rahoto {0}. Sashen bin doka zai duba shi.",
   "Misleading claims": "Iƙirari na yaudara", "Promoting to children": "Talla ga yara", "Pressure to play": "Matsa wa mutum ya yi wasa", "Unofficial adverts": "Tallace-tallace marasa izini",
   "Paying people to sign up": "Biyan mutane don yin rajista", "Pretending to be WiiFarm": "Yin kamar shi ne WiiFarm", "Something else": "Wani abu dabam",
+  // --- Collection centres and vouchers ---
+  "Collection centres": "Cibiyoyin karɓa", "Collection centre": "Cibiyar karɓa", "See all collection centres": "Duba duk cibiyoyin karɓa",
+  "I will collect it at a centre": "Zan karɓa a cibiya",
+  "There is no collection centre near you yet. Choose delivery.": "Babu cibiyar karɓa kusa da kai tukuna. Zaɓi a kawo maka.",
+  "Collection voucher": "Takardar karɓa", "Ready to collect": "A shirye don karɓa", "Where": "Ina", "Address": "Adireshi", "Opening hours": "Lokutan buɗewa", "Bring": "Ka zo da",
+  "Your photo ID (NIN slip, voter's card, driver's licence or passport)": "Katin shaidarka mai hoto (takardar NIN, katin zaɓe, lasisin tuƙi ko fasfo)",
+  "Show the voucher at the centre. Your handover code: read it out only when the prize is in your hands.": "Nuna takardar karɓa a cibiyar. Lambar karɓa naka: ka faɗa ta ne kawai idan kyautar tana hannunka.",
+  "We are sending it to {0}. You will get a collection voucher here.": "Muna aika ta zuwa {0}. Za ka sami takardar karɓa a nan.",
+  "Authorised centres where winners collect merchandise prizes. You never pay anything to collect a prize, and you never need to buy anything or join anything.": "Cibiyoyin da aka amince da su inda masu nasara ke karɓar kyautar kaya. Ba za ka taɓa biyan kuɗi don karɓar kyauta ba, kuma ba sai ka sayi wani abu ko ka shiga wata ƙungiya ba.",
+  "Regional centre": "Cibiyar yanki", "Local centre": "Cibiyar gida", "Serves": "Yana hidima ga", "Phone": "Waya",
+  "No collection centres yet. Winners can choose delivery.": "Babu cibiyoyin karɓa tukuna. Masu nasara za su iya zaɓar a kawo musu.",
   // --- Deductions on winnings ---
   "{0} statutory deduction ({1}%) · {2} to your wallet": "{0} ragin doka ({1}%) · {2} zuwa jakar kuɗinka",
   "Deduction from cash prizes": "Ragi daga kyautar kuɗi",

@@ -88,6 +88,18 @@ export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number
     await ctx.pool.query("INSERT INTO admin_roles (admin_user_id, role, granted_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
       [admins[name]!.id, role, admins[name === "security" ? "security2" : "security"]!.id]);
   }
+  // A demo collection centre (registered by Fulfilment, approved by Compliance) and a member of its staff,
+  // who signs in as stockist@demo.wiifarm.test and sees only the stockist portal.
+  const centre = (await ctx.pool.query<{ id: string }>("SELECT id FROM stockists WHERE name = 'Minna Central Stockist' LIMIT 1")).rows[0]?.id
+    ?? (await ctx.pool.query<{ id: string }>(
+      `INSERT INTO stockists (code, name, tier, state_code, area, address, phone, coverage, opening_hours, fee_kobo, status, registered_by, approved_by)
+       VALUES ('STK-' || lpad(nextval('stockist_code_seq')::text, 4, '0'), 'Minna Central Stockist', 'MEGA', 'NG-NI', 'Minna', 'Plot 4, Paiko Road, Minna', '08030001111',
+               ARRAY['Chanchaga','Bosso'], 'Mon–Sat 8am–6pm', 100000, 'ACTIVE', $1, $2) RETURNING id`, [admins.fulfilment!.id, admins.compliance!.id])).rows[0]!.id;
+  const clerk = (await ctx.pool.query<{ id: string }>(
+    `INSERT INTO admin_users (email, full_name, stockist_id) VALUES ('stockist@demo.wiifarm.test', 'Demo stockist', $1)
+     ON CONFLICT (email) DO UPDATE SET stockist_id = EXCLUDED.stockist_id RETURNING id`, [centre])).rows[0]!.id;
+  await ctx.pool.query("INSERT INTO admin_roles (admin_user_id, role, granted_by) VALUES ($1, 'STOCKIST', $2) ON CONFLICT DO NOTHING", [clerk, admins.security!.id]);
+
   // Merchandise is received into the warehouse first, with its costs; it is reserved to the cycle before approval.
   const f = admins.fulfilment!;
   const tag = Date.now().toString(36);

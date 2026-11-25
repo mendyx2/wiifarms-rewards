@@ -176,12 +176,13 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await a.reload();
   await a.waitForSelector('button:has-text("Confirm handover")');
   assert.equal((await a.content()).includes(code), false, "staff never see the code");
+  const photo = { name: "handover.png", mimeType: "image/png", buffer: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 7)]) };
   await q().locator("input[name=code]").fill(code === "123456" ? "654321" : "123456");
-  await q().locator("input[name=photo]").fill("photos/handover.jpg");
+  await q().locator("input[name=photo]").setInputFiles(photo);
   await q().locator('button:has-text("Confirm handover")').click();
   await toast(a, /not correct/);
   await q().locator("input[name=code]").fill(code);
-  await q().locator("input[name=photo]").fill("photos/handover.jpg");
+  await q().locator("input[name=photo]").setInputFiles(photo);
   await q().locator('button:has-text("Confirm handover")').click();
   await toast(a, /Handover complete/);
   await p.reload();

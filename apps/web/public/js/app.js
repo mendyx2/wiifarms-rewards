@@ -307,7 +307,7 @@ async function home() {
   }
   nodes.push(installCard({ dismissible: true }));
   nodes.push(el("p", { class: "muted" }, "18+ only. Play within your limits. This is a simulation: no real money is taken or paid."),
-    el("p", { class: "muted links" }, el("a", { href: `#/rules/${c.id}` }, "Game rules and odds"), " · ", el("a", { href: "#/privacy" }, "Privacy policy")));
+    el("p", { class: "muted links" }, el("a", { href: `#/rules/${c.id}` }, "Game rules and odds"), " · ", el("a", { href: "#/centres" }, "Collection centres"), " · ", el("a", { href: "#/privacy" }, "Privacy policy")));
   return nodes;
 }
 
@@ -662,8 +662,8 @@ const PAYOUT_TEXT = { CONFIRMED: "Sent to your bank", PENDING_APPROVAL: "Being c
 
 const CLAIM_TEXT = { ENTITLED: "Ready to claim", ON_HOLD: "Being reviewed", VERIFIED: "Claimed — being prepared", DISPATCHED: "On its way", DELIVERED: "Received", EXPIRED: "Claim period ended", VOID: "Not available" };
 
-/** One merchandise prize: claim it, follow it, and show the handover code when it is on its way. */
-function prizeCard(p) {
+/** One merchandise prize: claim it, follow it, and show the voucher and handover code when it is ready. */
+function prizeCard(p, centres = []) {
   const daysLeft = Math.max(0, Math.ceil((new Date(p.expires_at) - Date.now()) / 864e5));
   const card = el("div", { class: "card" },
     el("div", { class: "row" }, el("div", {}, el("b", {}, p.title), el("small", {}, `${p.cycle} · card ${p.ticket}`), p.claimed_by_next_of_kin ? el("small", {}, "Passed to you as next of kin") : null),
@@ -675,24 +675,42 @@ function prizeCard(p) {
     }
     const address = el("input", { name: "address", autocomplete: "street-address", placeholder: "House, street, town" });
     const addressField = el("div", {}, ...field("Delivery address", address));
+    const centreField = el("div", { hidden: true }, ...field("Collection centre", el("select", { name: "centre" },
+      centres.map((c) => el("option", { value: c.id }, `${c.name} · ${c.area}`)))),
+      el("p", { class: "muted" }, el("a", { href: "#/centres" }, "See all collection centres")));
     const form = el("form", { onsubmit: action(async () => {
       const method = val(form, "method"), body = { method, pin: val(form, "pin") };
       if (method === "DELIVERY") {
         if (!val(form, "address")) { toast("Enter the delivery address."); return; }
         body.address = val(form, "address");
+      } else {
+        if (!val(form, "centre")) { toast("There is no collection centre near you yet. Choose delivery."); return; }
+        body.stockistId = val(form, "centre");
       }
       const r = await api.post(`/v1/claims/${p.id}/redeem`, body);
       toast(r.status === "VERIFIED" ? "Prize claimed. We will tell you when it is on its way." : "Your claim is being reviewed. We will be in touch.");
       render();
     }) },
       el("p", { class: "muted" }, `Claim within ${daysLeft} day${daysLeft === 1 ? "" : "s"} (by ${when(p.expires_at)}).`),
-      ...field("How would you like it?", el("select", { name: "method", onchange: (e) => { addressField.hidden = e.target.value !== "DELIVERY"; } },
-        el("option", { value: "DELIVERY" }, "Deliver it to me"), el("option", { value: "COLLECTION" }, "I will collect it"))),
-      addressField,
+      ...field("How would you like it?", el("select", { name: "method", onchange: (e) => { addressField.hidden = e.target.value !== "DELIVERY"; centreField.hidden = e.target.value === "DELIVERY"; } },
+        el("option", { value: "DELIVERY" }, "Deliver it to me"), el("option", { value: "COLLECTION" }, "I will collect it at a centre"))),
+      addressField, centreField,
       ...field("Your PIN", el("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 6, autocomplete: "current-password", required: true })),
       el("p"), el("button", { class: "btn gold", type: "submit" }, "Claim my prize"));
     // Folded away so a player with several prizes sees a short list first.
     card.append(el("details", {}, el("summary", {}, "Claim this prize"), form));
+  } else if (p.status === "DISPATCHED" && p.voucher_ref) {
+    // Collection voucher: the reference is shown at the centre; the code is read out only with the prize in hand.
+    card.append(
+      el("div", { class: "voucher" },
+        el("div", { class: "voucher-head" }, el("b", {}, "Collection voucher"), el("span", { class: "pill" }, "Ready to collect")),
+        el("div", { class: "voucher-ref" }, p.voucher_ref),
+        el("div", { class: "row" }, el("span", {}, "Where"), el("b", {}, p.centre_name)),
+        el("div", { class: "row" }, el("span", {}, "Address"), el("span", {}, `${p.centre_address}, ${p.centre_area}`)),
+        p.centre_hours ? el("div", { class: "row" }, el("span", {}, "Opening hours"), el("span", {}, p.centre_hours)) : null,
+        el("div", { class: "row" }, el("span", {}, "Bring"), el("span", {}, "Your photo ID (NIN slip, voter's card, driver's licence or passport)"))),
+      el("div", { class: "note warn" }, "Show the voucher at the centre. Your handover code: read it out only when the prize is in your hands."),
+      el("div", { class: "balance center" }, p.handoverCode ?? "—"));
   } else if (p.status === "DISPATCHED") {
     card.append(
       el("p", { class: "muted" }, p.method === "DELIVERY" ? `With ${p.carrier ?? "the carrier"}${p.tracking_ref ? " · " + p.tracking_ref : ""}, to ${p.address}.` : "Ready for you to collect" + (p.carrier ? " at " + p.carrier : "") + "."),
@@ -701,7 +719,7 @@ function prizeCard(p) {
   } else if (p.status === "DELIVERED") {
     card.append(el("p", { class: "muted" }, `Received ${when(p.handed_over_at)}` + (p.serial_number ? ` · serial ${p.serial_number}` : "") + (p.warranty_months ? ` · ${p.warranty_months}-month warranty` : "")));
   } else if (p.status === "VERIFIED") {
-    card.append(el("p", { class: "muted" }, p.method === "DELIVERY" ? "We are preparing your delivery to " + p.address + "." : "We are getting it ready for collection."));
+    card.append(el("p", { class: "muted" }, p.method === "DELIVERY" ? "We are preparing your delivery to " + p.address + "." : p.centre_name ? `We are sending it to ${p.centre_name}. You will get a collection voucher here.` : "We are getting it ready for collection."));
   }
   return card;
 }
@@ -753,7 +771,9 @@ async function wallet() {
     // Prizes that need the player's attention come first: on its way, being prepared, ready to claim.
     const order = ["DISPATCHED", "VERIFIED", "ENTITLED", "ON_HOLD", "DELIVERED", "EXPIRED", "VOID"];
     const sorted = [...prizes.claims].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
-    nodes.splice(1, 0, el("h2", {}, "My prizes"), ...sorted.map(prizeCard));
+    const centres = prizes.claims.some((p) => p.status === "ENTITLED")
+      ? (await api.get("/v1/stockists" + (state.me?.stateCode ? `?state=${state.me.stateCode}` : ""))).centres : [];
+    nodes.splice(1, 0, el("h2", {}, "My prizes"), ...sorted.map((p) => prizeCard(p, centres)));
   }
 
   nodes.push(el("h2", {}, "History"), el("div", { class: "card" }, w.history.length
@@ -1118,6 +1138,20 @@ async function approvedMaterials() {
 }
 const CHANNEL_TEXT = { WHATSAPP: "WhatsApp", SMS: "Text message", SOCIAL: "Social media", PRINT: "Print", RADIO: "Radio" };
 
+/** The stockist locator (SRS WEB-009): approved collection centres. */
+async function centresScreen() {
+  const { centres } = await api.get("/v1/stockists");
+  return [el("h1", {}, "Collection centres"),
+    el("p", { class: "muted" }, "Authorised centres where winners collect merchandise prizes. You never pay anything to collect a prize, and you never need to buy anything or join anything."),
+    centres.length ? centres.map((c) => el("div", { class: "card" },
+      el("div", { class: "row" }, el("b", {}, c.name), el("span", { class: "pill grey" }, c.tier === "MEGA" ? "Regional centre" : "Local centre")),
+      el("div", { class: "row" }, el("span", {}, "Address"), el("span", {}, `${c.address}, ${c.area}`)),
+      c.opening_hours ? el("div", { class: "row" }, el("span", {}, "Opening hours"), el("span", {}, c.opening_hours)) : null,
+      el("div", { class: "row" }, el("span", {}, "Serves"), el("span", {}, c.coverage.join(", "))),
+      el("div", { class: "row" }, el("span", {}, "Phone"), el("a", { href: `tel:${c.phone}` }, c.phone))))
+      : el("p", { class: "muted" }, "No collection centres yet. Winners can choose delivery.")];
+}
+
 const AFFILIATE_STATUS = { APPLIED: "Waiting for review", APPROVED: "Approved", REJECTED: "Not approved", SUSPENDED: "Suspended", TERMINATED: "Ended" };
 
 /** The affiliate application and, once applied, the affiliate's own page (SRS section 13). */
@@ -1263,7 +1297,7 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, affiliate: { screen: affiliateScreen, tab: "me", auth: true }, liveness: { screen: liveness, tab: "wallet", auth: true },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, affiliate: { screen: affiliateScreen, tab: "me", auth: true }, centres: { screen: centresScreen, tab: "wallet" }, liveness: { screen: liveness, tab: "wallet", auth: true },
   rules: { screen: rulesScreen, tab: "home" }, privacy: { screen: privacyScreen, tab: "me" }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 
