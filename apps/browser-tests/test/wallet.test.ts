@@ -29,6 +29,7 @@ test("an invite link fills in the code, the friend's purchase pays the inviter, 
   await f.waitForSelector("text=your code is");
   await f.fill("input[name=code]", (await f.innerText(".note.warn")).match(/\d{6}/)![0]);
   await f.fill("input[name=pin]", "482915");
+  await f.check("input[name=privacy]");
   await f.click('button:has-text("Create account")');
   await f.waitForSelector("h1:has-text(\"Confirm it's you\")");
   await f.fill("input[name=number]", "12345670202");
@@ -37,6 +38,7 @@ test("an invite link fills in the code, the friend's purchase pays the inviter, 
   await f.click("text=Verify and continue");
   await f.waitForSelector("text=How many cards?");
   await f.click('.chips button:has-text("10")');
+  await f.check("input[name=rules]");
   await f.click('button:has-text("Pay ₦5,000")');
   await f.click("text=Confirm simulated payment");
   await f.waitForSelector(".ticket");
@@ -57,6 +59,7 @@ test("an invite link fills in the code, the friend's purchase pays the inviter, 
   await p.click("text=Buy cards from my wallet");
   await p.waitForSelector("text=How many cards?");
   await p.click('.chips button:has-text("1")');
+  await p.check("input[name=rules]");
   await p.click('button:has-text("Pay ₦500 from my wallet (₦625)")');
   await p.waitForSelector("h1:has-text('Pay from your wallet')");
   assert.match(await p.innerText("main .card"), /Wallet balance after\s+₦125/);

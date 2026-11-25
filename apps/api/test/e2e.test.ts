@@ -28,7 +28,15 @@ let pool: Pool, app: FastifyInstance, ctx: Ctx, config: Config, messenger: Simul
 const N200 = 20_000; // ₦200 in kobo
 
 interface Res { status: number; body: any }
-async function api(method: "GET" | "POST" | "PUT", url: string, opts: { token?: string | undefined; body?: unknown; key?: string } = {}, server = app): Promise<Res> {
+async function api(method: "GET" | "POST" | "PUT", url: string, opts: { token?: string | undefined; body?: unknown; key?: string; raw?: boolean } = {}, server = app): Promise<Res> {
+  // Players in these tests do what the app makes them do: accept the privacy policy when signing up, and a
+  // campaign's game rules before buying. (The "compliance basics" test checks both with raw: true.)
+  if (!opts.raw && method === "POST" && url === "/v1/auth/register" && opts.body && !("acceptPrivacy" in (opts.body as object))) {
+    opts = { ...opts, body: { ...(opts.body as object), acceptPrivacy: true } };
+  }
+  if (!opts.raw && method === "POST" && url === "/v1/orders" && opts.token && (opts.body as { cycleId?: string })?.cycleId) {
+    await api("POST", `/v1/cycles/${(opts.body as { cycleId: string }).cycleId}/rules/accept`, { token: opts.token, raw: true }, server);
+  }
   const headers: Record<string, string> = {};
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
   if (opts.key) headers["idempotency-key"] = opts.key;
@@ -263,12 +271,16 @@ test("season economics: the prize budget is enforced at approval, and each playe
     await tier(over, { stage: "FINAL_DRAW", kind: "CASH", title: "₦95,000", cashKobo: 9_500_000, quantity: 1, drawOrder: 1 });
     const b = ok(await api("GET", `/v1/admin/cycles/${over}`, { token: mt })).budget;
     assert.deepEqual([b.fullSalesKobo, b.poolKobo, b.instantBudgetKobo, b.drawBudgetKobo, b.instantKobo], [20_000_000, 10_000_000, 500_000, 9_500_000, 550_000]);
+    // Instant cash is capped at its share; what it leaves unused is available to the final draw.
     const refused = await approveAll(over, 10_050_000);
     fails(refused, 409, "PRIZE_BUDGET");
     assert.match(refused.body.error.message, /Instant cash prizes total ₦5,500, above the ₦5,000 allowed \(5% of the ₦100,000 prize money\)/);
     const overDraw = await draft("Draw over budget");
-    await tier(overDraw, { stage: "FINAL_DRAW", kind: "CASH", title: "₦95,001", cashKobo: 9_500_100, quantity: 1, drawOrder: 1 });
-    fails(await approveAll(overDraw, 9_500_100), 409, "PRIZE_BUDGET");
+    await tier(overDraw, { stage: "INSTANT", kind: "CASH", title: "₦500", cashKobo: 50_000, quantity: 4 });
+    await tier(overDraw, { stage: "FINAL_DRAW", kind: "CASH", title: "₦98,001", cashKobo: 9_800_100, quantity: 1, drawOrder: 1 });
+    const overAll = await approveAll(overDraw, 10_000_100);
+    fails(overAll, 409, "PRIZE_BUDGET");
+    assert.match(overAll.body.error.message, /Prizes total ₦100,001, above the ₦100,000 prize money \(50% of ₦200,000 full sell-out sales\)/);
 
     // Exactly on budget is approved.
     const fits = await draft("On budget");
@@ -579,7 +591,7 @@ test("web sessions: cookie is script-proof, cross-site requests are refused, onl
   const web = buildServer({ ...ctx, config: { ...config, webRoot: new URL("../../web/public", import.meta.url).pathname } });
   const phone = "08037770001";
   const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone } }, web));
-  const reg = await web.inject({ method: "POST", url: "/v1/auth/register", payload: { phone, code: otp.devCode, pin: "482915" } });
+  const reg = await web.inject({ method: "POST", url: "/v1/auth/register", payload: { phone, code: otp.devCode, pin: "482915", acceptPrivacy: true } });
   const setCookie = String(reg.headers["set-cookie"]);
   assert.match(setCookie, /^wr_session=[\w-]+; Path=\/; HttpOnly; SameSite=Strict; Secure; Max-Age=\d+$/);
   const cookie = setCookie.split(";")[0]!;
@@ -1800,4 +1812,51 @@ test("major prizes and large withdrawals need the liveness check; fraud rules al
   const surge = (await pool.query("SELECT severity, details FROM compliance_alerts WHERE kind = 'REFERRAL_VELOCITY' AND entity_id = $1", [r.id])).rows;
   assert.equal(surge.length, 1); assert.equal(surge[0].severity, "WARNING"); assert.equal(surge[0].details.signUpsIn24Hours, 20);
   assert.ok(ok(await api("GET", "/v1/admin/compliance", { token: ct })));
+});
+
+test("the unsold-card counts kept by the database always match the cards themselves", async () => {
+  const mismatched = (await pool.query(
+    `SELECT c.id, c.name, coalesce((SELECT sum(unsold) FROM cycle_unsold u WHERE u.cycle_id = c.id), 0)::int AS counted,
+            (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'UNSOLD')::int AS actual
+     FROM cycles c WHERE EXISTS (SELECT 1 FROM tickets t WHERE t.cycle_id = c.id)`)).rows.filter((r: any) => r.counted !== r.actual);
+  assert.deepEqual(mismatched, []);
+  const cycles = (await pool.query("SELECT count(DISTINCT cycle_id)::int AS n FROM tickets")).rows[0].n;
+  assert.ok(cycles >= 10, "checked across every cycle the tests created (sales, holds, releases, cancellations)");
+});
+
+test("compliance basics: privacy consent at sign-up, game rules accepted before buying, published probabilities, play summary", async () => {
+  // Opening an account needs the privacy policy accepted; marketing consent is optional and can change.
+  const seq = ++phoneSeq, phone = "0803" + String(1000000 + seq);
+  const otp = ok(await api("POST", "/v1/auth/otp", { body: { phone } }));
+  fails(await api("POST", "/v1/auth/register", { raw: true, body: { phone, code: otp.devCode, pin: "482915" } }), 400, "PRIVACY_CONSENT_REQUIRED");
+  const reg = ok(await api("POST", "/v1/auth/register", { raw: true, body: { phone, code: otp.devCode, pin: "482915", acceptPrivacy: true, marketing: false } }));
+  const p = { token: reg.token, phone, pin: "482915", id: reg.userId };
+  let priv = ok(await api("GET", "/v1/me/privacy", { token: p.token }));
+  assert.equal(priv.privacyPolicy.granted, true); assert.equal(priv.privacyPolicy.version, priv.currentPolicyVersion); assert.equal(priv.marketing, false);
+  priv = ok(await api("PUT", "/v1/me/privacy", { token: p.token, body: { marketing: true } }));
+  assert.equal(priv.marketing, true); assert.equal(priv.history.length, 3);
+  await assert.rejects(pool.query("DELETE FROM consents WHERE user_id = $1", [p.id]), /append-only/);
+  ok(await api("POST", "/v1/me/verify", { token: p.token, body: { kind: "NIN", number: String(10000000000 + seq), fullName: "Rules Reader", dateOfBirth: "1990-05-17", stateCode: "NG-NI" } }));
+
+  // The rules are published with their probabilities, and must be accepted (that exact version) before buying.
+  const cyc = await openCycle({ total: 100, closeInMs: 3600_000, cap: 20, name: "Rules check 2" });
+  const rules = ok(await api("GET", `/v1/cycles/${cyc.id}/rules`));
+  assert.equal(rules.text, "Published rules"); assert.equal(rules.version, rules.sha256.slice(0, 12));
+  assert.deepEqual(rules.instant, [{ cashKobo: 50_000, winners: 2, oneIn: 50 }]);
+  assert.equal(rules.finalDrawPrizes, 3); assert.equal(rules.finalDrawPercentAtFullSales, 3);
+  const order = { cycleId: cyc.id, quantity: 1 };
+  fails(await api("POST", "/v1/orders", { raw: true, token: p.token, key: key(), body: order }), 403, "RULES_NOT_ACCEPTED");
+  assert.equal(ok(await api("GET", `/v1/me/today?cycleId=${cyc.id}`, { token: p.token })).rulesAccepted, false);
+  assert.equal(ok(await api("POST", `/v1/cycles/${cyc.id}/rules/accept`, { token: p.token })).version, rules.version);
+  ok(await api("POST", `/v1/cycles/${cyc.id}/rules/accept`, { token: p.token })); // accepting again is harmless
+  assert.equal(ok(await api("GET", `/v1/me/today?cycleId=${cyc.id}`, { token: p.token })).rulesAccepted, true);
+  const paid = ok(await api("POST", "/v1/orders", { raw: true, token: p.token, key: key(), body: { cycleId: cyc.id, quantity: 4 } }));
+  ok(await api("POST", "/v1/simulated-gateway/pay", { token: p.token, body: { paymentRef: paid.paymentRef } }));
+  await assert.rejects(pool.query("UPDATE cycles SET rules_text = 'Changed rules' WHERE id = $1", [cyc.id]), /cannot be changed after approval/);
+  await assert.rejects(pool.query("DELETE FROM rule_acceptances WHERE user_id = $1", [p.id]), /append-only/);
+
+  // The play summary: spent, cash won, the difference, cards and final-draw entries.
+  const sum = ok(await api("GET", "/v1/me/summary", { token: p.token }));
+  assert.equal(sum.spentKobo, 4 * N200); assert.equal(sum.cards, 4); assert.equal(sum.finalDrawEntries, 4);
+  assert.equal(sum.netKobo, sum.cashWonKobo - sum.spentKobo);
 });

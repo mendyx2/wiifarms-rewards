@@ -104,13 +104,18 @@ async function createSession(ctx: Ctx, db: Db, userId: string): Promise<string> 
 }
 
 /** Verifies the code and creates the account (or, for an existing number, resets the PIN). */
-export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string, pin: string, ip?: string, lang?: Lang, referralCode?: string): Promise<{ token: string; userId: string }> {
+/** The privacy policy version a new player accepts. Change it when the policy changes; players then see the new one. */
+export const PRIVACY_POLICY_VERSION = "2026-11-25";
+
+export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string, pin: string, ip?: string, lang?: Lang, referralCode?: string,
+  consent?: { privacy: boolean; marketing?: boolean }): Promise<{ token: string; userId: string }> {
   const phone = normalisePhone(phoneInput);
   assertPin(pin);
   const pinHash = await hashPin(pin);
   return withTx(ctx.pool, async (db) => {
     // An invite code only counts when a new account is opened; it is checked before the sign-up code is used up.
     const isNew = !(await one(db, "SELECT 1 FROM users WHERE phone_e164 = $1", [phone]));
+    if (isNew && !consent?.privacy) throw badRequest("PRIVACY_CONSENT_REQUIRED", "Please read and accept the privacy policy to open an account.");
     const referrerId = isNew && referralCode?.trim() ? await findReferrer(db, referralCode) : null;
     await consumeOtp(ctx, db, phone, code);
     const existing = await one<{ id: string; status: string }>(db, "SELECT id, status FROM users WHERE phone_e164 = $1 FOR NO KEY UPDATE", [phone]);
@@ -132,6 +137,8 @@ export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string
       userId = created.rows[0]!.id;
       await db.query("INSERT INTO rg_limits (user_id) VALUES ($1)", [userId]);
       await ensureReferralCode(db, userId); // every player can invite others from the start
+      await db.query("INSERT INTO consents (user_id, kind, granted, version, ip) VALUES ($1, 'PRIVACY_POLICY', true, $2, $3), ($1, 'MARKETING', $4, $2, $3)",
+        [userId, PRIVACY_POLICY_VERSION, ip ?? null, Boolean(consent?.marketing)]);
       await audit(db, { type: "PLAYER", id: userId, ip }, "player.registered", "user", userId, referrerId ? { referredBy: referrerId } : {});
       if (referrerId) await checkReferralVelocity(db, referrerId);
     }
@@ -209,6 +216,21 @@ async function checkReferralVelocity(db: Db, referrerId: string): Promise<void> 
   if (recent) return;
   await db.query("INSERT INTO compliance_alerts (kind, severity, entity_type, entity_id, details) VALUES ('REFERRAL_VELOCITY', 'WARNING', 'user', $1, $2)",
     [referrerId, JSON.stringify({ signUpsIn24Hours: n })]);
+}
+
+/** The player's current consents and their history (newest first). */
+export async function privacyChoices(ctx: Ctx, userId: string): Promise<unknown> {
+  const rows = (await ctx.pool.query("SELECT kind, granted, version, recorded_at FROM consents WHERE user_id = $1 ORDER BY recorded_at DESC, id", [userId])).rows;
+  const latest = (kind: string) => rows.find((r) => r.kind === kind) ?? null;
+  return { privacyPolicy: latest("PRIVACY_POLICY"), marketing: Boolean(latest("MARKETING")?.granted), currentPolicyVersion: PRIVACY_POLICY_VERSION, history: rows };
+}
+
+/** Marketing messages can be switched on or off at any time; every change is kept. */
+export async function setMarketingConsent(ctx: Ctx, actor: Actor, userId: string, granted: boolean): Promise<void> {
+  await withTx(ctx.pool, async (db) => {
+    await db.query("INSERT INTO consents (user_id, kind, granted, version, ip) VALUES ($1, 'MARKETING', $2, $3, $4)", [userId, granted, PRIVACY_POLICY_VERSION, actor.ip ?? null]);
+    await audit(db, actor, granted ? "player.marketing_consent_given" : "player.marketing_consent_withdrawn", "user", userId);
+  });
 }
 
 /** The language the player's texts and messages are written in. */

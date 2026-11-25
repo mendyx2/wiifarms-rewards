@@ -151,3 +151,17 @@ test("draw gives every entry an equal chance (statistical check)", () => {
   }
   for (const c of Object.values(counts)) assert.ok(Math.abs(c - 2000) < 200, `count ${c}`);
 });
+
+test("PackedMerkleTree gives exactly the same root and proofs as MerkleTree, for every tree size", async () => {
+  const { PackedMerkleTree } = await import("../src/merkle.ts");
+  const { createHash } = await import("node:crypto");
+  for (const n of [1, 2, 3, 4, 5, 7, 8, 9, 16, 17, 31, 33, 100, 257, 1000]) {
+    const leaves = Array.from({ length: n }, (_, i) => createHash("sha256").update(`leaf ${n}/${i}`).digest());
+    const plain = new MerkleTree(leaves);
+    const packed = new PackedMerkleTree(Buffer.concat(leaves), n);
+    assert.equal(packed.size, n);
+    assert.deepEqual(packed.root, plain.root, `root for ${n}`);
+    for (let i = 0; i < n; i++) assert.deepEqual(packed.proof(i), plain.proof(i), `proof ${i} of ${n}`);
+  }
+  assert.throws(() => new PackedMerkleTree(Buffer.alloc(0)), /no leaves/);
+});

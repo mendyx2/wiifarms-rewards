@@ -14,6 +14,29 @@ import { SimulatedMessenger } from "./messenger.ts";
 /** First wave: ₦500 cards; 400,000 of them in the real season. The demo uses fewer so it starts quickly. */
 export const TICKET_PRICE_KOBO = 50_000;
 export const FIRST_WAVE_TICKETS = 400_000;
+
+/**
+ * The inaugural campaign as set out in the SRS (WRL/SRS/2026/001, section 2):
+ * 2,686,000 cards at ₦500 (₦1,343,000,000 at sell-out), ₦20,000,000 of instant
+ * cash in 18,400 prizes (about 1 in 146), and the final-draw list. Household
+ * appliances are a placeholder (₦20m, quantities to be decided). As listed the
+ * prizes total ₦591.5m; the SRS states ₦671.5m — to be reconciled by the board.
+ */
+export const INAUGURAL = {
+  name: "WRL-2027-001 Inaugural Rewards Campaign",
+  tickets: 2_686_000,
+  instant: [[50_000, 10_000], [100_000, 5_000], [200_000, 2_500], [500_000, 800], [1_000_000, 100]] as [number, number][],
+  draw: [
+    { title: "Chinese SUV", quantity: 1, valueKobo: 3_000_000_000, stock: 1, serialised: true },
+    { title: "Household appliance (to be confirmed)", quantity: 40, valueKobo: 50_000_000, stock: 40, serialised: true },
+    { title: "NaijaSweetRice 50kg", quantity: 500, valueKobo: 6_500_000, stock: 500, serialised: false },
+    { title: "NaijaSweetRice 25kg", quantity: 500, valueKobo: 3_300_000, stock: 500, serialised: false },
+    { title: "NaijaSweetRice 5kg", quantity: 1_000, valueKobo: 750_000, stock: 1_000, serialised: false },
+    { title: "NaijaSweetRice 1kg", quantity: 7_500, valueKobo: 200_000, stock: 7_500, serialised: false },
+    { title: "VitaActive 50g × 10", quantity: 10_000, valueKobo: 2_000_000, stock: 10_000, serialised: false },
+    { title: "VitaForce 10g × 10", quantity: 10_000, valueKobo: 2_500_000, stock: 10_000, serialised: false },
+  ] as { title: string; quantity: number; cashKobo?: number; valueKobo?: number; stock?: number; serialised: boolean }[],
+};
 export const SEASON_DAYS = 90;
 const DEMO_TICKETS = 20_000;
 
@@ -52,7 +75,7 @@ export function firstWavePlan(total: number): {
   return { instant, draw };
 }
 
-export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number; closeInMinutes?: number; instant?: [number, number][]; levels?: number } = {}): Promise<{ cycleId: string; admins: Record<string, Admin> }> {
+export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number; closeInMinutes?: number; instant?: [number, number][]; levels?: number; inaugural?: boolean } = {}): Promise<{ cycleId: string; admins: Record<string, Admin> }> {
   const people: Record<string, Role> = { manager: "CYCLE_MANAGER", operations: "CYCLE_MANAGER", finance: "FINANCE", approver: "PAYOUT_APPROVER", fulfilment: "FULFILMENT", support: "SUPPORT", compliance: "COMPLIANCE", auditor: "AUDITOR", security: "SECURITY_ADMIN", security2: "SECURITY_ADMIN" };
   const admins: Record<string, Admin> = {};
   for (const name of Object.keys(people)) {
@@ -75,8 +98,13 @@ export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number
     if (units) {
       await inventory.receiveStock(ctx, f, {
         skuId: id, supplierId: supplier.id, warehouseId: warehouse.id, poReference: `PO-${tag}-${name.slice(0, 5)}`,
-        ...(serialised ? { serialNumbers: Array.from({ length: units }, (_, i) => `SN-${tag}-${name.slice(0, 3).toUpperCase()}-${i + 1}`) } : { quantity: units }),
+        ...(serialised ? { serialNumbers: Array.from({ length: units }, (_, i) => `SN-${tag}-${name.slice(0, 3).toUpperCase()}-${i + 1}`) } : { quantity: Math.min(units, 5_000) }),
         acquisitionCostKobo: Math.round(valueKobo * 0.7), landedCostKobo: Math.round(valueKobo * 0.78) });
+      // A delivery records at most 5,000 units; larger stock arrives as several deliveries.
+      for (let got = Math.min(units, 5_000), n = 2; !serialised && got < units; got += 5_000, n++) {
+        await inventory.receiveStock(ctx, f, { skuId: id, supplierId: supplier.id, warehouseId: warehouse.id, poReference: `PO-${tag}-${name.slice(0, 5)}-${n}`,
+          quantity: Math.min(5_000, units - got), acquisitionCostKobo: Math.round(valueKobo * 0.7), landedCostKobo: Math.round(valueKobo * 0.78) });
+      }
     }
     return id;
   };
@@ -84,13 +112,13 @@ export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number
   // A season runs 90 days; the final draw is at its end.
   const now = Date.now(), close = new Date(now + (opts.closeInMinutes ?? SEASON_DAYS * 24 * 60) * 60_000).toISOString();
   const m = admins.manager!;
-  const total = opts.tickets ?? DEMO_TICKETS;
+  const total = opts.inaugural ? INAUGURAL.tickets : opts.tickets ?? DEMO_TICKETS;
   const { id } = await cycles.createCycle(ctx, m, {
-    name: opts.name ?? "Harvest Cycle 1", ticketPriceKobo: TICKET_PRICE_KOBO, totalTickets: total, maxTicketsPerAccount: 200,
+    name: opts.name ?? (opts.inaugural ? INAUGURAL.name : "Harvest Cycle 1"), ticketPriceKobo: TICKET_PRICE_KOBO, totalTickets: total, maxTicketsPerAccount: opts.inaugural ? 900 : 200,
     salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: close, drawAt: close,
     // The instant cash is released in 4 levels as cards sell (each level holds a quarter of every prize).
     levels: opts.levels ?? (total % 4 === 0 ? 4 : 1) });
-  const plan = firstWavePlan(total);
+  const plan = opts.inaugural ? { instant: INAUGURAL.instant, draw: INAUGURAL.draw } : firstWavePlan(total);
   if (opts.instant) { plan.instant = opts.instant; plan.draw = []; } // a custom instant table (tests)
   for (const [cashKobo, quantity] of plan.instant) {
     await cycles.addPrizeTier(ctx, m, id, { stage: "INSTANT", kind: "CASH", title: `₦${(cashKobo / 100).toLocaleString("en-NG")}`, cashKobo, quantity });
@@ -119,7 +147,9 @@ if (process.argv[1]?.endsWith("seed-demo.ts")) {
   const pool = createPool(config.databaseUrl);
   const ctx: Ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, config.beaconPeriodSeconds), messenger: new SimulatedMessenger() };
   // --first-wave seeds the full 400,000-card season (takes a while); the default demo is smaller.
-  const { cycleId } = await seedDemo(ctx, process.argv.includes("--first-wave") ? { name: "Season 1 — First Wave", tickets: FIRST_WAVE_TICKETS } : {});
+  // --inaugural seeds the SRS inaugural campaign (2,686,000 cards; takes a few minutes).
+  const { cycleId } = await seedDemo(ctx, process.argv.includes("--inaugural") ? { inaugural: true }
+    : process.argv.includes("--first-wave") ? { name: "Season 1 — First Wave", tickets: FIRST_WAVE_TICKETS } : {});
   console.log(`Demo cycle ${cycleId} is open. Admin sign-in emails: <role>@demo.wiifarm.test`);
   await pool.end();
 }

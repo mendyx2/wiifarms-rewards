@@ -173,12 +173,13 @@ let ninSeq = 0;
 /** A verified Niger State player created through the API. */
 export async function apiPlayer(s: Stack, phone: string, name = "Test Player"): Promise<{ token: string; phone: string }> {
   const otp = await call(s, "POST", "/v1/auth/otp", { body: { phone } });
-  const { token } = await call(s, "POST", "/v1/auth/register", { body: { phone, code: otp.devCode, pin: "482915" } });
+  const { token } = await call(s, "POST", "/v1/auth/register", { body: { phone, code: otp.devCode, pin: "482915", acceptPrivacy: true } });
   await call(s, "POST", "/v1/me/verify", { token, body: { kind: "NIN", number: String(30_000_000_000 + ++ninSeq + Math.floor(Math.random() * 1e6) * 100), fullName: name, dateOfBirth: "1990-01-01", stateCode: "NG-NI" } });
   return { token, phone };
 }
 
 export async function apiBuy(s: Stack, token: string, cycleId: string, quantity: number): Promise<void> {
+  await call(s, "POST", `/v1/cycles/${cycleId}/rules/accept`, { token });
   const order = await call(s, "POST", "/v1/orders", { token, key: "k" + randomBytes(8).toString("hex"), body: { cycleId, quantity } });
   await call(s, "POST", "/v1/simulated-gateway/pay", { token, body: { paymentRef: order.paymentRef } });
 }

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { MerkleTree, commitSecret, generateOutcomes, ticketLeafHash } from "@wiifarm/game-core";
+import { PackedMerkleTree, commitSecret, generateOutcomes, ticketLeafHash } from "@wiifarm/game-core";
 import { SYSTEM, audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { seal, sha256 } from "../crypto.ts";
@@ -24,7 +24,7 @@ export interface CycleRow {
   ticket_price_kobo: number; total_tickets: number; max_tickets_per_account: number; max_tickets_per_day: number; levels: number;
   prize_share_bp: number; instant_share_bp: number;
   sales_open_at: Date; sales_close_at: Date; draw_at: Date; claim_window_days: number;
-  rules_document_ref: string | null; auditor_admin_id: string | null; created_by: string;
+  rules_document_ref: string | null; auditor_admin_id: string | null; created_by: string; rules_sha256: Buffer | null;
 }
 
 /**
@@ -118,9 +118,9 @@ export async function setEvidence(ctx: Ctx, admin: Admin, cycleId: string, e: Ev
     const auditor = await one(db, "SELECT 1 FROM admin_roles WHERE admin_user_id = $1 AND role = 'AUDITOR'", [e.auditorAdminId]);
     if (!auditor) throw badRequest("NOT_AN_AUDITOR", "The appointed auditor must hold the auditor role.");
     await db.query(
-      `UPDATE cycles SET financial_model_ref = $2, rules_document_ref = $3, rules_sha256 = $4,
+      `UPDATE cycles SET financial_model_ref = $2, rules_document_ref = $3, rules_sha256 = $4, rules_text = $8,
                          escrow_reference = $5, escrow_funded_kobo = $6, auditor_admin_id = $7 WHERE id = $1`,
-      [cycleId, e.financialModelRef, e.rulesDocumentRef, sha256(e.rulesText), e.escrowReference, e.escrowFundedKobo, e.auditorAdminId]).catch(asConflict);
+      [cycleId, e.financialModelRef, e.rulesDocumentRef, sha256(e.rulesText), e.escrowReference, e.escrowFundedKobo, e.auditorAdminId, e.rulesText]).catch(asConflict);
     await audit(db, adminActor(admin), "cycle.evidence_set", "cycle", cycleId,
       { financialModelRef: e.financialModelRef, escrowReference: e.escrowReference, escrowFundedKobo: e.escrowFundedKobo, auditorAdminId: e.auditorAdminId });
   });
@@ -145,7 +145,9 @@ export async function prizeBudget(db: Db | Ctx["pool"], cycleId: string): Promis
   const fullSalesKobo = c.total_tickets * Number(c.ticket_price_kobo);
   const poolKobo = share(fullSalesKobo, c.prize_share_bp);
   const instantBudgetKobo = share(poolKobo, c.instant_share_bp);
-  return { fullSalesKobo, poolKobo, instantBudgetKobo, drawBudgetKobo: poolKobo - instantBudgetKobo,
+  // The instant share is a ceiling on instant cash; whatever of the prize money instant cash does not use is
+  // available to the final draw (the SRS campaign: ₦20m instant, ₦651.5m final draw, ₦671.5m in all).
+  return { fullSalesKobo, poolKobo, instantBudgetKobo, drawBudgetKobo: poolKobo - Math.min(Number(t!.instant), instantBudgetKobo),
     instantKobo: Number(t!.instant), drawKobo: Number(t!.draw), prizeShareBp: c.prize_share_bp, instantShareBp: c.instant_share_bp };
 }
 
@@ -186,7 +188,7 @@ export async function approveCycle(ctx: Ctx, admin: Admin, cycleId: string): Pro
       throw conflict("PRIZE_BUDGET", `Instant cash prizes total ${nairaText(b.instantKobo)}, above the ${nairaText(b.instantBudgetKobo)} allowed (${b.instantShareBp / 100}% of the ${nairaText(b.poolKobo)} prize money).`);
     }
     if (b.drawKobo > b.drawBudgetKobo) {
-      throw conflict("PRIZE_BUDGET", `Final-draw prizes total ${nairaText(b.drawKobo)}, above the ${nairaText(b.drawBudgetKobo)} allowed (the ${nairaText(b.poolKobo)} prize money less the instant-win share).`);
+      throw conflict("PRIZE_BUDGET", `Prizes total ${nairaText(b.instantKobo + b.drawKobo)}, above the ${nairaText(b.poolKobo)} prize money (${b.prizeShareBp / 100}% of ${nairaText(b.fullSalesKobo)} full sell-out sales).`);
     }
     await db.query("UPDATE cycles SET status = 'APPROVED' WHERE id = $1", [cycleId]).catch(asConflict);
     await audit(db, adminActor(admin), "cycle.approved", "cycle", cycleId);
@@ -198,11 +200,23 @@ export async function approveCycle(ctx: Ctx, admin: Admin, cycleId: string): Pro
 
 const SERIAL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 symbols, no look-alikes
 
-function newSerial(): string {
-  const b = randomBytes(10);
-  let s = "";
-  for (let i = 0; i < 10; i++) s += SERIAL_ALPHABET[b[i]! & 31];
-  return `WR-${s.slice(0, 5)}-${s.slice(5)}`;
+/**
+ * Serial numbers, unique by construction rather than by remembering every one
+ * issued (which for 10 million cards would take gigabytes): card i gets the
+ * 50-bit number (a·i + b) mod 2^50, with a odd and a, b random per cycle —
+ * a permutation, so no two cards share a serial. Serials are labels, not
+ * secrets (the card's position is published in its proof anyway).
+ */
+function serialMaker(): (i: number) => string {
+  const MASK = (1n << 50n) - 1n;
+  const a = (BigInt("0x" + randomBytes(7).toString("hex")) & MASK) | 1n;
+  const b = BigInt("0x" + randomBytes(7).toString("hex")) & MASK;
+  return (i: number) => {
+    let n = (a * BigInt(i) + b) & MASK;
+    let out = "";
+    for (let k = 0; k < 10; k++) { out = SERIAL_ALPHABET[Number(n & 31n)] + out; n >>= 5n; }
+    return `WR-${out.slice(0, 5)}-${out.slice(5)}`;
+  };
 }
 
 /** Associated data that binds an encrypted outcome to its own ticket, so ciphertexts cannot be swapped between tickets. */
@@ -223,37 +237,35 @@ export async function commitCycle(ctx: Ctx, admin: Admin, cycleId: string): Prom
     // commitment, not the seed, is what fixes the outcomes. Each level gets its
     // own share of every instant prize (spread as evenly as whole prizes allow),
     // shuffled within the level, so instant cash is released level by level.
-    const L = cycle.levels, size = cycle.total_tickets / L;
-    const outcomes: string[] = [];
-    for (let i = 0; i < L; i++) {
-      const share = instant.map((t) => ({ outcome: t.outcome, count: levelShare(t.count, L, i) }));
-      // Appended one by one: spreading a level of a million or more cards into push() overflows the stack.
-      for (const o of generateOutcomes(size, share, randomBytes(32))) outcomes.push(o);
-    }
-
+    // Cards are made and stored a chunk at a time, keeping only the 32-byte
+    // leaf hashes in one buffer, so a campaign of 10 million cards fits in memory.
+    const L = cycle.levels, total = cycle.total_tickets, size = total / L;
     const dataKey = randomBytes(32);
-    const serials = new Set<string>();
-    while (serials.size < cycle.total_tickets) serials.add(newSerial());
-    const serialList = [...serials];
-
-    const leaves: Buffer[] = [];
-    const ciphertexts: Buffer[] = [];
-    for (let i = 0; i < cycle.total_tickets; i++) {
-      const serial = serialList[i]!, outcome = outcomes[i]!, salt = randomBytes(16);
-      leaves.push(ticketLeafHash({ cycleId, serial, outcome, salt }));
-      ciphertexts.push(seal(dataKey, Buffer.from(JSON.stringify({ o: outcome, s: salt.toString("hex") })), ticketAad(cycleId, serial)));
-    }
-    const root = new MerkleTree(leaves).root;
-
-    // In chunks, so a 400,000-card season does not become one enormous statement.
+    const serialAt = serialMaker();
+    const leaves = Buffer.allocUnsafe(total * 32);
     const CHUNK = 20_000;
-    for (let from = 0; from < serialList.length; from += CHUNK) {
-      const to = Math.min(serialList.length, from + CHUNK);
-      await db.query(
-        `INSERT INTO tickets (cycle_id, serial, leaf_index, leaf_hash, outcome_ciphertext)
-         SELECT $1, * FROM unnest($2::text[], $3::int[], $4::bytea[], $5::bytea[])`,
-        [cycleId, serialList.slice(from, to), Array.from({ length: to - from }, (_, i) => from + i), leaves.slice(from, to), ciphertexts.slice(from, to)]);
+    for (let level = 0; level < L; level++) {
+      const share = instant.map((t) => ({ outcome: t.outcome, count: levelShare(t.count, L, level) }));
+      const outcomes = generateOutcomes(size, share, randomBytes(32));
+      for (let from = 0; from < size; from += CHUNK) {
+        const to = Math.min(size, from + CHUNK);
+        const salts = randomBytes(16 * (to - from));
+        const serials: string[] = [], indexes: number[] = [], chunkLeaves: Buffer[] = [], ciphertexts: Buffer[] = [];
+        for (let j = from; j < to; j++) {
+          const i = level * size + j, serial = serialAt(i), outcome = outcomes[j]!;
+          const salt = salts.subarray((j - from) * 16, (j - from + 1) * 16);
+          const leaf = ticketLeafHash({ cycleId, serial, outcome, salt });
+          leaf.copy(leaves, i * 32);
+          serials.push(serial); indexes.push(i); chunkLeaves.push(leaf);
+          ciphertexts.push(seal(dataKey, Buffer.from(JSON.stringify({ o: outcome, s: salt.toString("hex") })), ticketAad(cycleId, serial)));
+        }
+        await db.query(
+          `INSERT INTO tickets (cycle_id, serial, leaf_index, leaf_hash, outcome_ciphertext)
+           SELECT $1, * FROM unnest($2::text[], $3::int[], $4::bytea[], $5::bytea[])`,
+          [cycleId, serials, indexes, chunkLeaves, ciphertexts]);
+      }
     }
+    const root = new PackedMerkleTree(leaves, total).root;
 
     const drawSecret = randomBytes(32);
     const beaconRound = ctx.beacon.roundAfter(cycle.draw_at);
@@ -328,7 +340,7 @@ const remainingCache = new Map<string, { n: number; at: number }>();
 export async function ticketsRemaining(db: Db | Ctx["pool"], cycleId: string): Promise<number> {
   const hit = remainingCache.get(cycleId);
   if (hit && Date.now() - hit.at < 2000) return hit.n;
-  const n = (await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]))!.n;
+  const n = (await one<{ n: number }>(db, "SELECT coalesce(sum(unsold), 0)::int AS n FROM cycle_unsold WHERE cycle_id = $1", [cycleId]))!.n;
   if (remainingCache.size > 50) remainingCache.clear();
   remainingCache.set(cycleId, { n, at: Date.now() });
   return n;
@@ -344,10 +356,9 @@ export async function levelStatus(db: Db | Ctx["pool"], cycleId: string): Promis
   if (hit && Date.now() - hit.at < 2000) return hit.value;
   const c = await getCycle(db, cycleId);
   const size = c.total_tickets / c.levels;
-  const min = (await one<{ m: number | null }>(db, "SELECT min(leaf_index) AS m FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD'", [cycleId]))!.m;
-  const index = min === null ? c.levels - 1 : Math.floor(min / size);
-  const left = min === null ? 0 : (await one<{ n: number }>(db,
-    "SELECT count(*)::int AS n FROM tickets WHERE cycle_id = $1 AND status = 'UNSOLD' AND leaf_index >= $2 AND leaf_index < $3", [cycleId, index * size, (index + 1) * size]))!.n;
+  const on = await one<{ level: number; unsold: number }>(db, "SELECT level, unsold FROM cycle_unsold WHERE cycle_id = $1 AND unsold > 0 ORDER BY level LIMIT 1", [cycleId]);
+  const index = on ? on.level : c.levels - 1;
+  const left = on ? on.unsold : 0;
   const tiers = await db.query<{ cash_kobo: number; quantity: number }>("SELECT cash_kobo, quantity FROM prize_tiers WHERE cycle_id = $1 AND stage = 'INSTANT'", [cycleId]);
   const cashIn = (i: number) => tiers.rows.reduce((s, t) => s + Number(t.cash_kobo) * levelShare(t.quantity, c.levels, i), 0);
   const value = { levels: c.levels, size, current: index + 1, leftInLevel: left, instantCashInLevelKobo: cashIn(index) };
@@ -391,6 +402,52 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
     instantWinOdds: instantWinners ? { winners: instantWinners, outOf: c.total_tickets } : null,
     commitment,
   };
+}
+
+// --- Game rules: published, versioned, accepted by each player (SRS REG-007, WEB-012) ---------------
+
+/**
+ * A campaign's approved game rules, with the probabilities players must be
+ * shown: each instant prize's chance per card, and the final draw's prizes and
+ * the chance of a card winning one at full sales (each card can win at most one
+ * final-draw prize; a player with several cards can win more than one).
+ */
+export async function gameRules(ctx: Ctx, cycleId: string): Promise<unknown> {
+  const c = await one<{ name: string; total_tickets: number; ticket_price_kobo: number; rules_text: string | null; rules_sha256: Buffer | null; status: string; draw_at: Date; claim_window_days: number }>(ctx.pool,
+    "SELECT name, total_tickets, ticket_price_kobo, rules_text, rules_sha256, status, draw_at, claim_window_days FROM cycles WHERE id = $1 AND status NOT IN ('DRAFT','SUBMITTED','APPROVED')", [cycleId]);
+  if (!c) throw notFound("Cycle not found.");
+  const tiers = (await ctx.pool.query<{ stage: string; title: string; cash_kobo: number | null; quantity: number }>(
+    "SELECT stage, title, cash_kobo, quantity FROM prize_tiers WHERE cycle_id = $1 ORDER BY stage DESC, draw_order NULLS LAST, cash_kobo DESC", [cycleId])).rows;
+  const instant = tiers.filter((t) => t.stage === "INSTANT");
+  const draw = tiers.filter((t) => t.stage === "FINAL_DRAW");
+  const odds = (n: number) => (n ? Math.round(c.total_tickets / n) : null);
+  const instantWinners = instant.reduce((s, t) => s + t.quantity, 0), drawPrizes = draw.reduce((s, t) => s + t.quantity, 0);
+  return {
+    name: c.name, text: c.rules_text, sha256: c.rules_sha256?.toString("hex") ?? null, version: c.rules_sha256?.toString("hex").slice(0, 12) ?? null,
+    totalCards: c.total_tickets, priceKobo: Number(c.ticket_price_kobo), drawAt: c.draw_at, claimWindowDays: c.claim_window_days,
+    instant: instant.map((t) => ({ cashKobo: Number(t.cash_kobo), winners: t.quantity, oneIn: odds(t.quantity) })),
+    instantOneIn: odds(instantWinners), instantWinners,
+    finalDraw: draw.map((t) => ({ title: t.title, quantity: t.quantity })), finalDrawPrizes: drawPrizes,
+    finalDrawPercentAtFullSales: Math.round((drawPrizes / c.total_tickets) * 100_000) / 1000,
+  };
+}
+
+/** Whether the player has accepted this campaign's current rules (true when it has no published rules text). */
+export async function rulesAccepted(db: Db | Ctx["pool"], userId: string, cycle: { id: string; rules_sha256?: Buffer | null }): Promise<boolean> {
+  const sha = cycle.rules_sha256 ?? (await one<{ rules_sha256: Buffer | null }>(db, "SELECT rules_sha256 FROM cycles WHERE id = $1", [cycle.id]))?.rules_sha256;
+  if (!sha) return true;
+  return Boolean(await one(db, "SELECT 1 FROM rule_acceptances WHERE user_id = $1 AND cycle_id = $2 AND rules_sha256 = $3", [userId, cycle.id, sha]));
+}
+
+export async function acceptRules(ctx: Ctx, actor: Actor, userId: string, cycleId: string): Promise<{ version: string }> {
+  return withTx(ctx.pool, async (db) => {
+    const c = await one<{ rules_sha256: Buffer | null }>(db, "SELECT rules_sha256 FROM cycles WHERE id = $1 AND status NOT IN ('DRAFT','SUBMITTED','APPROVED')", [cycleId]);
+    if (!c?.rules_sha256) throw notFound("Cycle not found.");
+    const r = await db.query("INSERT INTO rule_acceptances (user_id, cycle_id, rules_sha256, ip) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+      [userId, cycleId, c.rules_sha256, actor.ip ?? null]);
+    if (r.rowCount) await audit(db, actor, "player.rules_accepted", "cycle", cycleId, { version: c.rules_sha256.toString("hex").slice(0, 12) });
+    return { version: c.rules_sha256.toString("hex").slice(0, 12) };
+  });
 }
 
 export function assertSimulated(cycle: CycleRow): void {

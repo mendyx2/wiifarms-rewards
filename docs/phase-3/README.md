@@ -23,10 +23,10 @@ Everything a lab needs to certify the engine that fixes ticket outcomes and runs
 ### 1.1 Engine fingerprint
 
 ```
-game-core@0.1.0+sha256:c73982605e0d254c9f271a5afaa46423408faaabc84fd9e19aadc7cc730921c4
+game-core@0.1.0+sha256:de4e5522101c67c4c00528a96ea4e5fe183a4f62014ed3bdd90709436a67c730
 ```
 
-This is the SHA-256 of every source file of the engine, in a defined order. Change one character of the engine and the fingerprint changes. The tests check that the tool and the plain shell definition always agree.
+This is the SHA-256 of every source file of the engine, in a defined order. (Changed on 25 November 2026, when a memory-efficient form of the card commitment tree was added for campaigns of millions of cards; it produces exactly the same roots and proofs as before, which the tests check.) Change one character of the engine and the fingerprint changes. The tests check that the tool and the plain shell definition always agree.
 
 ### 1.2 Statistical fairness report
 

@@ -31,6 +31,10 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   const code = (await p.innerText(".note.warn")).match(/\d{6}/)![0];
   await p.fill("input[name=code]", code);
   await p.fill("input[name=pin]", "111111");
+  // The privacy policy must be accepted to open an account; news and offers are optional.
+  await p.click('button:has-text("Create account")');
+  await toast(p, /accept the privacy policy/);
+  await p.check("input[name=privacy]");
   await p.click('button:has-text("Create account")');
   await toast(p, /harder to guess/);
   await p.fill("input[name=pin]", "482915");
@@ -45,6 +49,9 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
 
   // 10 cards (the daily maximum) at ₦500: exactly the default ₦5,000 daily spending limit.
   await p.click('.chips button:has-text("10")');
+  // The campaign's game rules are accepted once, before the first purchase.
+  assert.equal(await p.locator("button.gold", { hasText: /^Pay ₦5,000$/ }).isDisabled(), true);
+  await p.check("input[name=rules]");
   await p.click('button:has-text("Pay ₦5,000")');
   await p.waitForSelector("text=Simulated payment");
   await p.click("text=Confirm simulated payment");
@@ -117,7 +124,7 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   await assertClean(p, "limits and inbox");
 
   // Every player screen fits a small phone.
-  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support"], "main h1, main .hero");
+  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support", "/#/rules", "/#/privacy"], "main h1, main .hero");
 });
 
 test("session safety: the sign-in cookie is out of reach of page scripts and other sites, and signing out ends it", async () => {

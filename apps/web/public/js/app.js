@@ -288,7 +288,8 @@ async function home() {
       el("div", { class: "row" }, el("button", { class: "link", onclick: () => { remember(o.id); render(); } }, o.name), el("span", { class: "pill grey" }, STATUS_TEXT[o.status] ?? o.status)))));
   }
   nodes.push(installCard({ dismissible: true }));
-  nodes.push(el("p", { class: "muted" }, "18+ only. Play within your limits. This is a simulation: no real money is taken or paid."));
+  nodes.push(el("p", { class: "muted" }, "18+ only. Play within your limits. This is a simulation: no real money is taken or paid."),
+    el("p", { class: "muted links" }, el("a", { href: `#/rules/${c.id}` }, "Game rules and odds"), " · ", el("a", { href: "#/privacy" }, "Privacy policy")));
   return nodes;
 }
 
@@ -317,7 +318,9 @@ function signup() {
   codeBlock.append(hint,
     ...field("Enter the 6-digit code", el("input", { name: "code", inputmode: "numeric", maxlength: 6, autocomplete: "one-time-code" })),
     ...field("Choose a 6-digit PIN", el("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 6, autocomplete: "new-password" })),
-    el("p", { class: "muted" }, "Avoid easy PINs like 111111 or 123456."));
+    el("p", { class: "muted" }, "Avoid easy PINs like 111111 or 123456."),
+    el("label", { class: "check" }, el("input", { type: "checkbox", name: "privacy" }), el("span", {}, "I have read and accept the ", el("a", { href: "#/privacy", target: "_blank" }, "privacy policy"), ".")),
+    el("label", { class: "check" }, el("input", { type: "checkbox", name: "marketing" }), el("span", {}, "Send me news and offers by text message (optional — you can change this at any time).")));
   const form = el("form", { onsubmit: action(async () => {
     if (codeBlock.hidden) {
       const r = await api.post("/v1/auth/otp", { phone: val(form, "phone"), language: lang() });
@@ -327,7 +330,9 @@ function signup() {
       form.elements.code.focus();
     } else {
       const referralCode = val(form, "ref");
-      await api.post("/v1/auth/register", { phone, code: val(form, "code"), pin: val(form, "pin"), language: lang(), ...(referralCode ? { referralCode } : {}) });
+      if (!form.elements.privacy.checked) { toast("Please read and accept the privacy policy to open an account."); return; }
+      await api.post("/v1/auth/register", { phone, code: val(form, "code"), pin: val(form, "pin"), language: lang(), ...(referralCode ? { referralCode } : {}),
+        acceptPrivacy: true, marketing: form.elements.marketing.checked });
       try { localStorage.removeItem("ref"); } catch { /* storage unavailable */ }
       await loadMe();
       go(nextStep());
@@ -408,14 +413,23 @@ async function buy() {
       : leftToday === 0 ? `You have bought today's maximum of ${today.max} cards. You can buy more tomorrow.`
       : maxQty === 0 ? "You have reached your spending limit for now."
       : leftToday <= bySpending ? `You can buy ${maxQty} more cards today.` : `You can buy up to ${maxQty} more within your spending limit.`);
-    pay.disabled = over || Boolean(exclusion);
+    pay.disabled = over || Boolean(exclusion) || !accepted;
     const cost = qty * c.ticket_price_kobo;
-    fromWallet.hidden = balance < cost || over || Boolean(exclusion);
+    fromWallet.hidden = balance < cost || over || Boolean(exclusion) || !accepted;
     fromWallet.textContent = tr(`Pay ${naira(cost)} from my wallet (${naira(balance)})`);
   };
   fromWallet.addEventListener("click", () => view.replaceChildren(...walletStep(c, qty, balance)));
   fill.style.width = Math.min(100, (spending.dailyKobo / Math.max(1, limits.dailyKobo)) * 100) + "%";
   const set = (n) => { qty = Math.max(1, Math.min(20, today.max, n)); refresh(); };
+  // The campaign's game rules are accepted once, before the first purchase (the exact version is recorded).
+  let accepted = today.rulesAccepted;
+  const rulesBox = accepted ? null : el("div", { class: "card" },
+    el("label", { class: "check" }, el("input", { type: "checkbox", name: "rules", onchange: action(async (e) => {
+      const box = e.currentTarget;
+      if (!box.checked) { accepted = false; refresh(); return; }
+      await api.post(`/v1/cycles/${c.id}/rules/accept`);
+      accepted = true; box.disabled = true; refresh();
+    }, false) }), el("span", {}, "I have read and accept this campaign's ", el("a", { href: `#/rules/${c.id}` }, "game rules"), ".")));
 
   pay.addEventListener("click", action(async () => {
     const keyName = `order:${c.id}:${qty}`;
@@ -437,7 +451,7 @@ async function buy() {
       el("div", { class: "row" }, el("span", {}, "Spent in the last 24 hours"), el("b", {}, `${naira(spending.dailyKobo)} of ${naira(limits.dailyKobo)}`)),
       el("div", { class: "bar light" }, fill),
       el("a", { href: "#/me", class: "muted" }, "Change my limits")),
-    warn, pay, el("p"), fromWallet,
+    rulesBox, warn, pay, el("p"), fromWallet,
   ];
 }
 
@@ -523,7 +537,8 @@ async function cards() {
         el("span", {}, "In final draw ✓"));
     })));
   }
-  if (state.cycle?.status === "OPEN") nodes.push(el("p"), el("a", { class: "btn", href: "#/" + nextStep() }, tickets.length ? "Buy more cards" : "Buy scratch cards"));
+  // No "buy more" prompt here: after scratching, players are not nudged to buy again (SRS section 10).
+  if (state.cycle?.status === "OPEN" && !tickets.length) nodes.push(el("p"), el("a", { class: "btn", href: "#/" + nextStep() }, "Buy scratch cards"));
   return nodes;
 }
 
@@ -852,7 +867,15 @@ async function me() {
     ...field("Full name", el("input", { name: "name", required: true })), ...field("Relationship", el("input", { name: "rel", required: true })),
     ...field("Phone", el("input", { name: "phone", inputmode: "tel", required: true })), el("p"), el("button", { class: "btn ghost", type: "submit" }, "Save next of kin"));
 
+  const sum = await api.get("/v1/me/summary");
+  const priv = await api.get("/v1/me/privacy");
   return [el("h1", {}, "My account"),
+    el("h2", {}, "My play"),
+    el("div", { class: "tiles" },
+      el("div", { class: "tile" }, el("b", {}, naira(sum.spentKobo)), el("span", {}, "spent on cards")),
+      el("div", { class: "tile" }, el("b", {}, naira(sum.cashWonKobo)), el("span", {}, "won in cash")),
+      el("div", { class: "tile" + (sum.netKobo < 0 ? " neg" : "") }, el("b", {}, (sum.netKobo < 0 ? "−" : "") + naira(Math.abs(sum.netKobo))), el("span", {}, "net position")),
+      el("div", { class: "tile" }, el("b", {}, `${sum.cards} / ${sum.finalDrawEntries}`), el("span", {}, "cards / final-draw entries"))),
     el("div", { class: "card" },
       el("div", { class: "row" }, el("div", {}, el("b", {}, m.fullName ?? "Phone ending " + m.phoneLast4), el("small", {}, m.kycTier >= 1 ? "Verified · 18+ · " + (m.stateCode === "NG-NI" ? "Niger State" : m.stateCode) : "Not verified yet")),
         m.kycTier >= 1 ? el("span", { class: "pill" }, "Verified") : el("a", { class: "btn small", href: "#/verify" }, "Verify")),
@@ -882,8 +905,50 @@ async function me() {
           if (!confirm(tr("Exclude yourself from play? This cannot be undone here."))) return;
           await api.post("/v1/me/exclusion", { kind: "SELF_EXCLUSION" }); toast("You are now excluded from buying."); render();
         }) }, "Exclude myself"))),
+    el("h2", {}, "Privacy"),
+    el("div", { class: "card" },
+      el("label", { class: "check" }, el("input", { type: "checkbox", name: "marketingPref", checked: priv.marketing, onchange: action(async (e) => {
+        await api.put("/v1/me/privacy", { marketing: e.currentTarget.checked });
+        return toast(e.currentTarget.checked ? "You will receive news and offers." : "You will not receive news and offers.");
+      }, false) }), el("span", {}, "Send me news and offers by text message")),
+      el("small", { class: "muted" }, `Privacy policy accepted (version ${priv.privacyPolicy?.version ?? "—"}). `, el("a", { href: "#/privacy" }, "Read it"))),
     el("h2", {}, "Language"), langSwitch(), installCard(),
     el("button", { class: "btn ghost", onclick: action(async () => { await api.post("/v1/auth/logout"); state.me = null; await loadMe(); go("home"); }) }, "Sign out"),
+  ];
+}
+
+// --- Game rules and the privacy policy ----------------------------------------------------
+
+async function rulesScreen(cycleId) {
+  const id = cycleId ?? (await loadCycle())?.id;
+  if (!id) return [el("h1", {}, "Game rules and odds"), el("p", { class: "muted" }, "No prize cycle yet.")];
+  const r = await api.get(`/v1/cycles/${id}/rules`);
+  return [
+    el("h1", {}, "Game rules and odds"),
+    el("p", { class: "muted" }, `${r.name} · version ${r.version ?? "—"}`),
+    el("h2", {}, "Chances of winning"),
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("b", {}, "Any instant cash prize"), el("span", {}, r.instantOneIn ? `1 in ${r.instantOneIn.toLocaleString("en-NG")}` : "—")),
+      r.instant.map((t) => el("div", { class: "row" }, el("span", {}, `${naira(t.cashKobo)} (${t.winners.toLocaleString("en-NG")} prizes)`), el("span", {}, `1 in ${t.oneIn.toLocaleString("en-NG")}`))),
+      el("p", { class: "muted" }, `Chances are per card, over all ${r.totalCards.toLocaleString("en-NG")} cards. Winning is not guaranteed.`)),
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("b", {}, "Final draw"), el("span", {}, `${r.finalDrawPrizes.toLocaleString("en-NG")} prizes`)),
+      r.finalDraw.map((t) => el("div", { class: "row" }, el("span", {}, t.title), el("span", {}, t.quantity.toLocaleString("en-NG")))),
+      el("p", { class: "muted" }, `Every card is entered, win or lose, and can win at most one final-draw prize. If every card is sold, each card has about a ${r.finalDrawPercentAtFullSales}% chance; with fewer cards sold, the chance is higher. Draw: ${when(r.drawAt)}.`)),
+    el("h2", {}, "Rules"),
+    el("div", { class: "card rules-text" }, r.text ?? "The rules for this cycle have not been published here."),
+  ];
+}
+
+function privacyScreen() {
+  return [
+    el("h1", {}, "Privacy policy"),
+    el("div", { class: "note warn" }, "Draft for legal review: this summary will be replaced by the approved privacy policy."),
+    el("div", { class: "card" },
+      el("p", {}, "We collect your phone number, your verified identity (name, date of birth, identity number), your location state, your bank account for payouts, and a record of your purchases, results, prizes, withdrawals and messages."),
+      el("p", {}, "We use them to check that you are allowed to play, to run the games, pay prizes, keep you within your limits, meet the law and the regulator's requirements, and prevent fraud."),
+      el("p", {}, "Identity and bank account numbers are stored encrypted or as one-way fingerprints. Your data is not sold. It is shared only with the identity, payment and messaging providers we use, auditors, and the authorities when the law requires."),
+      el("p", {}, "News and offers are sent only if you agree, and you can stop them at any time on the Me page. You can ask Help and support for a copy of your data or to correct it.")),
   ];
 }
 
@@ -1061,7 +1126,8 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, liveness: { screen: liveness, tab: "wallet", auth: true }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, liveness: { screen: liveness, tab: "wallet", auth: true },
+  rules: { screen: rulesScreen, tab: "home" }, privacy: { screen: privacyScreen, tab: "me" }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 
 // --- Offline and installing -------------------------------------------------------------------

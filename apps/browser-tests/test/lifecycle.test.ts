@@ -26,6 +26,7 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await p.waitForSelector(".hero .tag:has-text('Quick Cycle')");
   await p.click("text=Buy scratch cards");
   await p.click('.chips button:has-text("10")');
+  await p.check("input[name=rules]");
   await p.click('button:has-text("Pay ₦5,000")');
   await p.click("text=Confirm simulated payment");
   await p.waitForSelector(".ticket");
@@ -63,7 +64,7 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   await adminSignIn(a, s, "operations");
   await visit(a, s.base + "/admin#/approvals");
   await a.waitForSelector("text=Browser Cycle");
-  assert.equal(await a.innerText("#apCount"), "1");
+  await a.waitForFunction(() => document.getElementById("apCount")!.textContent === "1"); // the badge loads after the page
   await a.click('a:has-text("Review")');
   await a.click('button:has-text("Approve as Operations")');
   await toast(a, /Approval recorded/);

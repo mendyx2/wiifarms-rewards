@@ -1,12 +1,12 @@
 import { randomInt } from "node:crypto";
-import { MerkleTree, type ProofStep } from "@wiifarm/game-core";
+import { PackedMerkleTree, type ProofStep } from "@wiifarm/game-core";
 import { SYSTEM, audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { newToken, open } from "../crypto.ts";
 import { lockKey, one, withTx, type Db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { accounts, post } from "../ledger.ts";
-import { assertSimulated, closeIfDue, cycleKeyContext, getCycle, ticketAad, type CycleRow } from "./cycles.ts";
+import { assertSimulated, closeIfDue, cycleKeyContext, getCycle, rulesAccepted, ticketAad, type CycleRow } from "./cycles.ts";
 import { naira, notify } from "./notify.ts";
 import { activeExclusion, getLimits, onExclusionRegister, type User } from "./identity.ts";
 import { creditReferral } from "./referrals.ts";
@@ -87,6 +87,7 @@ export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: s
 
     // Who may buy.
     if (user.kyc_tier < 1) throw forbidden("VERIFICATION_REQUIRED", "Verify your age and identity before buying.");
+    if (!(await rulesAccepted(db, user.id, cycle))) throw forbidden("RULES_NOT_ACCEPTED", "Read and accept this campaign's game rules before buying.");
     if (user.state_code !== cycle.state_code) throw forbidden("OUTSIDE_LICENSED_AREA", "This cycle is not available where you are.");
     const exclusion = await activeExclusion(db, user.id);
     if (exclusion) throw forbidden("SELF_EXCLUDED", "You are taking a break from play, so buying is switched off.");
@@ -346,13 +347,22 @@ export async function listTickets(ctx: Ctx, userId: string, cycleId?: string): P
 }
 
 // Merkle trees are immutable once a cycle is committed, so they are safe to cache.
-const treeCache = new Map<string, MerkleTree>();
-async function treeFor(db: Db, cycleId: string): Promise<MerkleTree> {
+// Leaves are read in batches into one buffer: a 10-million-card tree takes about
+// 640 MB this way, against several gigabytes as one object per row.
+const treeCache = new Map<string, PackedMerkleTree>();
+async function treeFor(db: Db, cycleId: string): Promise<PackedMerkleTree> {
   let tree = treeCache.get(cycleId);
   if (!tree) {
-    const leaves = await db.query<{ leaf_hash: Buffer }>("SELECT leaf_hash FROM tickets WHERE cycle_id = $1 ORDER BY leaf_index", [cycleId]);
-    tree = new MerkleTree(leaves.rows.map((r) => r.leaf_hash));
-    if (treeCache.size > 20) treeCache.clear();
+    const total = (await getCycle(db, cycleId)).total_tickets;
+    const leaves = Buffer.allocUnsafe(total * 32);
+    const BATCH = 200_000;
+    for (let from = 0; from < total; from += BATCH) {
+      const r = await db.query<{ leaf_index: number; leaf_hash: Buffer }>(
+        "SELECT leaf_index, leaf_hash FROM tickets WHERE cycle_id = $1 AND leaf_index >= $2 AND leaf_index < $3", [cycleId, from, from + BATCH]);
+      for (const row of r.rows) row.leaf_hash.copy(leaves, row.leaf_index * 32);
+    }
+    tree = new PackedMerkleTree(leaves, total);
+    if (treeCache.size >= 4) treeCache.delete(treeCache.keys().next().value!); // keep the few cycles in use
     treeCache.set(cycleId, tree);
   }
   return tree;

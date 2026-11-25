@@ -89,6 +89,61 @@ export class MerkleTree {
   }
 }
 
+/**
+ * The same tree as MerkleTree — identical root and proofs — but each level is
+ * kept in one contiguous buffer of 32-byte hashes instead of one object per
+ * node. Needed for campaigns of millions of cards: 10 million leaves take
+ * about 640 MB here, against several gigabytes as separate objects.
+ */
+export class PackedMerkleTree {
+  readonly #levels: Buffer[];
+  readonly #counts: number[];
+
+  /** `leaves` holds `count` 32-byte leaf hashes back to back. The buffer is used as is, not copied. */
+  constructor(leaves: Buffer, count = leaves.length / 32) {
+    if (!Number.isInteger(count) || count <= 0 || leaves.length < count * 32) throw new Error("cannot build a tree with no leaves");
+    this.#levels = [leaves];
+    this.#counts = [count];
+    let current = leaves, n = count;
+    while (n > 1) {
+      const m = Math.ceil(n / 2);
+      const next = Buffer.allocUnsafe(m * 32);
+      for (let i = 0; i < n; i += 2) {
+        const left = current.subarray(i * 32, i * 32 + 32);
+        // An unpaired node is carried up unchanged (never duplicated), exactly as in MerkleTree.
+        const parent = i + 1 < n ? nodeHash(left, current.subarray((i + 1) * 32, (i + 2) * 32)) : left;
+        parent.copy(next, (i / 2) * 32);
+      }
+      this.#levels.push(next);
+      this.#counts.push(m);
+      current = next;
+      n = m;
+    }
+  }
+
+  get size(): number {
+    return this.#counts[0]!;
+  }
+
+  get root(): Buffer {
+    return Buffer.from(this.#levels[this.#levels.length - 1]!.subarray(0, 32));
+  }
+
+  proof(index: number): ProofStep[] {
+    if (!Number.isInteger(index) || index < 0 || index >= this.size) throw new RangeError("leaf index out of range");
+    const steps: ProofStep[] = [];
+    let i = index;
+    for (let level = 0; level < this.#levels.length - 1; level++) {
+      const siblingIndex = i % 2 === 0 ? i + 1 : i - 1;
+      if (siblingIndex < this.#counts[level]!) {
+        steps.push({ hash: Buffer.from(this.#levels[level]!.subarray(siblingIndex * 32, siblingIndex * 32 + 32)), side: i % 2 === 0 ? "right" : "left" });
+      }
+      i = Math.floor(i / 2);
+    }
+    return steps;
+  }
+}
+
 export function verifyProof(leaf: Uint8Array, proof: readonly ProofStep[], expectedRoot: Uint8Array): boolean {
   let acc: Buffer = Buffer.from(leaf);
   for (const step of proof) {

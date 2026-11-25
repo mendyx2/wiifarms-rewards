@@ -30,6 +30,24 @@ export async function getWallet(ctx: Ctx, userId: string): Promise<unknown> {
   }
 }
 
+/**
+ * The player's own picture of their play (SRS section 7): what they have spent,
+ * what they have won in cash, the difference, and their cards and final-draw
+ * entries. Refunded purchases are not counted as spent; forfeited prizes are
+ * not counted as won.
+ */
+export async function playSummary(ctx: Ctx, userId: string): Promise<unknown> {
+  const s = (await one<{ spent: number; won: number; cards: number; entries: number; instant_wins: number }>(ctx.pool,
+    `SELECT (SELECT coalesce(sum(amount_kobo), 0) FROM orders WHERE user_id = $1 AND status = 'FULFILLED')::bigint AS spent,
+            (SELECT -coalesce(sum(e.amount_kobo), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id JOIN ledger_accounts a ON a.id = e.account_id
+              WHERE a.code = $2 AND (t.kind IN ('INSTANT_PRIZE','DRAW_PRIZE') OR (t.kind = 'ADJUSTMENT' AND t.memo LIKE 'Prize forfeited%')))::bigint AS won,
+            (SELECT count(*) FROM tickets WHERE owner_id = $1 AND status <> 'CANCELLED')::int AS cards,
+            (SELECT count(*) FROM tickets t JOIN cycles c ON c.id = t.cycle_id WHERE t.owner_id = $1 AND t.status <> 'CANCELLED' AND c.status IN ('OPEN','CLOSED'))::int AS entries,
+            (SELECT count(*) FROM tickets WHERE owner_id = $1 AND status = 'REVEALED' AND revealed_outcome LIKE 'CASH:%')::int AS instant_wins`,
+    [userId, accounts.playerWinnings(userId).code]))!;
+  return { spentKobo: Number(s.spent), cashWonKobo: Number(s.won), netKobo: Number(s.won) - Number(s.spent), cards: s.cards, finalDrawEntries: s.entries, instantWins: s.instant_wins };
+}
+
 /** Sends the money (simulated) and closes the payout in the ledger. */
 async function send(db: Db, payoutId: string, amountKobo: number): Promise<void> {
   const p = await db.query<{ user_id: string }>("UPDATE payouts SET status = 'CONFIRMED', provider = 'SIMULATED', provider_ref = $2 WHERE id = $1 RETURNING user_id", [payoutId, `SIMPO-${payoutId}`]);

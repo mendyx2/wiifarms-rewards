@@ -160,11 +160,13 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     authLimit(req.ip);
     return identity.requestOtp(ctx, req.body.phone, req.body.language);
   });
-  app.post<{ Body: { phone: string; code: string; pin: string; language?: Lang; referralCode?: string } }>("/v1/auth/register", {
-    schema: body({ phone: str(20), code: str(6), pin: str(6), language: langField, referralCode: str(20) }, ["language", "referralCode"]),
+  app.post<{ Body: { phone: string; code: string; pin: string; language?: Lang; referralCode?: string; acceptPrivacy?: boolean; marketing?: boolean } }>("/v1/auth/register", {
+    schema: body({ phone: str(20), code: str(6), pin: str(6), language: langField, referralCode: str(20), acceptPrivacy: { type: "boolean" }, marketing: { type: "boolean" } },
+      ["language", "referralCode", "acceptPrivacy", "marketing"]),
   }, async (req, reply) => {
     authLimit(req.ip);
-    const r = await identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip, req.body.language, req.body.referralCode);
+    const r = await identity.registerWithOtp(ctx, req.body.phone, req.body.code, req.body.pin, req.ip, req.body.language, req.body.referralCode,
+      { privacy: req.body.acceptPrivacy === true, marketing: req.body.marketing === true });
     setSession(reply, r.token);
     return r;
   });
@@ -196,7 +198,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.get<{ Querystring: { cycleId: string } }>("/v1/me/today", { schema: { querystring: { type: "object", required: ["cycleId"], additionalProperties: false, properties: { cycleId: { type: "string", format: "uuid" } } } } }, async (req) => {
     const u = await player(req);
     const c = await cycles.getCycle(ctx.pool, req.query.cycleId);
-    return { cards: await tickets.cardsToday(ctx.pool, u.id, c.id), max: c.max_tickets_per_day };
+    return { cards: await tickets.cardsToday(ctx.pool, u.id, c.id), max: c.max_tickets_per_day, rulesAccepted: await cycles.rulesAccepted(ctx.pool, u.id, c) };
   });
   app.put<{ Body: { language: Lang } }>("/v1/me/language", { schema: body({ language: langField }) }, async (req) => {
     const u = await player(req);
@@ -276,6 +278,18 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     const u = await player(req);
     authLimit(req.ip);
     return identity.confirmLiveness(ctx, actorOf(u.id, req), u);
+  });
+  app.get("/v1/me/summary", async (req) => wallet.playSummary(ctx, (await player(req)).id));
+  app.get("/v1/me/privacy", async (req) => identity.privacyChoices(ctx, (await player(req)).id));
+  app.put<{ Body: { marketing: boolean } }>("/v1/me/privacy", { schema: body({ marketing: { type: "boolean" } }) }, async (req) => {
+    const u = await player(req);
+    await identity.setMarketingConsent(ctx, actorOf(u.id, req), u.id, req.body.marketing);
+    return identity.privacyChoices(ctx, u.id);
+  });
+  app.get<{ Params: { id: string } }>("/v1/cycles/:id/rules", { schema: idParam }, async (req) => cycles.gameRules(ctx, req.params.id));
+  app.post<{ Params: { id: string } }>("/v1/cycles/:id/rules/accept", { schema: idParam }, async (req) => {
+    const u = await player(req);
+    return cycles.acceptRules(ctx, actorOf(u.id, req), u.id, req.params.id);
   });
   app.get("/v1/me/referrals", async (req) => referrals.referralSummary(ctx, (await player(req)).id));
   app.post<{ Body: { paymentRef: string } }>("/v1/simulated-gateway/pay", { schema: body({ paymentRef: str(64) }) }, async (req) => {
@@ -480,7 +494,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   }, async (req) => admin.addToExclusionRegister(ctx, await staff(req), req.body));
 
   app.post<{ Body: cycles.NewCycle }>("/v1/admin/cycles", {
-    schema: body({ name: str(120), ticketPriceKobo: int(1), totalTickets: int(1, 1_000_000), maxTicketsPerAccount: int(1), salesOpenAt: str(40), salesCloseAt: str(40), drawAt: str(40), claimWindowDays: int(1, 365), levels: int(1, 20) }, ["claimWindowDays", "levels"]),
+    schema: body({ name: str(120), ticketPriceKobo: int(1), totalTickets: int(1, 10_000_000), maxTicketsPerAccount: int(1), salesOpenAt: str(40), salesCloseAt: str(40), drawAt: str(40), claimWindowDays: int(1, 365), levels: int(1, 20) }, ["claimWindowDays", "levels"]),
   }, async (req) => cycles.createCycle(ctx, await staff(req), req.body));
   app.post<{ Params: { id: string }; Body: cycles.NewTier }>("/v1/admin/cycles/:id/prize-tiers", {
     schema: { ...idParam, ...body({ stage: { enum: ["INSTANT", "FINAL_DRAW"] }, kind: { enum: ["CASH", "MERCHANDISE"] }, title: str(120), cashKobo: int(1), skuId: uuid, quantity: int(1), drawOrder: int(1) }, ["cashKobo", "skuId", "drawOrder"]) },
