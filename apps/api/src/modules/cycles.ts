@@ -227,7 +227,8 @@ export async function commitCycle(ctx: Ctx, admin: Admin, cycleId: string): Prom
     const outcomes: string[] = [];
     for (let i = 0; i < L; i++) {
       const share = instant.map((t) => ({ outcome: t.outcome, count: levelShare(t.count, L, i) }));
-      outcomes.push(...generateOutcomes(size, share, randomBytes(32)));
+      // Appended one by one: spreading a level of a million or more cards into push() overflows the stack.
+      for (const o of generateOutcomes(size, share, randomBytes(32))) outcomes.push(o);
     }
 
     const dataKey = randomBytes(32);
