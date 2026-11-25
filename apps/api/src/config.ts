@@ -21,6 +21,8 @@ export interface Config {
    * off (WR_ADMIN_MFA=off) for automated tests that are not about sign-in.
    */
   adminMfa?: "required" | "off";
+  /** The illustrative operating-cost assumption on the central dashboard (basis points of realised revenue; the SRS uses 20%). */
+  illustrativeCostBp?: number;
   /** Corporate details for the About us page (published as given; nothing is shown that has not been set). */
   company?: { name?: string; registration?: string; address?: string; email?: string };
   /** Hours before a newly added bank account can receive a payout. */
@@ -87,6 +89,7 @@ export function loadConfig(): Config {
     bankCoolingOffHours: Number(process.env.BANK_COOLING_OFF_HOURS ?? 24),
     majorPrizeKobo: Number(process.env.WR_MAJOR_PRIZE_KOBO ?? 10_000_000),
     adminMfa: process.env.WR_ADMIN_MFA === "off" ? "off" : "required",
+    illustrativeCostBp: Number(process.env.WR_ILLUSTRATIVE_COST_BP ?? 2000),
     company: Object.fromEntries(Object.entries({ name: process.env.WR_COMPANY_NAME, registration: process.env.WR_COMPANY_RC,
       address: process.env.WR_COMPANY_ADDRESS, email: process.env.WR_COMPANY_EMAIL }).filter(([, v]) => v)),
     beaconPeriodSeconds: 30,

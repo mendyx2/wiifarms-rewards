@@ -30,6 +30,7 @@ import * as stockists from "./modules/stockists.ts";
 import * as site from "./modules/site.ts";
 import * as mfa from "./modules/mfa.ts";
 import * as drawReport from "./modules/drawReport.ts";
+import * as reports from "./modules/reports.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
 const str = (max = 200) => ({ type: "string", minLength: 1, maxLength: max });
@@ -671,6 +672,22 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { upheld: boolean; findings: string; outcome: "NO_ACTION" | "WARNING" | "SUSPENDED" | "TERMINATED" } }>("/v1/admin/affiliate-complaints/:id/conclude", {
     schema: { ...idParam, ...body({ upheld: { type: "boolean" }, findings: str(2000), outcome: { enum: ["NO_ACTION", "WARNING", "SUSPENDED", "TERMINATED"] } }) },
   }, async (req) => portal.concludeComplaint(ctx, await staff(req), req.params.id, req.body));
+
+  // Management reports (SRS section 15).
+  app.get("/v1/admin/report-catalogue", async (req) => reports.reportCatalogue(await staff(req)));
+  app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string; cycleId?: string; format?: string } }>("/v1/admin/report/:id", {
+    schema: { params: { type: "object", properties: { id: { type: "string", pattern: "^[a-z-]{3,40}$" } }, required: ["id"] },
+      querystring: { type: "object", additionalProperties: false, properties: { from: str(10), to: str(10), cycleId: uuid, format: { enum: ["json", "csv"] } } } },
+  }, async (req, reply) => {
+    const r = await reports.runReport(ctx, await staff(req), req.params.id, { from: req.query.from ?? "", to: req.query.to ?? "", cycleId: req.query.cycleId });
+    if (req.query.format !== "csv") return r;
+    return reply.header("Content-Type", "text/csv; charset=utf-8").header("Content-Disposition", `attachment; filename="${r.id}-${(req.query.from ?? r.generatedAt.slice(0, 10))}.csv"`).send(reports.reportCsv(r));
+  });
+  app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id/position", { schema: idParam }, async (req) => {
+    const a = await staff(req);
+    admin.requireRole(a, "CYCLE_MANAGER", "FINANCE", "COMPLIANCE", "AUDITOR", "PAYOUT_APPROVER");
+    return reports.campaignPosition(ctx, req.params.id);
+  });
 
   // Pop-up announcements and prize pictures.
   app.get("/v1/admin/flash", async (req) => ({ messages: await promo.listFlash(ctx, await staff(req)) }));

@@ -125,3 +125,4 @@ input, select, textarea { border: 1px solid #cbbfa6; background: linear-gradient
 .key { font-size: 15px; letter-spacing: .06em; color: var(--ink); }
 .recovery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
 .recovery code { font: 15px ui-monospace, Menlo, Consolas, monospace; text-align: center; padding: 8px; border-radius: 8px; background: linear-gradient(#ebe3d2, #f8f4ea 60%); box-shadow: var(--well); }
+tr.strong td { font-weight: 800; }

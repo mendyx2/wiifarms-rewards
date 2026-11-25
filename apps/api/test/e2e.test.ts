@@ -2091,6 +2091,61 @@ test("independent draw report: generated once from the records, every step re-ch
   await assert.rejects(pool.query("DELETE FROM draw_reports WHERE cycle_id = $1", [cycleId]), /not allowed/);
 });
 
+test("management reports: all twelve SRS reports run for the roles allowed, add up, download as spreadsheets and never identify a player; the campaign position", async () => {
+  const fin = admins.finance!.token, aud = admins.auditor!.token, ct = admins.compliance!.token;
+  const cat = ok(await api("GET", "/v1/admin/report-catalogue", { token: aud })).reports;
+  assert.deepEqual(cat.map((r: any) => r.id), ["payment-reconciliation", "merchandise-liabilities", "supplier-invoices", "stockist-fulfilment", "campaign-profitability",
+    "statutory-deductions", "ticket-reconciliation", "cash-prize-liability", "affiliate-remuneration", "regulatory-returns", "security-incidents", "campaign-audit"]);
+  assert.equal(ok(await api("GET", "/v1/admin/report-catalogue", { token: admins.support!.token })).reports.length, 0);
+  fails(await api("GET", "/v1/admin/report/campaign-profitability", { token: admins.fulfilment!.token }), 403, "ROLE_REQUIRED");
+  fails(await api("GET", "/v1/admin/report/supplier-invoices?from=2027-02-01&to=2027-01-01", { token: aud }), 400, "INVALID_DATE");
+  fails(await api("GET", "/v1/admin/report/campaign-audit", { token: aud }), 400, "CYCLE_REQUIRED");
+  fails(await api("GET", "/v1/admin/report/nope", { token: aud }), 404, "NOT_FOUND");
+
+  const rice = (await pool.query("SELECT id FROM cycles WHERE name = 'Rice draw'")).rows[0].id;
+  const range = "from=2026-01-01&to=2099-12-31";
+  const all: Record<string, any> = {};
+  for (const r of cat) all[r.id] = ok(await api("GET", `/v1/admin/report/${r.id}?${r.needs === "range" ? range : r.needs === "cycle" ? `cycleId=${rice}` : ""}`, { token: aud }));
+  // Nobody is identified anywhere.
+  const text = JSON.stringify(all);
+  assert.ok(!/Aisha Bello|Musa Bello|\+2348|08030/.test(text), "no player names or phone numbers");
+
+  // They add up.
+  for (const row of all["ticket-reconciliation"].rows) assert.equal(row.check, "Matches", JSON.stringify(row));
+  const liab = all["cash-prize-liability"].rows;
+  assert.equal(liab.at(-1).item, "Total");
+  assert.equal(liab.at(-1).amount, liab.slice(0, -1).reduce((s2: number, r: any) => s2 + r.amount, 0));
+  const walletsOwed = -Number((await pool.query("SELECT coalesce(sum(balance_kobo), 0) AS b FROM ledger_balances WHERE code LIKE 'PLAYER_WINNINGS:%'")).rows[0].b);
+  assert.equal(liab[0].amount, walletsOwed);
+  assert.ok(all["supplier-invoices"].rows.some((r: any) => r.po === "PO-RICE" && r.units === 3 && r.supplier === "Test Supplier"));
+  assert.ok(all["stockist-fulfilment"].rows.some((r: any) => r.centre.includes("Bida") && r.handed_over_period === 2 && r.fees_period === 300_000));
+  assert.ok(all["affiliate-remuneration"].rows.some((r: any) => r.affiliate.includes("Musa Media")));
+  assert.ok(all["security-incidents"].rows.some((r: any) => r.kind === "ADMIN_MFA_LOCKED"));
+  const niger = all["regulatory-returns"].rows.find((r: any) => r.state === "NG-NI");
+  assert.ok(niger.cards_sold > 0 && niger.gross_sales > 0 && niger.complaints >= 0);
+  const audit = all["campaign-audit"].rows;
+  assert.ok(audit.some((r: any) => r.item === "Independent report" && /all checks passed/.test(r.value)));
+  assert.ok(audit.some((r: any) => r.item === "Attested by" && /auditor/.test(r.value)));
+  const prof = all["campaign-profitability"].rows.find((r: any) => r.campaign === "Rice draw");
+  assert.equal(prof.contribution, prof.net_revenue - prof.cash_prizes - prof.deductions - prof.merchandise - prof.affiliate_fees - prof.operating);
+
+  // As a spreadsheet: amounts in naira.
+  const csv = await app.inject({ method: "GET", url: `/v1/admin/report/cash-prize-liability?format=csv`, headers: { authorization: `Bearer ${fin}` } });
+  assert.equal(csv.headers["content-type"], "text/csv; charset=utf-8"); assert.match(String(csv.headers["content-disposition"]), /attachment; filename="cash-prize-liability-/);
+  const lines = csv.body.trim().split("\r\n");
+  assert.equal(lines[0], "Liability,Amount (NGN)");
+  assert.equal(lines.at(-1), `Total,${liab.at(-1).amount / 100}`);
+
+  // The campaign position (SRS central dashboard): actual figures and an illustrative cost line.
+  const pos = ok(await api("GET", `/v1/admin/cycles/${rice}/position`, { token: ct }));
+  assert.equal(pos.realisedKobo + 0, pos.sold * 50_000);
+  assert.equal(pos.maxRevenueKobo, 400 * 50_000);
+  assert.equal(pos.commitmentsKobo, 2 * 7_500_000);
+  assert.equal(pos.illustrativeCostsKobo, Math.round(pos.realisedKobo * 0.2));
+  assert.equal(pos.indicativeBalanceKobo, pos.realisedKobo - pos.commitmentsKobo - pos.illustrativeCostsKobo);
+  fails(await api("GET", `/v1/admin/cycles/${rice}/position`, { token: admins.fulfilment!.token }), 403, "ROLE_REQUIRED");
+});
+
 test("statutory deductions on winnings: the rate is fixed on the campaign and published; every cash award records gross, deduction and net", async () => {
   const fin = admins.finance!.token;
   const balanceOf = async (code: string) => Number((await pool.query("SELECT coalesce(balance_kobo, 0)::bigint AS b FROM ledger_balances WHERE code = $1", [code])).rows[0]?.b ?? 0);

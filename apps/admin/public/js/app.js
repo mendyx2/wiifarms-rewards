@@ -551,6 +551,16 @@ async function dashboard() {
   if (live && !live.winnings_tax_bp) {
     nodes.push(el("div", { class: "note bad" }, "The deduction rate on winnings is 0% for this campaign. Confirm the statutory rate with legal and finance and set it (WR_WINNINGS_TAX_BP) before the next campaign is created; it is fixed on each campaign when it is created."));
   }
+  if (live && can("CYCLE_MANAGER", "FINANCE", "COMPLIANCE", "AUDITOR", "PAYOUT_APPROVER")) {
+    const pos = await get(`/v1/admin/cycles/${live.id}/position`).catch(() => null);
+    if (pos) nodes.push(el("h2", {}, `${live.name}: campaign position`), el("div", { class: "tiles" },
+      el("div", { class: "tile" }, el("span", {}, "Cards sold / remaining"), el("b", {}, `${num(pos.sold)} / ${num(pos.remaining)}`)),
+      el("div", { class: "tile" }, el("span", {}, "Realised revenue"), el("b", {}, naira(pos.realisedKobo)), el("small", {}, `of ${naira(pos.maxRevenueKobo)} at full sales`)),
+      el("div", { class: "tile" }, el("span", {}, "Prize commitments"), el("b", {}, naira(pos.commitmentsKobo))),
+      el("div", { class: "tile" }, el("span", {}, `Operating costs (illustrative ${pos.illustrativeCostPercent}%)`), el("b", {}, naira(pos.illustrativeCostsKobo)), el("small", {}, `recorded so far ${naira(pos.recordedCostsKobo)}`)),
+      el("div", { class: "tile " + (pos.indicativeBalanceKobo >= 0 ? "ok" : "warn") }, el("span", {}, "Indicative operating balance"), el("b", {}, naira(pos.indicativeBalanceKobo)))),
+      el("p", { class: "sub" }, pos.note));
+  }
   if (live) {
     const liability = live.outstanding_instant_liability_kobo + live.final_draw_cash_commitment_kobo + d.totals.winnings_payable_kobo + d.totals.payouts_in_transit_kobo;
     const cover = live.escrow_funded_kobo ?? 0;
@@ -1574,7 +1584,44 @@ async function centresPage() {
   return nodes;
 }
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, popups: popupsPage, affiliates: affiliatesPage, centres: centresPage, portal: portalPage, audit: auditPage, access };
+/** Management reports (SRS section 15): every report with its frequency, on screen or as a spreadsheet. */
+let reportState = null;
+async function reportsPage(id) {
+  const { reports } = await get("/v1/admin/report-catalogue");
+  const nodes = [el("h1", {}, "Reports"), el("p", { class: "sub" }, "The management reports the SRS requires, with their frequency. Every figure comes from records and the ledger; no player is identified. Download any report as a spreadsheet.")];
+  if (!reports.length) return [...nodes, el("p", { class: "sub" }, "Your role has no reports.")];
+  const today = new Date(Date.now() + 3600_000).toISOString().slice(0, 10);
+  reportState ??= { from: today.slice(0, 8) + "01", to: today, cycleId: "" };
+  const current = reports.find((r) => r.id === id) ?? null;
+  nodes.push(el("div", { class: "card" }, table(["Report", "Frequency", ""], reports.map((r) => el("tr", {},
+    td([el("b", {}, r.title), el("div", { class: "sub" }, r.description)]), td(pill(r.frequency, r.frequency.startsWith("Real") || r.frequency === "Immediate" ? "gold" : "grey")),
+    td(el("a", { class: "btn small" + (r.id === id ? "" : " ghost"), href: `#/reports/${r.id}` }, "Open")))))));
+  if (!current) return nodes;
+  const cycles = current.needs === "cycle" ? (await get("/v1/admin/cycles")).cycles.filter((x) => ["DRAWN", "SETTLING", "ARCHIVED", "CLOSED", "OPEN"].includes(x.status)) : [];
+  if (current.needs === "cycle" && !reportState.cycleId && cycles[0]) reportState.cycleId = cycles[0].id;
+  const qs = () => new URLSearchParams({ ...(current.needs === "range" ? { from: reportState.from, to: reportState.to } : {}), ...(current.needs === "cycle" && reportState.cycleId ? { cycleId: reportState.cycleId } : {}) }).toString();
+  const form = el("form", { class: "form", onsubmit: action(async () => {
+    if (current.needs === "range") reportState = { ...reportState, from: v(form, "from"), to: v(form, "to") };
+    if (current.needs === "cycle") reportState = { ...reportState, cycleId: v(form, "cycle") };
+  }) },
+    current.needs === "range" ? [input("From", { name: "from", type: "date", value: reportState.from }), input("To", { name: "to", type: "date", value: reportState.to })] : null,
+    current.needs === "cycle" ? el("label", {}, "Campaign", el("select", { name: "cycle" }, cycles.map((x) => el("option", { value: x.id, selected: x.id === reportState.cycleId }, x.name)))) : null,
+    current.needs === "none" ? null : el("button", { class: "btn ghost", type: "submit" }, "Show"));
+  const r = current.needs === "cycle" && !reportState.cycleId ? null : await get(`/v1/admin/report/${current.id}?${qs()}`);
+  const cell = (col, v) => v === null || v === undefined ? "—" : col.kind === "kobo" ? naira(v) : col.kind === "int" ? num(v) : col.kind === "pct" ? `${Math.round(v * 1000) / 10}%` : String(v);
+  nodes.push(el("h2", {}, current.title), el("p", { class: "sub" }, `${current.frequency} · ${current.description}`),
+    el("div", { class: "card" }, form, el("p"),
+      r ? [r.rows.length ? table(r.columns.map((col) => (["kobo", "int", "pct"].includes(col.kind) ? "#" : "") + col.label), r.rows.map((row) => el("tr", { class: row.check === "DIFFERENCE" || row.item === "Total" ? "strong" : "" },
+          r.columns.map((col) => td(cell(col, row[col.key]), ["kobo", "int", "pct"].includes(col.kind))))))
+        : el("p", { class: "sub" }, "Nothing in this period."),
+        r.notes.map((n) => el("p", { class: "sub" }, n)),
+        el("p", { class: "sub" }, `Generated ${when(r.generatedAt)}.`),
+        el("div", { class: "actions" }, el("a", { class: "btn ghost", href: `/v1/admin/report/${current.id}?${qs()}&format=csv`, download: "" }, "Download spreadsheet (CSV)"))]
+        : el("p", { class: "sub" }, "Choose a campaign.")));
+  return nodes;
+}
+
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, popups: popupsPage, affiliates: affiliatesPage, centres: centresPage, portal: portalPage, reports: reportsPage, audit: auditPage, access };
 let renderId = 0;
 
 async function render() {
