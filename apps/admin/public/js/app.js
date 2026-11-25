@@ -1101,6 +1101,11 @@ const AFF_STATUS = { APPLIED: ["Applied", "gold"], APPROVED: ["Approved", ""], R
 
 /** Affiliates (SRS section 13): applications, the fee programme switch, settlements. */
 async function affiliatesPage() {
+  // Cycle managers write marketing texts but do not see affiliates' personal details.
+  if (!can("COMPLIANCE", "FINANCE", "PAYOUT_APPROVER", "AUDITOR")) {
+    return can("CYCLE_MANAGER") ? [el("h1", {}, "Affiliates"), ...await materialsSection()]
+      : [el("h1", {}, "Affiliates"), el("p", { class: "sub" }, "Your role does not include affiliates.")];
+  }
   const d = await get("/v1/admin/affiliates");
   const p = d.programme;
   const nodes = [el("h1", {}, "Affiliates"),
@@ -1152,7 +1157,122 @@ async function affiliatesPage() {
           const reason = prompt("Why is this settlement rejected?"); if (!reason) return;
           await post(`/v1/admin/affiliate-settlements/${a.open_settlement.id}/decision`, { approve: false, reason }); return "Rejected.";
         }) }, "Reject")] : null))))) : el("p", { class: "sub" }, "No applications yet.")));
+  if (can("CYCLE_MANAGER", "COMPLIANCE", "AUDITOR")) nodes.push(...await materialsSection());
+  if (can("COMPLIANCE", "AUDITOR")) nodes.push(...await complaintsSection(d.affiliates));
   return nodes;
+}
+
+const CHANNELS = [["WHATSAPP", "WhatsApp"], ["SMS", "Text message"], ["SOCIAL", "Social media"], ["PRINT", "Print"], ["RADIO", "Radio"]];
+const VERSION_PILL = { PENDING: ["Awaiting approval", "gold"], APPROVED: ["In use", ""], REJECTED: ["Rejected", "grey"], RETIRED: ["Retired", "grey"] };
+
+/** Reads an optional picture from a form's file input as base64. */
+async function fileBase64(form) {
+  const f = form.querySelector("input[type=file]")?.files?.[0];
+  if (!f) return undefined;
+  if (f.size > 1024 * 1024) throw new Error("The picture must be at most 1 MB.");
+  return new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1]); r.onerror = () => reject(new Error("Could not read the file.")); r.readAsDataURL(f); });
+}
+
+/** Approved marketing materials (SRS AFF-005, AFF-011): written by one person, approved by another, never edited — corrected by new versions. */
+async function materialsSection() {
+  const { materials } = await get("/v1/admin/materials");
+  const nodes = [el("h2", {}, "Approved marketing materials"),
+    el("p", { class: "sub" }, "The only texts and pictures affiliates may use. A Compliance officer who did not write a version approves it; approved versions are never edited — write a new version, and approving it replaces the old one. {link} in a text becomes the affiliate's own link. Every text must say \"18+\".")];
+  if (can("CYCLE_MANAGER", "COMPLIANCE")) {
+    const form = el("form", { class: "card", onsubmit: action(async () => {
+      const imageBase64 = await fileBase64(form);
+      await post("/v1/admin/materials", { name: v(form, "name"), channel: v(form, "channel"), bodyEn: v(form, "bodyEn"),
+        ...(v(form, "bodyHa") ? { bodyHa: v(form, "bodyHa") } : {}), ...(imageBase64 ? { imageBase64 } : {}) });
+      return "Written. Another Compliance officer must approve it before affiliates see it.";
+    }) },
+      el("b", {}, "New marketing text"),
+      el("div", { class: "form" },
+        input("Name", { name: "name", required: true, maxlength: 80 }),
+        select("Channel", "channel", CHANNELS),
+        input("Text (English)", { name: "bodyEn", required: true, maxlength: 1000, rows: 3, placeholder: "Scratch, win, and every card goes into the final draw! {link} 18+ only. Play responsibly." }, true),
+        input("Text (Hausa, optional)", { name: "bodyHa", maxlength: 1000, rows: 3 }, true),
+        el("label", {}, "Picture (optional)", el("input", { type: "file", accept: "image/png,image/jpeg,image/webp" }))),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Submit for approval")));
+    nodes.push(form);
+  }
+  nodes.push(el("div", { class: "card" }, materials.length ? table(["Text", "Version", "Status", ""], materials.flatMap((m) => m.versions.map((x, i) => el("tr", {},
+    td([i === 0 ? el("b", {}, `${m.name} · ${CHANNELS.find(([c]) => c === m.channel)?.[1] ?? m.channel}`) : null,
+      el("div", { class: "sub" }, x.body_en), x.body_ha ? el("div", { class: "sub" }, `Hausa: ${x.body_ha}`) : null,
+      x.has_image ? el("img", { class: "thumb", src: `/v1/material-images/${x.version_id}`, alt: "" }) : null,
+      el("div", { class: "mono" }, `written by ${x.written_by_name}${x.decided_by_name ? `, decided by ${x.decided_by_name}` : ""} · ${x.sha256.slice(0, 12)}`)]),
+    td(`v${x.version}`),
+    td(pill(...(VERSION_PILL[x.status] ?? [x.status]))),
+    td(el("div", { class: "actions" },
+      x.status === "PENDING" && can("COMPLIANCE") && x.written_by !== me.id ? [
+        el("button", { class: "btn small", onclick: action(async () => { await post(`/v1/admin/material-versions/${x.version_id}/decision`, { approve: true }); return "Approved: affiliates can use it now."; }) }, "Approve"),
+        el("button", { class: "btn small ghost", onclick: action(async () => { await post(`/v1/admin/material-versions/${x.version_id}/decision`, { approve: false }); return "Rejected."; }) }, "Reject")] : null,
+      x.status === "APPROVED" && can("COMPLIANCE") ? el("button", { class: "btn small ghost danger", onclick: action(async () => {
+        if (!confirm("Withdraw this text? Affiliates will stop seeing it at once.")) return;
+        await post(`/v1/admin/materials/${m.id}/retire`); return "Withdrawn.";
+      }) }, "Withdraw") : null,
+      i === 0 && can("CYCLE_MANAGER", "COMPLIANCE") && !m.versions.some((y) => y.status === "PENDING") ? el("button", { class: "btn small ghost", onclick: action(async () => {
+        const bodyEn = prompt("New version of the English text (it must say 18+):", x.body_en); if (!bodyEn) return;
+        await post(`/v1/admin/materials/${m.id}/versions`, { bodyEn, ...(x.body_ha ? { bodyHa: x.body_ha } : {}) });
+        return "New version written. It needs approval.";
+      }) }, "New version") : null)))))) : el("p", { class: "sub" }, "No marketing texts yet.")));
+  return nodes;
+}
+
+const COMPLAINT_TOPICS = { MISLEADING: "Misleading claims", UNDERAGE: "Promoting to children", PRESSURE: "Pressure to play", UNAPPROVED_MATERIAL: "Unofficial adverts",
+  PAID_SIGNUPS: "Paying people to sign up", IMPERSONATION: "Pretending to be WiiFarm", OTHER: "Other" };
+const COMPLAINT_PILL = { OPEN: ["Open", "gold"], INVESTIGATING: ["Investigating", "gold"], UPHELD: ["Upheld", "red"], DISMISSED: ["Dismissed", "grey"] };
+
+/** Complaints and investigations (SRS AFF-009). */
+async function complaintsSection(affiliates) {
+  const { complaints } = await get("/v1/admin/affiliate-complaints");
+  const nodes = [el("h2", {}, "Complaints and investigations"),
+    el("p", { class: "sub" }, "Reports from players (Help page) and staff. A Compliance officer who did not report it investigates and records the findings; suspending or ending the affiliate happens with the conclusion. Concluded complaints cannot be changed.")];
+  if (can("COMPLIANCE") && affiliates.length) {
+    const form = el("form", { class: "card", onsubmit: action(async () => {
+      const r = await post("/v1/admin/affiliate-complaints", { affiliateId: v(form, "affiliate"), category: v(form, "category"), description: v(form, "description") });
+      return `Complaint ${r.reference} opened. Another Compliance officer must investigate it.`;
+    }) },
+      el("b", {}, "Record a complaint"),
+      el("div", { class: "form" },
+        select("Affiliate", "affiliate", affiliates.map((a) => [a.id, `${a.reference} · ${a.business_name}`])),
+        select("What happened", "category", Object.entries(COMPLAINT_TOPICS)),
+        input("Details", { name: "description", required: true, minlength: 5, maxlength: 2000, rows: 3 }, true)),
+      el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Record complaint")));
+    nodes.push(form);
+  }
+  nodes.push(el("div", { class: "card" }, complaints.length ? table(["Complaint", "Affiliate", "Status", ""], complaints.map((c) => el("tr", {},
+    td([el("b", {}, `${c.reference} · ${COMPLAINT_TOPICS[c.category] ?? c.category}`), el("div", { class: "sub" }, c.description),
+      el("div", { class: "mono" }, `${c.source === "PLAYER" ? "from a player" : "from staff"} · ${when(c.created_at)}${c.reported_code ? ` · code given ${c.reported_code}` : ""}`),
+      c.findings ? el("div", { class: "sub" }, `Findings: ${c.findings} (${c.outcome.replace("_", " ").toLowerCase()})`) : null]),
+    td(c.affiliate_reference ? [c.affiliate_reference, el("div", { class: "sub" }, c.business_name)] : el("span", { class: "sub" }, "Not known")),
+    td([pill(...(COMPLAINT_PILL[c.status] ?? [c.status])), c.investigator_name ? el("div", { class: "sub" }, c.investigator_name) : null]),
+    td(el("div", { class: "actions" },
+      c.status === "OPEN" && can("COMPLIANCE") && c.reporter_admin_id !== me.id ? el("button", { class: "btn small", onclick: action(async () => {
+        let affiliateId;
+        if (!c.affiliate_id) {
+          const ref = prompt("Which affiliate is it about? Enter the reference (AFF-…), or leave empty if unknown.");
+          affiliateId = ref ? affiliates.find((a) => a.reference === ref.trim().toUpperCase())?.id : undefined;
+          if (ref && !affiliateId) throw new Error("No affiliate with that reference.");
+        }
+        await post(`/v1/admin/affiliate-complaints/${c.id}/investigate`, affiliateId ? { affiliateId } : {});
+        return "You are investigating this complaint.";
+      }) }, "Investigate") : null,
+      c.status === "INVESTIGATING" && c.investigator_id === me.id ? concludeForm(c) : null))))) : el("p", { class: "sub" }, "No complaints.")));
+  return nodes;
+}
+
+function concludeForm(c) {
+  const form = el("form", { onsubmit: action(async () => {
+    const outcome = v(form, "outcome");
+    if ((outcome === "SUSPENDED" || outcome === "TERMINATED") && !confirm(`This will ${outcome === "SUSPENDED" ? "suspend" : "end"} the affiliate at once. Continue?`)) return;
+    await post(`/v1/admin/affiliate-complaints/${c.id}/conclude`, { upheld: outcome !== "NO_ACTION" || v(form, "upheld") === "yes", findings: v(form, "findings"), outcome });
+    return "Complaint concluded.";
+  }) },
+    input("Findings", { name: "findings", required: true, maxlength: 2000, rows: 2 }, true),
+    select("Upheld?", "upheld", [["no", "Not upheld"], ["yes", "Upheld"]]),
+    select("Outcome", "outcome", [["NO_ACTION", "No action"], ["WARNING", "Formal warning"], ["SUSPENDED", "Suspend the affiliate"], ["TERMINATED", "End the agreement"]]),
+    el("button", { class: "btn small", type: "submit" }, "Conclude"));
+  return form;
 }
 
 function affiliateActions(a) {

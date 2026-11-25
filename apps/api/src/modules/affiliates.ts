@@ -189,7 +189,7 @@ export async function listAffiliates(ctx: Ctx, admin: Admin): Promise<unknown> {
   return { affiliates: rows, programme: p, programmeChanges: changes, agreementVersion: AFFILIATE_AGREEMENT_VERSION };
 }
 
-type Decision = "APPROVE" | "REJECT" | "SUSPEND" | "REINSTATE" | "TERMINATE";
+export type Decision = "APPROVE" | "REJECT" | "SUSPEND" | "REINSTATE" | "TERMINATE";
 const MOVES: Record<Decision, { from: string[]; to: string; verb: string }> = {
   APPROVE: { from: ["APPLIED"], to: "APPROVED", verb: "approved" },
   REJECT: { from: ["APPLIED"], to: "REJECTED", verb: "rejected" },
@@ -211,9 +211,14 @@ const NOTICES: Record<string, { title: string; body: string; ha: { title: string
 
 export async function decideAffiliate(ctx: Ctx, admin: Admin, affiliateId: string, decision: Decision, reason?: string): Promise<{ status: string; code?: string }> {
   requireRole(admin, "COMPLIANCE");
+  return withTx(ctx.pool, (db) => decideAffiliateInTx(db, admin, affiliateId, decision, reason));
+}
+
+/** The decision itself, in the caller's transaction (also used when a complaint is concluded). */
+export async function decideAffiliateInTx(db: Db, admin: Admin, affiliateId: string, decision: Decision, reason?: string): Promise<{ status: string; code?: string }> {
   const move = MOVES[decision];
   if (decision !== "APPROVE" && !reason?.trim()) throw badRequest("REASON_REQUIRED", "Give the reason.");
-  return withTx(ctx.pool, async (db) => {
+  {
     const a = await one<{ id: string; user_id: string; status: string; attribution_code: string | null; reference: string }>(db,
       "SELECT id, user_id, status, attribution_code, reference FROM affiliates WHERE id = $1 FOR UPDATE", [affiliateId]);
     if (!a) throw notFound("Affiliate not found.");
@@ -231,7 +236,7 @@ export async function decideAffiliate(ctx: Ctx, admin: Admin, affiliateId: strin
     const n = NOTICES[move.to] ?? NOTICES.APPROVED!;
     await notify(db, { userId: a.user_id, kind: "ACCOUNT", link: "#/affiliate", dedupeKey: `affiliate:${a.id}:${move.to}:${Date.now()}`, title: n.title, body: n.body, ha: n.ha });
     return { status: move.to, ...(code && move.to === "APPROVED" ? { code } : {}) };
-  });
+  }
 }
 
 /** Asks for the fee programme to be switched on or off, or its rate changed. A second person decides. */

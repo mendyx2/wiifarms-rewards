@@ -59,13 +59,32 @@ test("a player applies to be an affiliate, Compliance approves, and the affiliat
   assert.equal(await a.locator('.card:has-text("Fee programme") button:has-text("Approve")').count(), 0);
   await assertClean(a, "admin affiliates");
 
-  // The affiliate's page: code, link and share buttons; fees still off.
+  // The affiliate's page: code and link; no approved materials yet, so only the link may be shared.
   await visit(p, s.base + "/#/affiliate");
   await p.waitForSelector("h1:has-text('Your affiliate page')");
   const code = (await p.innerText(".code-big")).trim();
   assert.match(code, /^[A-HJ-NP-Z2-9]{8}$/);
-  assert.ok(decodeURIComponent((await p.getAttribute(".share-whatsapp", "href"))!).includes(`/r/${code}`));
   await p.waitForSelector("text=not being paid yet");
+  await p.waitForSelector("text=There are no approved materials yet");
+
+  // A marketing text written in the admin app by the cycle manager and approved by Compliance appears, with the affiliate's link in it.
+  const m = await newPage(s, "desktop");
+  answerDialogs(m);
+  await adminSignIn(m, s, "manager");
+  await m.click("#nav a[data-nav=affiliates]");
+  await m.waitForSelector("text=Approved marketing materials");
+  await m.fill("input[name=name]", "WhatsApp invite");
+  await m.fill("textarea[name=bodyEn]", "Scratch, win, and every card goes into the final draw! {link} 18+ only. Play responsibly.");
+  await m.click('button:has-text("Submit for approval")');
+  await toast(m, /Another Compliance officer must approve/);
+  await a.reload();
+  await a.click('tr:has-text("WhatsApp invite") button:has-text("Approve")');
+  await toast(a, /affiliates can use it now/);
+  await p.reload();
+  await p.waitForSelector(".material-text");
+  const text = await p.innerText(".material-text");
+  assert.ok(text.includes(`${s.base}/r/${code}`) && !text.includes("{link}"), text);
+  assert.ok(decodeURIComponent((await p.getAttribute(".material .share-whatsapp", "href"))!).includes(`/r/${code}`));
 
   // Finance approves the switch; the page now shows the fee.
   const fin = await adminToken(s, "finance");
@@ -74,6 +93,34 @@ test("a player applies to be an affiliate, Compliance approves, and the affiliat
   await p.reload();
   await p.waitForSelector("text=Affiliate fees: 2.5%");
   await assertClean(p, "affiliate page");
+});
+
+test("a player reports a promoter from the help page, and Compliance sees the complaint", async () => {
+  await apiPlayer(s, "08036660303", "Kabiru Adamu");
+  const p = await newPage(s);
+  answerDialogs(p);
+  await playerSignIn(p, s, "08036660303");
+  await visit(p, s.base + "/#/support");
+  await p.click("summary:has-text('Report a promoter')");
+  await p.selectOption("select[name=category]", "PRESSURE");
+  await p.fill("textarea[name=description]", "A man at the motor park kept pushing me to buy ten cards.");
+  await p.click('button:has-text("Send report")');
+  await toast(p, /Report CMP-\d{6} sent/);
+  await assertClean(p, "report a promoter");
+
+  const a = await newPage(s, "desktop");
+  answerDialogs(a, () => ""); // "which affiliate?" — not known
+  await adminSignIn(a, s, "compliance");
+  await a.click("#nav a[data-nav=affiliates]");
+  await a.waitForSelector("text=Complaints and investigations");
+  await a.waitForSelector("tr:has-text('motor park') >> text=Not known");
+  await a.click("tr:has-text('motor park') button:has-text('Investigate')");
+  await toast(a, /You are investigating/);
+  await a.fill("tr:has-text('motor park') textarea[name=findings]", "Could not identify the promoter.");
+  await a.click("tr:has-text('motor park') button:has-text('Conclude')");
+  await toast(a, /Complaint concluded/);
+  await a.waitForSelector("tr:has-text('motor park') >> text=Dismissed");
+  await assertClean(a, "complaints");
 });
 
 test("a winner sees the statutory deduction, and only the net reaches the wallet", async () => {

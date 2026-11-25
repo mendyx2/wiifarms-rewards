@@ -5,7 +5,7 @@ import Fastify, { type FastifyHttpOptions, type FastifyInstance, type FastifyRep
 import type { Actor } from "./audit.ts";
 import type { Ctx } from "./context.ts";
 import { withTx } from "./db.ts";
-import { AppError, badRequest } from "./errors.ts";
+import { AppError, badRequest, notFound } from "./errors.ts";
 import * as admin from "./modules/admin.ts";
 import * as cycles from "./modules/cycles.ts";
 import * as draw from "./modules/draw.ts";
@@ -25,6 +25,7 @@ import * as promo from "./modules/promo.ts";
 import * as wallet from "./modules/wallet.ts";
 import * as affiliates from "./modules/affiliates.ts";
 import * as deductions from "./modules/deductions.ts";
+import * as portal from "./modules/portal.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
 const str = (max = 200) => ({ type: "string", minLength: 1, maxLength: max });
@@ -250,6 +251,14 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     if (req.headers["if-none-match"] === img.etag) return reply.status(304).send();
     return reply.header("Content-Type", img.contentType).header("Cache-Control", "public, max-age=300").header("ETag", img.etag).send(img.bytes);
   });
+  // Pictures of approved marketing materials (anyone may see them: affiliates share them publicly).
+  app.get<{ Params: { id: string } }>("/v1/material-images/:id", { schema: idParam }, async (req, reply) => {
+    const staffView = Boolean(adminToken(req)) && Boolean(await staff(req).catch(() => null));
+    const img = await portal.materialImage(ctx, req.params.id, staffView);
+    if (!img) throw notFound("Picture not found.");
+    if (req.headers["if-none-match"] === img.etag) return reply.status(304).send();
+    return reply.header("Content-Type", img.type).header("Cache-Control", staffView ? "no-store" : "public, max-age=300").header("ETag", img.etag).send(img.bytes);
+  });
   app.get<{ Params: { id: string } }>("/v1/cycles/:id/draw", { schema: idParam }, async (req) => draw.getPublicDraw(ctx, req.params.id));
   app.get<{ Params: { id: string }; Querystring: { offset?: string; limit?: string } }>("/v1/cycles/:id/tickets", {
     schema: { ...idParam, querystring: { type: "object", additionalProperties: false, properties: { offset: { type: "string", pattern: "^[0-9]{1,9}$" }, limit: { type: "string", pattern: "^[0-9]{1,5}$" } } } },
@@ -296,6 +305,13 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.get("/v1/me/referrals", async (req) => referrals.referralSummary(ctx, (await player(req)).id));
   // Affiliates: a separate application, approved by Compliance (SRS section 13).
   app.get("/v1/me/affiliate", async (req) => affiliates.affiliateDashboard(ctx, (await player(req)).id));
+  app.get("/v1/me/affiliate/materials", async (req) => portal.affiliateMaterials(ctx, (await player(req)).id));
+  app.post<{ Body: { code?: string; category: portal.Category; description: string } }>("/v1/affiliate-reports", {
+    schema: body({ code: str(20), category: { enum: [...portal.CATEGORIES] }, description: str(2000) }, ["code"]),
+  }, async (req) => {
+    const u = await player(req);
+    return portal.reportAffiliate(ctx, actorOf(u.id, req), u, req.body);
+  });
   app.post<{ Body: affiliates.AffiliateApplication }>("/v1/me/affiliate", {
     schema: body({ businessName: str(120), contactEmail: str(200), territoryArea: str(120), channels: str(500), bankAccountId: uuid,
       acceptAgreement: { type: "boolean" }, trainingCompleted: { type: "boolean" } }, ["territoryArea"]),
@@ -545,6 +561,29 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.get<{ Querystring: { from: string; to: string } }>("/v1/admin/reports/deductions", {
     schema: { querystring: { type: "object", additionalProperties: false, properties: { from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } }, required: ["from", "to"] } },
   }, async (req) => deductions.deductionsReport(ctx, await staff(req), req.query.from, req.query.to));
+
+  // The affiliate portal: approved materials with versions; complaints and investigations.
+  const materialBody = { bodyEn: str(1000), bodyHa: str(1000), imageBase64: str(1_500_000) };
+  app.get("/v1/admin/materials", async (req) => portal.listMaterials(ctx, await staff(req)));
+  app.post<{ Body: { name: string; channel: portal.Channel } & portal.MaterialText }>("/v1/admin/materials", {
+    bodyLimit: 1536 * 1024, schema: body({ name: str(80), channel: { enum: [...portal.CHANNELS] }, ...materialBody }, ["bodyHa", "imageBase64"]),
+  }, async (req) => portal.createMaterial(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: portal.MaterialText }>("/v1/admin/materials/:id/versions", {
+    bodyLimit: 1536 * 1024, schema: { ...idParam, ...body(materialBody, ["bodyHa", "imageBase64"]) },
+  }, async (req) => portal.newMaterialVersion(ctx, await staff(req), req.params.id, req.body));
+  app.post<{ Params: { id: string }; Body: { approve: boolean } }>("/v1/admin/material-versions/:id/decision", { schema: { ...idParam, ...body({ approve: { type: "boolean" } }) } },
+    async (req) => portal.decideMaterialVersion(ctx, await staff(req), req.params.id, req.body.approve));
+  app.post<{ Params: { id: string } }>("/v1/admin/materials/:id/retire", { schema: idParam }, async (req) => portal.retireMaterial(ctx, await staff(req), req.params.id));
+  app.get("/v1/admin/affiliate-complaints", async (req) => portal.listComplaints(ctx, await staff(req)));
+  app.post<{ Body: { affiliateId: string; category: portal.Category; description: string } }>("/v1/admin/affiliate-complaints", {
+    schema: body({ affiliateId: uuid, category: { enum: [...portal.CATEGORIES] }, description: str(2000) }),
+  }, async (req) => portal.openComplaint(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { affiliateId?: string } }>("/v1/admin/affiliate-complaints/:id/investigate", {
+    schema: { ...idParam, ...body({ affiliateId: uuid }, ["affiliateId"]) },
+  }, async (req) => portal.investigateComplaint(ctx, await staff(req), req.params.id, req.body?.affiliateId));
+  app.post<{ Params: { id: string }; Body: { upheld: boolean; findings: string; outcome: "NO_ACTION" | "WARNING" | "SUSPENDED" | "TERMINATED" } }>("/v1/admin/affiliate-complaints/:id/conclude", {
+    schema: { ...idParam, ...body({ upheld: { type: "boolean" }, findings: str(2000), outcome: { enum: ["NO_ACTION", "WARNING", "SUSPENDED", "TERMINATED"] } }) },
+  }, async (req) => portal.concludeComplaint(ctx, await staff(req), req.params.id, req.body));
 
   // Pop-up announcements and prize pictures.
   app.get("/v1/admin/flash", async (req) => ({ messages: await promo.listFlash(ctx, await staff(req)) }));

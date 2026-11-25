@@ -873,8 +873,22 @@ async function supportScreen() {
     el("p", { class: "muted" }, "Do not include your PIN or any code. If you can, give the card number or the date and amount of the payment."),
     el("button", { class: "btn", type: "submit" }, "Send"));
   nodes.push(form);
+  // Reporting a promoter (SRS AFF-009): misleading claims, targeting children, pressure, paying people to sign up.
+  const report = el("form", { class: "card", onsubmit: action(async () => {
+    const r = await api.post("/v1/affiliate-reports", { category: val(report, "category"), description: val(report, "description"), ...(val(report, "code") ? { code: val(report, "code") } : {}) });
+    toast(`Report ${r.reference} sent. Compliance will look into it.`); render();
+  }) },
+    el("details", {}, el("summary", {}, "Report a promoter"),
+      el("p", { class: "muted" }, "Tell us if someone promoting WiiFarm Rewards misled you, targeted children, pressured you, paid people to sign up or pretended to be us."),
+      ...field("What happened?", el("select", { name: "category" }, REPORT_TOPICS.map(([v, t]) => el("option", { value: v }, t)))),
+      ...field("Their code, if you know it (optional)", el("input", { name: "code", maxlength: 20, autocapitalize: "characters" })),
+      ...field("Details", el("textarea", { name: "description", rows: 4, minlength: 5, maxlength: 2000, required: true })),
+      el("button", { class: "btn ghost", type: "submit" }, "Send report")));
+  nodes.push(report);
   return nodes;
 }
+const REPORT_TOPICS = [["MISLEADING", "Misleading claims"], ["UNDERAGE", "Promoting to children"], ["PRESSURE", "Pressure to play"], ["UNAPPROVED_MATERIAL", "Unofficial adverts"],
+  ["PAID_SIGNUPS", "Paying people to sign up"], ["IMPERSONATION", "Pretending to be WiiFarm"], ["OTHER", "Something else"]];
 
 async function me() {
   await loadMe();
@@ -1072,6 +1086,38 @@ async function invite() {
   ];
 }
 
+/**
+ * The approved marketing texts (SRS AFF-005): the only ones an affiliate may use.
+ * {link} in a text becomes the affiliate's own link; otherwise the link is added at the end.
+ */
+async function approvedMaterials() {
+  const m = await api.get("/v1/me/affiliate/materials");
+  const url = location.origin + m.link;
+  const linkOnly = el("button", { class: "btn small ghost", type: "button", onclick: async () => {
+    try { await navigator.clipboard.writeText(url); toast("Link copied."); } catch { toast(url); }
+  } }, "Copy link");
+  if (!m.materials.length) {
+    return el("div", {}, el("h2", {}, "Approved materials"),
+      el("div", { class: "note warn" }, "There are no approved materials yet. Until there are, share only your link, without your own wording."), linkOnly);
+  }
+  return el("div", {}, el("h2", {}, "Approved materials"),
+    el("p", { class: "muted" }, "Use only these texts and pictures, as they are. Each one already contains your link."), linkOnly, el("p"),
+    m.materials.map((x) => {
+      const body = (lang() === "ha" && x.body_ha) || x.body_en;
+      const text = body.includes("{link}") ? body.replaceAll("{link}", url) : `${body} ${url}`;
+      return el("div", { class: "card material" },
+        el("div", { class: "row" }, el("b", {}, x.name), el("span", { class: "pill grey" }, `${CHANNEL_TEXT[x.channel] ?? x.channel} · v${x.version}`)),
+        x.has_image ? el("img", { class: "material-pic", src: `/v1/material-images/${x.version_id}`, alt: x.name, loading: "lazy" }) : null,
+        el("p", { class: "material-text" }, text),
+        el("div", { class: "share-apps" },
+          el("a", { class: "btn small ghost share-whatsapp", href: `https://wa.me/?text=${enc(text)}`, target: "_blank", rel: "noopener noreferrer" }, "WhatsApp"),
+          el("button", { class: "btn small ghost", type: "button", onclick: async () => {
+            try { await navigator.clipboard.writeText(text); toast("Text copied."); } catch { toast(text); }
+          } }, "Copy text")));
+    }));
+}
+const CHANNEL_TEXT = { WHATSAPP: "WhatsApp", SMS: "Text message", SOCIAL: "Social media", PRINT: "Print", RADIO: "Radio" };
+
 const AFFILIATE_STATUS = { APPLIED: "Waiting for review", APPROVED: "Approved", REJECTED: "Not approved", SUSPENDED: "Suspended", TERMINATED: "Ended" };
 
 /** The affiliate application and, once applied, the affiliate's own page (SRS section 13). */
@@ -1131,7 +1177,7 @@ async function affiliateScreen() {
     a.status === "SUSPENDED" ? el("div", { class: "note warn" }, "Your affiliate account is suspended while Compliance reviews it.") : null,
     a.code ? el("div", { class: "card center" }, el("span", { class: "muted" }, "Your attribution code"), el("div", { class: "code-big" }, a.code),
       el("small", { class: "muted" }, location.origin + a.link)) : null,
-    a.code ? shareBlock(inviteText(a.code), location.origin + a.link) : null,
+    a.code ? await approvedMaterials() : null,
     a.status === "APPLIED" || a.status === "REJECTED" ? null : fees,
     a.status === "APPLIED" || a.status === "REJECTED" ? null : el("div", { class: "tiles" },
       el("div", { class: "tile" }, el("b", {}, String(st.signUps)), el("span", {}, "sign-ups")),

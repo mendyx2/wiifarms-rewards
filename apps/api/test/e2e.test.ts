@@ -1711,6 +1711,85 @@ test("affiliates: a separate application, approved by Compliance; attribution co
   assert.equal((await pool.query("SELECT coalesce(sum(amount_kobo), 0)::bigint AS s FROM ledger_entries")).rows[0].s, 0);
 });
 
+test("affiliate portal: approved materials with versions (two people, never edited), and complaints investigated by Compliance", async () => {
+  const ct = admins.compliance!.token, ct2 = admins.compliance2!.token, mt = admins.manager!.token, sup = admins.support!.token;
+  // An approved affiliate.
+  const a = await newPlayer({ name: "Zara Musa" });
+  ok(await api("POST", "/v1/me/liveness", { token: a.token }));
+  const bank = ok(await api("POST", "/v1/me/bank-accounts", { token: a.token, body: { bankCode: "058", accountNumber: "0400000001", accountName: "Zara Musa" } })).id;
+  ok(await api("POST", "/v1/me/affiliate", { token: a.token, body: { businessName: "Zara Adverts", contactEmail: "zara@example.com", channels: "Radio in Suleja", bankAccountId: bank, acceptAgreement: true, trainingCompleted: true } }));
+  const aff = ok(await api("GET", "/v1/admin/affiliates", { token: ct })).affiliates.find((x: any) => x.business_name === "Zara Adverts");
+  fails(await api("GET", "/v1/me/affiliate/materials", { token: a.token }), 403, "NOT_AN_AFFILIATE");
+  const { code } = ok(await api("POST", `/v1/admin/affiliates/${aff.id}/decision`, { token: ct, body: { decision: "APPROVE" } }));
+
+  // Materials: must say 18+; written by one person, approved by another Compliance officer.
+  const text = "Scratch, win, and every card goes into the final draw! {link} 18+ only. Play responsibly.";
+  fails(await api("POST", "/v1/admin/materials", { token: mt, body: { name: "WhatsApp invite", channel: "WHATSAPP", bodyEn: "Win big today, guaranteed! {link}" } }), 400, "RESPONSIBLE_PLAY_LINE");
+  fails(await api("POST", "/v1/admin/materials", { token: admins.finance!.token, body: { name: "x", channel: "SMS", bodyEn: text } }), 403, "ROLE_REQUIRED");
+  fails(await api("POST", "/v1/admin/materials", { token: mt, body: { name: "x", channel: "SMS", bodyEn: text, imageBase64: Buffer.from("<svg/>").toString("base64") } }), 400, "INVALID_IMAGE");
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(100)]);
+  const m = ok(await api("POST", "/v1/admin/materials", { token: mt, body: { name: "WhatsApp invite", channel: "WHATSAPP", bodyEn: text, bodyHa: "Karce, ci, kuma kowane kati yana shiga zaɓen ƙarshe! {link} 18+ kawai.", imageBase64: png.toString("base64") } }));
+  assert.deepEqual(ok(await api("GET", "/v1/me/affiliate/materials", { token: a.token })).materials, [], "nothing until approved");
+  assert.equal((await app.inject({ method: "GET", url: `/v1/material-images/${m.versionId}` })).statusCode, 404, "an unapproved picture is not public");
+  fails(await api("POST", `/v1/admin/material-versions/${m.versionId}/decision`, { token: mt, body: { approve: true } }), 403, "ROLE_REQUIRED");
+  ok(await api("POST", `/v1/admin/material-versions/${m.versionId}/decision`, { token: ct, body: { approve: true } }));
+  const own = ok(await api("POST", "/v1/admin/materials", { token: ct, body: { name: "SMS", channel: "SMS", bodyEn: text } }));
+  fails(await api("POST", `/v1/admin/material-versions/${own.versionId}/decision`, { token: ct, body: { approve: true } }), 403, "SAME_PERSON");
+  let mine = ok(await api("GET", "/v1/me/affiliate/materials", { token: a.token }));
+  assert.equal(mine.link, `/r/${code}`); assert.equal(mine.materials.length, 1); assert.equal(mine.materials[0].version, 1);
+  const img = await app.inject({ method: "GET", url: `/v1/material-images/${m.versionId}` });
+  assert.equal(img.statusCode, 200); assert.equal(img.headers["content-type"], "image/png");
+  await assert.rejects(pool.query("UPDATE marketing_material_versions SET body_en = 'Edited 18+' WHERE id = $1", [m.versionId]), /cannot be edited/);
+  await assert.rejects(pool.query("DELETE FROM marketing_material_versions WHERE id = $1", [m.versionId]), /append-only/);
+
+  // A correction is a new version: the old one stays in use until it is approved, then it is retired.
+  const v2 = ok(await api("POST", `/v1/admin/materials/${m.id}/versions`, { token: mt, body: { bodyEn: "Every card goes into the final draw. {link} 18+ only. Play responsibly." } }));
+  assert.equal(v2.version, 2);
+  fails(await api("POST", `/v1/admin/materials/${m.id}/versions`, { token: mt, body: { bodyEn: "Another one. 18+ only." } }), 409, "VERSION_PENDING");
+  assert.equal(ok(await api("GET", "/v1/me/affiliate/materials", { token: a.token })).materials[0].version, 1);
+  ok(await api("POST", `/v1/admin/material-versions/${v2.versionId}/decision`, { token: ct2, body: { approve: true } }));
+  mine = ok(await api("GET", "/v1/me/affiliate/materials", { token: a.token }));
+  assert.deepEqual(mine.materials.map((x: any) => x.version), [2]);
+  const versions = ok(await api("GET", "/v1/admin/materials", { token: admins.auditor!.token })).materials.find((x: any) => x.id === m.id).versions;
+  assert.deepEqual(versions.map((x: any) => [x.version, x.status]), [[2, "APPROVED"], [1, "RETIRED"]]);
+  ok(await api("POST", `/v1/admin/materials/${m.id}/retire`, { token: ct }));
+  assert.deepEqual(ok(await api("GET", "/v1/me/affiliate/materials", { token: a.token })).materials, []);
+
+  // Complaints: a player reports a promoter (code typed loosely); Compliance investigates and concludes.
+  const p = await newPlayer();
+  fails(await api("POST", "/v1/affiliate-reports", { token: p.token, body: { category: "BRIBES", description: "x" } }), 400, "INVALID_REQUEST");
+  const rep = ok(await api("POST", "/v1/affiliate-reports", { token: p.token, body: { code: code.toLowerCase(), category: "MISLEADING", description: "Told me I would surely win the car." } }));
+  assert.match(rep.reference, /^CMP-\d{6}$/);
+  const unknown = ok(await api("POST", "/v1/affiliate-reports", { token: p.token, body: { category: "PAID_SIGNUPS", description: "Someone paid ₦200 for each sign-up at the market." } }));
+  fails(await api("GET", "/v1/admin/affiliate-complaints", { token: sup }), 403, "ROLE_REQUIRED");
+  const list = ok(await api("GET", "/v1/admin/affiliate-complaints", { token: ct })).complaints;
+  const c1 = list.find((x: any) => x.reference === rep.reference), c2 = list.find((x: any) => x.reference === unknown.reference);
+  assert.equal(c1.affiliate_id, aff.id); assert.equal(c2.affiliate_id, null);
+  fails(await api("POST", `/v1/admin/affiliate-complaints/${c1.id}/conclude`, { token: ct, body: { upheld: true, findings: "x", outcome: "WARNING" } }), 409, "NOT_INVESTIGATING");
+  ok(await api("POST", `/v1/admin/affiliate-complaints/${c1.id}/investigate`, { token: ct, body: {} }));
+  fails(await api("POST", `/v1/admin/affiliate-complaints/${c1.id}/conclude`, { token: ct2, body: { upheld: true, findings: "x", outcome: "WARNING" } }), 403, "NOT_INVESTIGATOR");
+  fails(await api("POST", `/v1/admin/affiliate-complaints/${c1.id}/conclude`, { token: ct, body: { upheld: false, findings: "x", outcome: "WARNING" } }), 400, "INVALID_OUTCOME");
+  ok(await api("POST", `/v1/admin/affiliate-complaints/${c1.id}/conclude`, { token: ct, body: { upheld: true, findings: "Admitted promising a win.", outcome: "WARNING" } }));
+  assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id = $1 AND title = 'Formal warning'", [a.id])).rows.length);
+  assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id = $1 AND title = 'Your report has been looked into'", [p.id])).rows.length);
+  await assert.rejects(pool.query("UPDATE affiliate_complaints SET outcome = 'NO_ACTION' WHERE id = $1", [c1.id]), /final/);
+
+  // The second report: linked to the affiliate during the investigation; upheld; the affiliate is suspended in the same step.
+  ok(await api("POST", `/v1/admin/affiliate-complaints/${c2.id}/investigate`, { token: ct2, body: { affiliateId: aff.id } }));
+  ok(await api("POST", `/v1/admin/affiliate-complaints/${c2.id}/conclude`, { token: ct2, body: { upheld: true, findings: "Paid for sign-ups at Suleja market.", outcome: "SUSPENDED" } }));
+  assert.equal(ok(await api("GET", "/v1/me/affiliate", { token: a.token })).affiliate.status, "SUSPENDED");
+  fails(await api("GET", "/v1/me/affiliate/materials", { token: a.token }), 403, "NOT_AN_AFFILIATE");
+
+  // Staff can record a complaint, but not investigate their own.
+  const sc = ok(await api("POST", "/v1/admin/affiliate-complaints", { token: ct, body: { affiliateId: aff.id, category: "UNDERAGE", description: "Seen handing leaflets at a secondary school." } }));
+  fails(await api("POST", `/v1/admin/affiliate-complaints/${sc.id}/investigate`, { token: ct, body: {} }), 403, "SAME_PERSON");
+  ok(await api("POST", `/v1/admin/affiliate-complaints/${sc.id}/investigate`, { token: ct2, body: {} }));
+  ok(await api("POST", `/v1/admin/affiliate-complaints/${sc.id}/conclude`, { token: ct2, body: { upheld: true, findings: "Confirmed by the school.", outcome: "TERMINATED" } }));
+  assert.equal(ok(await api("GET", "/v1/me/affiliate", { token: a.token })).affiliate.status, "TERMINATED");
+  assert.deepEqual((await pool.query("SELECT status FROM affiliate_history WHERE affiliate_id = $1 ORDER BY id", [aff.id])).rows.map((x) => x.status),
+    ["APPLIED", "APPROVED", "WARNED", "SUSPENDED", "TERMINATED"]);
+});
+
 test("statutory deductions on winnings: the rate is fixed on the campaign and published; every cash award records gross, deduction and net", async () => {
   const fin = admins.finance!.token;
   const balanceOf = async (code: string) => Number((await pool.query("SELECT coalesce(balance_kobo, 0)::bigint AS b FROM ledger_balances WHERE code = $1", [code])).rows[0]?.b ?? 0);
