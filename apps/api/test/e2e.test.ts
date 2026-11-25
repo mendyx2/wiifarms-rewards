@@ -1863,7 +1863,7 @@ test("stockist portal: centres approved by two people, vouchers verified and red
   const [c1, c2] = claims;
 
   // STK-003: stock sent to a centre ahead of claims, with a recorded move; the database refuses a move without one.
-  const third = (await pool.query("SELECT u.id FROM stock_units u WHERE u.sku_id = $1 AND NOT EXISTS (SELECT 1 FROM prize_claims pc WHERE pc.stock_unit_id = u.id) LIMIT 1", [rice])).rows[0].id;
+  const third = (await pool.query("SELECT id FROM stock_units WHERE sku_id = $1 AND status = 'IN_STOCK'", [rice])).rows[0].id; // the bag not reserved as a prize
   await assert.rejects(pool.query("UPDATE stock_units SET stockist_id = $2 WHERE id = $1", [third, sub.id]), /recorded stock movement/);
 
   // The winner collects at the centre: dispatch moves the unit there and issues a voucher.
