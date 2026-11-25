@@ -71,7 +71,7 @@ export async function dashboard(ctx: Ctx, admin: Admin): Promise<unknown> {
   requireRole(admin, "CYCLE_MANAGER", "FINANCE", "PAYOUT_APPROVER", "COMPLIANCE", "AUDITOR", "FULFILMENT");
   const cycles = await ctx.pool.query(
     `SELECT c.id, c.name, c.status, c.mode, c.ticket_price_kobo, c.total_tickets, c.sales_close_at, c.draw_at,
-            c.escrow_funded_kobo,
+            c.escrow_funded_kobo, c.winnings_tax_bp,
             (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status IN ('SOLD','REVEALED'))::int AS sold,
             (SELECT count(*) FROM tickets t WHERE t.cycle_id = c.id AND t.status = 'REVEALED')::int AS revealed,
             -coalesce((SELECT balance_kobo FROM ledger_balances WHERE code = 'TICKET_REVENUE:' || c.id), 0) AS revenue_kobo,
@@ -83,16 +83,19 @@ export async function dashboard(ctx: Ctx, admin: Admin): Promise<unknown> {
             (SELECT count(*) FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id
               WHERE pt.cycle_id = c.id AND pt.kind = 'MERCHANDISE' AND pc.status NOT IN ('DELIVERED','EXPIRED','VOID'))::int AS merchandise_outstanding
      FROM cycles c ORDER BY c.created_at DESC`);
-  const totals = await one<{ winnings_payable_kobo: number; payouts_in_transit_kobo: number; gateway_clearing_kobo: number; ledger_sum: number }>(
+  const totals = await one<{ winnings_payable_kobo: number; payouts_in_transit_kobo: number; deductions_held_kobo: number; affiliate_fees_owed_kobo: number; gateway_clearing_kobo: number; ledger_sum: number }>(
     ctx.pool,
     `SELECT -coalesce(sum(balance_kobo) FILTER (WHERE code LIKE 'PLAYER_WINNINGS:%'), 0)::bigint AS winnings_payable_kobo,
             -coalesce(sum(balance_kobo) FILTER (WHERE code = 'PAYOUTS_IN_TRANSIT'), 0)::bigint AS payouts_in_transit_kobo,
+            -coalesce(sum(balance_kobo) FILTER (WHERE code = 'STATUTORY_DEDUCTIONS_PAYABLE'), 0)::bigint AS deductions_held_kobo,
+            -coalesce(sum(balance_kobo) FILTER (WHERE code LIKE 'AFFILIATE_PAYABLE:%'), 0)::bigint AS affiliate_fees_owed_kobo,
             coalesce(sum(balance_kobo) FILTER (WHERE code = 'GATEWAY_CLEARING'), 0)::bigint AS gateway_clearing_kobo,
             coalesce(sum(balance_kobo), 0)::bigint AS ledger_sum
      FROM ledger_balances`);
-  const pending = await one<{ payouts: number; alerts: number }>(
+  const pending = await one<{ payouts: number; alerts: number; affiliate_applications: number }>(
     ctx.pool,
     `SELECT (SELECT count(*) FROM payouts WHERE status = 'PENDING_APPROVAL')::int AS payouts,
+            (SELECT count(*) FROM affiliates WHERE status = 'APPLIED')::int AS affiliate_applications,
             (SELECT count(*) FROM compliance_alerts WHERE status = 'OPEN')::int AS alerts`);
   return {
     cycles: cycles.rows.map((c) => ({

@@ -9,6 +9,7 @@ import { accounts, post } from "../ledger.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { GAME_CORE_VERSION, cycleKeyContext, getCycle } from "./cycles.ts";
 import { autoRevealCycle } from "./tickets.ts";
+import { payCashPrize } from "./deductions.ts";
 
 /**
  * Records one person's sign-off for a cycle's draw. Operators sign as
@@ -105,8 +106,8 @@ export async function executeDraw(ctx: Ctx, admin: Admin, cycleId: string): Prom
       const tier = tiers.rows.find((t) => t.id === w.prizeId)!;
       await db.query("INSERT INTO draw_winners (cycle_id, prize_tier_id, position, ticket_id) VALUES ($1, $2, $3, $4)", [cycleId, w.prizeId, w.position, ticket.id]);
       if (tier.kind === "CASH") {
-        // Cash goes to the winner's winnings balance; taking it out still passes the payout controls.
-        await post(db, { kind: "DRAW_PRIZE", reference: `ticket:${ticket.id}:draw`, cycleId, debit: accounts.prizeExpense(cycleId), credit: accounts.playerWinnings(ticket.owner_id), amountKobo: tier.cash_kobo! });
+        // Cash goes to the winner's winnings balance, less any statutory deduction; taking it out still passes the payout controls.
+        await payCashPrize(db, { ticketId: ticket.id, stage: "FINAL_DRAW", userId: ticket.owner_id, cycleId, grossKobo: tier.cash_kobo! });
       }
       await db.query(
         `INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at)

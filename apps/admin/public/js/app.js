@@ -175,16 +175,23 @@ async function finance() {
   // Period summary
   const summaryBox = el("div");
   const showSummary = async () => {
-    const s = await get(`/v1/admin/finance/summary?from=${summaryRange.from}&to=${summaryRange.to}`);
+    const [s, dd] = await Promise.all([get(`/v1/admin/finance/summary?from=${summaryRange.from}&to=${summaryRange.to}`),
+      get(`/v1/admin/reports/deductions?from=${summaryRange.from}&to=${summaryRange.to}`)]);
     summaryBox.replaceChildren(el("div", { class: "tiles" },
       el("div", { class: "tile" }, el("span", {}, "Collected"), el("b", {}, naira(s.collected_kobo)), el("small", {}, `${num(s.purchases)} purchases`)),
       el("div", { class: "tile" }, el("span", {}, "Refunded"), el("b", {}, naira(s.refunded_kobo))),
       el("div", { class: "tile" }, el("span", {}, "Cash prizes awarded"), el("b", {}, naira(s.cash_prizes_kobo))),
       el("div", { class: "tile" }, el("span", {}, "Paid out to winners"), el("b", {}, naira(s.paid_out_kobo))),
+      el("div", { class: "tile" }, el("span", {}, "Affiliate fees"), el("b", {}, naira(s.affiliate_fees_kobo))),
       el("div", { class: "tile" }, el("span", {}, "Operating expenses"), el("b", {}, naira(s.operating_expenses_kobo))),
       el("div", { class: "tile " + (s.result_kobo >= 0 ? "ok" : "warn") }, el("span", {}, "Result (before merchandise)"), el("b", {}, naira(s.result_kobo))),
       el("div", { class: "tile " + (s.days_mismatched ? "bad" : "ok") }, el("span", {}, "Reconciliation"), el("b", {}, `${s.days_signed_off} signed off`), el("small", {}, `${s.days_mismatched} with differences`))),
-      s.expensesByCategory.length ? el("p", { class: "sub" }, "Expenses: " + s.expensesByCategory.map((x) => `${catText(x.category)} ${naira(x.amount_kobo)}`).join(" · ")) : null);
+      s.expensesByCategory.length ? el("p", { class: "sub" }, "Expenses: " + s.expensesByCategory.map((x) => `${catText(x.category)} ${naira(x.amount_kobo)}`).join(" · ")) : null,
+      el("h3", {}, "Statutory deductions on winnings"),
+      dd.warning ? el("div", { class: "note bad" }, dd.warning) : null,
+      el("p", { class: "sub" }, `${num(dd.totals.awards)} cash awards · ${naira(dd.totals.gross_kobo)} gross · ${naira(dd.totals.deduction_kobo)} withheld · ${naira(dd.totals.net_kobo)} paid to winners. Held for the tax authority now: ${naira(dd.heldForAuthorityKobo)}.`),
+      dd.days.length ? table(["Day", "Cycle", "#Rate", "#Awards", "#Gross", "#Withheld", "#Net"], dd.days.map((x) => el("tr", {},
+        td(x.day), td(x.cycle), td(`${x.rate_bp / 100}%`, true), td(num(x.awards), true), td(naira(x.gross_kobo), true), td(naira(x.deduction_kobo), true), td(naira(x.net_kobo), true)))) : null);
   };
   const range = el("form", { class: "form", onsubmit: action(async () => { summaryRange = { from: v(range, "from"), to: v(range, "to") }; await showSummary(); }, false) },
     input("From", { name: "from", type: "date", value: summaryRange.from }), input("To", { name: "to", type: "date", value: summaryRange.to }), el("button", { class: "btn ghost", type: "submit" }, "Show"));
@@ -489,6 +496,9 @@ async function dashboard() {
   const d = await get("/v1/admin/dashboard");
   const live = d.cycles.find((c) => ["OPEN", "CLOSED", "DRAWN", "SETTLING"].includes(c.status)) ?? d.cycles[0];
   const nodes = [el("h1", {}, "Dashboard"), el("p", { class: "sub" }, "All figures are calculated from ticket records and the ledger — none are typed in.")];
+  if (live && !live.winnings_tax_bp) {
+    nodes.push(el("div", { class: "note bad" }, "The deduction rate on winnings is 0% for this campaign. Confirm the statutory rate with legal and finance and set it (WR_WINNINGS_TAX_BP) before the next campaign is created; it is fixed on each campaign when it is created."));
+  }
   if (live) {
     const liability = live.outstanding_instant_liability_kobo + live.final_draw_cash_commitment_kobo + d.totals.winnings_payable_kobo + d.totals.payouts_in_transit_kobo;
     const cover = live.escrow_funded_kobo ?? 0;
@@ -505,6 +515,8 @@ async function dashboard() {
     el("div", { class: "tile" }, el("span", {}, "Winnings owed to players"), el("b", {}, naira(d.totals.winnings_payable_kobo))),
     el("div", { class: "tile" }, el("span", {}, "Payouts in progress"), el("b", {}, naira(d.totals.payouts_in_transit_kobo)), el("small", {}, `${d.pending.payouts} awaiting approval`)),
     el("div", { class: "tile" }, el("span", {}, "Cash held (gateway clearing)"), el("b", {}, naira(d.totals.gateway_clearing_kobo))),
+    el("div", { class: "tile" }, el("span", {}, "Deductions held for the tax authority"), el("b", {}, naira(d.totals.deductions_held_kobo))),
+    el("div", { class: "tile" }, el("span", {}, "Affiliate fees owed"), el("b", {}, naira(d.totals.affiliate_fees_owed_kobo)), el("small", {}, `${d.pending.affiliate_applications} applications to review`)),
     el("div", { class: "tile " + (d.totals.ledger_balanced ? "ok" : "bad") }, el("span", {}, "Ledger"), el("b", {}, d.totals.ledger_balanced ? "Balanced" : "OUT OF BALANCE"), el("small", {}, "debits equal credits")),
     el("div", { class: "tile " + (d.pending.alerts ? "bad" : "ok") }, el("span", {}, "Compliance alerts"), el("b", {}, d.pending.alerts + " open")),
     await reconciliationTile()));
@@ -1085,7 +1097,78 @@ function imageUpload(tierId) {
   return file;
 }
 
-const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, popups: popupsPage, audit: auditPage, access };
+const AFF_STATUS = { APPLIED: ["Applied", "gold"], APPROVED: ["Approved", ""], REJECTED: ["Rejected", "grey"], SUSPENDED: ["Suspended", "gold"], TERMINATED: ["Ended", "grey"] };
+
+/** Affiliates (SRS section 13): applications, the fee programme switch, settlements. */
+async function affiliatesPage() {
+  const d = await get("/v1/admin/affiliates");
+  const p = d.programme;
+  const nodes = [el("h1", {}, "Affiliates"),
+    el("p", { class: "sub" }, "Authorised marketing affiliates. Compliance approves, suspends and ends affiliates. Fees are paid only while the fee programme is switched on, which needs two people and the legal approval's reference. Affiliates earn only on purchases by the players they brought in their territory: no downlines, no recruitment bonuses. Players earn nothing for inviting friends.")];
+  const pendingChange = d.programmeChanges.find((c) => c.status === "PENDING");
+  nodes.push(el("div", { class: "card" },
+    el("b", {}, "Fee programme"),
+    el("p", {}, p.remuneration_enabled ? pill(`Fees on: ${p.rate_bp / 100}%`) : pill("Fees off", "grey"), p.legal_reference ? el("span", { class: "sub" }, ` legal approval ${p.legal_reference}`) : null),
+    !p.remuneration_enabled ? el("div", { class: "note bad" }, "Affiliate remuneration is disabled until legally approved (SRS go-live checklist). Sales by attributed players are still recorded, with a fee of 0.") : null,
+    pendingChange ? el("div", { class: "note" }, `Waiting for a decision: switch fees ${pendingChange.enable ? `on at ${pendingChange.rate_bp / 100}%` : "off"}` +
+        `${pendingChange.legal_reference ? ` (legal approval ${pendingChange.legal_reference})` : ""}, requested by ${pendingChange.requested_by_name}: ${pendingChange.reason}`,
+      pendingChange.requested_by !== me.id && can("COMPLIANCE", "FINANCE") ? el("div", { class: "actions" },
+        el("button", { class: "btn small", onclick: action(async () => { await post(`/v1/admin/affiliate-programme/changes/${pendingChange.id}/decision`, { approve: true }); return "Fee programme changed."; }) }, "Approve"),
+        el("button", { class: "btn small ghost", onclick: action(async () => {
+          const reason = prompt("Why is this change rejected?"); if (!reason) return;
+          await post(`/v1/admin/affiliate-programme/changes/${pendingChange.id}/decision`, { approve: false, reason }); return "Rejected.";
+        }) }, "Reject")) : null) : null,
+    !pendingChange && can("COMPLIANCE", "FINANCE") ? (() => {
+      const form = el("form", { onsubmit: action(async () => {
+        const enable = v(form, "enable") === "on";
+        await post("/v1/admin/affiliate-programme/changes", { enable, ratePercent: Number(v(form, "rate")), reason: v(form, "reason"),
+          ...(v(form, "legal") ? { legalReference: v(form, "legal") } : {}) });
+        return "Change requested. Someone else must approve it.";
+      }) },
+        el("div", { class: "form" },
+          select("Fees", "enable", [["on", "Switch on"], ["off", "Switch off"]]),
+          input("Rate (%)", { name: "rate", type: "number", min: 0, max: 5, step: 0.1, value: String(p.rate_bp / 100), required: true }),
+          input("Legal approval reference (required to switch on)", { name: "legal", maxlength: 200 }),
+          input("Reason", { name: "reason", required: true, maxlength: 500 })),
+        el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Request change")));
+      return form;
+    })() : null));
+  nodes.push(el("div", { class: "card" }, d.affiliates.length ? table(["Affiliate", "Territory", "Status", "#Sign-ups", "#Sales", "#Unsettled fees", ""], d.affiliates.map((a) => el("tr", {},
+    td([el("b", {}, `${a.reference} · ${a.business_name}`), el("div", { class: "sub" }, `${a.full_name} · ${a.contact_email}`),
+      el("div", { class: "sub" }, `Promotes: ${a.channels}`), el("div", { class: "sub" }, `Liveness ${a.kyc_tier >= 2 ? "✓" : "✗"} · bank name ${a.bank_name_match ? "matches" : "does not match"} · agreement ${a.agreement_version}`),
+      a.attribution_code ? el("div", { class: "sub" }, `Code ${a.attribution_code}`) : null]),
+    td(a.territory_state + (a.territory_area ? ` · ${a.territory_area}` : "")),
+    td(pill(...(AFF_STATUS[a.status] ?? [a.status]))),
+    td(num(a.sign_ups), true), td(naira(a.sales_kobo), true), td(naira(a.unsettled_kobo), true),
+    td(el("div", { class: "actions" },
+      can("COMPLIANCE") ? affiliateActions(a) : null,
+      can("FINANCE") && a.unsettled_kobo > 0 && !a.open_settlement ? el("button", { class: "btn small", onclick: action(async () => {
+        const r = await post(`/v1/admin/affiliates/${a.id}/settlements`); return `Settlement of ${naira(r.amountKobo)} prepared. A payout approver must approve it.`;
+      }) }, "Prepare settlement") : null,
+      a.open_settlement ? el("div", { class: "sub" }, `Settlement ${naira(a.open_settlement.amount_kobo)} waiting`) : null,
+      a.open_settlement && can("PAYOUT_APPROVER") && a.open_settlement.prepared_by !== me.id ? [
+        el("button", { class: "btn small", onclick: action(async () => { const r = await post(`/v1/admin/affiliate-settlements/${a.open_settlement.id}/decision`, { approve: true }); return `Paid (${r.paymentRef}).`; }) }, "Approve and pay"),
+        el("button", { class: "btn small ghost", onclick: action(async () => {
+          const reason = prompt("Why is this settlement rejected?"); if (!reason) return;
+          await post(`/v1/admin/affiliate-settlements/${a.open_settlement.id}/decision`, { approve: false, reason }); return "Rejected.";
+        }) }, "Reject")] : null))))) : el("p", { class: "sub" }, "No applications yet.")));
+  return nodes;
+}
+
+function affiliateActions(a) {
+  const act = (decision, label, ask, tone = "ghost") => el("button", { class: `btn small ${tone}`, onclick: action(async () => {
+    const reason = ask ? prompt(ask) : undefined;
+    if (ask && !reason) return;
+    await post(`/v1/admin/affiliates/${a.id}/decision`, { decision, ...(reason ? { reason } : {}) });
+    return `Affiliate ${{ APPROVE: "approved", REJECT: "rejected", SUSPEND: "suspended", REINSTATE: "reinstated", TERMINATE: "ended" }[decision]}.`;
+  }) }, label);
+  if (a.status === "APPLIED") return [act("APPROVE", "Approve", null, ""), act("REJECT", "Reject", "Why is the application rejected?")];
+  if (a.status === "APPROVED") return [act("SUSPEND", "Suspend", "Why is this affiliate suspended?"), act("TERMINATE", "End", "Why is this affiliate's agreement ended?", "ghost danger")];
+  if (a.status === "SUSPENDED") return [act("REINSTATE", "Reinstate", "Why is this affiliate reinstated?"), act("TERMINATE", "End", "Why is this affiliate's agreement ended?", "ghost danger")];
+  return null;
+}
+
+const ROUTES = { dashboard, cycles, cycle, approvals, payouts, refunds, nok: nokPage, support: supportPage, ticket: ticketPage, finance, merchandise, popups: popupsPage, affiliates: affiliatesPage, audit: auditPage, access };
 let renderId = 0;
 
 async function render() {

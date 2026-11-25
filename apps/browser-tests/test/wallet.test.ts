@@ -1,6 +1,6 @@
 // Inviting friends and the wallet, in the browser: an invite link fills in the
-// code at sign-up, the friend's purchase pays the inviter 2.5% into their
-// wallet, and the wallet pays for cards with the PIN.
+// code at sign-up (inviting earns nothing since the affiliate model), and the
+// wallet pays for cards with the PIN.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { accounts, post } from "@wiifarm/api/ledger.ts";
@@ -11,7 +11,7 @@ let s: Stack;
 before(async () => { s = await startStack(); });
 after(async () => { await s?.stop(); });
 
-test("an invite link fills in the code, the friend's purchase pays the inviter, and the wallet buys cards with the PIN", async () => {
+test("an invite link fills in the code, and the wallet buys cards with the PIN", async () => {
   const inviter = await apiPlayer(s, "08039990101", "Fatima Danladi");
   const { code } = await call(s, "GET", "/v1/me/referrals", { token: inviter.token });
 
@@ -44,16 +44,16 @@ test("an invite link fills in the code, the friend's purchase pays the inviter, 
   await f.waitForSelector(".ticket");
   await assertClean(f, "invited friend");
 
-  // The inviter has earned 2.5% of ₦5,000 = ₦125. (A ₦500 credit is added here so a card can be bought from the wallet.)
+  // The inviter has earned nothing from it. (₦625 is credited here so a card can be bought from the wallet.)
   const inviterId = (await s.pool.query("SELECT id FROM users WHERE phone_e164 = '+2348039990101'")).rows[0].id as string;
-  await withTx(s.pool, (db) => post(db, { kind: "ADJUSTMENT", reference: "test:credit:inviter", memo: "test set-up", debit: accounts.companyBank(), credit: accounts.playerWinnings(inviterId), amountKobo: 50_000 }));
+  await withTx(s.pool, (db) => post(db, { kind: "ADJUSTMENT", reference: "test:credit:inviter", memo: "test set-up", debit: accounts.companyBank(), credit: accounts.playerWinnings(inviterId), amountKobo: 62_500 }));
   const p = await newPage(s);
   answerDialogs(p);
   await playerSignIn(p, s, "08039990101");
   await p.click("#tabs a[data-tab=wallet]");
   await p.waitForSelector("h1:has-text('Wallet')");
   assert.equal((await p.innerText(".balance")).trim(), "₦625");
-  assert.ok((await p.locator(".row b").allInnerTexts()).includes("Referral earnings"));
+  assert.ok(!(await p.locator(".row b").allInnerTexts()).includes("Referral earnings"));
 
   // Paying from the wallet asks for the PIN again.
   await p.click("text=Buy cards from my wallet");

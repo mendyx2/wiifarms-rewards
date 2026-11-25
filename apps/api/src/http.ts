@@ -23,6 +23,8 @@ import * as tickets from "./modules/tickets.ts";
 import * as referrals from "./modules/referrals.ts";
 import * as promo from "./modules/promo.ts";
 import * as wallet from "./modules/wallet.ts";
+import * as affiliates from "./modules/affiliates.ts";
+import * as deductions from "./modules/deductions.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
 const str = (max = 200) => ({ type: "string", minLength: 1, maxLength: max });
@@ -292,6 +294,15 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     return cycles.acceptRules(ctx, actorOf(u.id, req), u.id, req.params.id);
   });
   app.get("/v1/me/referrals", async (req) => referrals.referralSummary(ctx, (await player(req)).id));
+  // Affiliates: a separate application, approved by Compliance (SRS section 13).
+  app.get("/v1/me/affiliate", async (req) => affiliates.affiliateDashboard(ctx, (await player(req)).id));
+  app.post<{ Body: affiliates.AffiliateApplication }>("/v1/me/affiliate", {
+    schema: body({ businessName: str(120), contactEmail: str(200), territoryArea: str(120), channels: str(500), bankAccountId: uuid,
+      acceptAgreement: { type: "boolean" }, trainingCompleted: { type: "boolean" } }, ["territoryArea"]),
+  }, async (req) => {
+    const u = await player(req);
+    return affiliates.applyAsAffiliate(ctx, actorOf(u.id, req), u, req.body);
+  });
   app.post<{ Body: { paymentRef: string } }>("/v1/simulated-gateway/pay", { schema: body({ paymentRef: str(64) }) }, async (req) => {
     const u = await player(req);
     return tickets.simulatePayment(ctx, u, req.body.paymentRef);
@@ -514,6 +525,26 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   step("archive/request", (a, id) => archive.requestArchive(ctx, a, id));
   step("archive/confirm", (a, id) => archive.confirmArchive(ctx, a, id));
   app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id/archive", { schema: idParam }, async (req) => ({ checks: await archive.archiveReadiness(ctx, await staff(req), req.params.id) }));
+
+  // Affiliates, the fee programme switch and settlements; statutory deductions.
+  app.get("/v1/admin/affiliates", async (req) => affiliates.listAffiliates(ctx, await staff(req)));
+  app.post<{ Params: { id: string }; Body: { decision: "APPROVE" | "REJECT" | "SUSPEND" | "REINSTATE" | "TERMINATE"; reason?: string } }>("/v1/admin/affiliates/:id/decision", {
+    schema: { ...idParam, ...body({ decision: { enum: ["APPROVE", "REJECT", "SUSPEND", "REINSTATE", "TERMINATE"] }, reason: str(500) }, ["reason"]) },
+  }, async (req) => affiliates.decideAffiliate(ctx, await staff(req), req.params.id, req.body.decision, req.body.reason));
+  app.post<{ Body: { enable: boolean; ratePercent: number; legalReference?: string; reason: string } }>("/v1/admin/affiliate-programme/changes", {
+    schema: body({ enable: { type: "boolean" }, ratePercent: { type: "number", minimum: 0, maximum: 5 }, legalReference: str(200), reason: str(500) }, ["legalReference"]),
+  }, async (req) => affiliates.requestProgrammeChange(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/affiliate-programme/changes/:id/decision", {
+    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
+  }, async (req) => affiliates.decideProgrammeChange(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+  app.post<{ Params: { id: string } }>("/v1/admin/affiliates/:id/settlements", { schema: idParam },
+    async (req) => affiliates.prepareSettlement(ctx, await staff(req), req.params.id));
+  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/affiliate-settlements/:id/decision", {
+    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
+  }, async (req) => affiliates.decideSettlement(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+  app.get<{ Querystring: { from: string; to: string } }>("/v1/admin/reports/deductions", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } }, required: ["from", "to"] } },
+  }, async (req) => deductions.deductionsReport(ctx, await staff(req), req.query.from, req.query.to));
 
   // Pop-up announcements and prize pictures.
   app.get("/v1/admin/flash", async (req) => ({ messages: await promo.listFlash(ctx, await staff(req)) }));

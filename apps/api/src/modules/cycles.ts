@@ -22,7 +22,7 @@ export const GAME_CORE_VERSION = engineVersion();
 export interface CycleRow {
   id: string; name: string; mode: string; state_code: string; status: string;
   ticket_price_kobo: number; total_tickets: number; max_tickets_per_account: number; max_tickets_per_day: number; levels: number;
-  prize_share_bp: number; instant_share_bp: number;
+  prize_share_bp: number; instant_share_bp: number; winnings_tax_bp: number;
   sales_open_at: Date; sales_close_at: Date; draw_at: Date; claim_window_days: number;
   rules_document_ref: string | null; auditor_admin_id: string | null; created_by: string; rules_sha256: Buffer | null;
 }
@@ -72,11 +72,11 @@ export async function createCycle(ctx: Ctx, admin: Admin, input: NewCycle): Prom
     const r = await db.query<{ id: string }>(
       `INSERT INTO cycles (name, mode, ticket_price_kobo, total_tickets, max_tickets_per_account,
                            sales_open_at, sales_close_at, draw_at, claim_window_days, created_by,
-                           prize_share_bp, instant_share_bp, max_tickets_per_day, levels)
-       VALUES ($1, 'SIMULATED', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+                           prize_share_bp, instant_share_bp, max_tickets_per_day, levels, winnings_tax_bp)
+       VALUES ($1, 'SIMULATED', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
       [input.name, input.ticketPriceKobo, input.totalTickets, input.maxTicketsPerAccount,
         input.salesOpenAt, input.salesCloseAt, input.drawAt, input.claimWindowDays ?? 90, admin.id,
-        policy.prizeShareBp, policy.instantShareBp, policy.cardsPerDay, levels]).catch(asConflict);
+        policy.prizeShareBp, policy.instantShareBp, policy.cardsPerDay, levels, policy.winningsTaxBp]).catch(asConflict);
     await audit(db, adminActor(admin), "cycle.created", "cycle", r.rows[0]!.id, { ...input });
     return { id: r.rows[0]!.id };
   });
@@ -369,7 +369,7 @@ export async function levelStatus(db: Db | Ctx["pool"], cycleId: string): Promis
 
 export async function listPublicCycles(ctx: Ctx): Promise<unknown[]> {
   const r = await ctx.pool.query<{ id: string; tickets_remaining: number }>(
-    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day, c.winnings_tax_bp,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days
      FROM cycles c WHERE c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id))
      ORDER BY c.sales_open_at DESC`);
@@ -380,7 +380,7 @@ export async function listPublicCycles(ctx: Ctx): Promise<unknown[]> {
 export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown> {
   const c = await one<Record<string, unknown> & { total_tickets: number }>(
     ctx.pool,
-    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day,
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day, c.winnings_tax_bp,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.rules_document_ref, encode(c.rules_sha256, 'hex') AS rules_sha256,
             c.prize_share_bp, c.instant_share_bp
      FROM cycles c WHERE c.id = $1 AND (c.status IN ('COMMITTED','OPEN','CLOSED','DRAWN','SETTLING','ARCHIVED') OR (c.status = 'VOID' AND EXISTS (SELECT 1 FROM cycle_commitments cc WHERE cc.cycle_id = c.id)))`, [cycleId]);
@@ -413,8 +413,8 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
  * final-draw prize; a player with several cards can win more than one).
  */
 export async function gameRules(ctx: Ctx, cycleId: string): Promise<unknown> {
-  const c = await one<{ name: string; total_tickets: number; ticket_price_kobo: number; rules_text: string | null; rules_sha256: Buffer | null; status: string; draw_at: Date; claim_window_days: number }>(ctx.pool,
-    "SELECT name, total_tickets, ticket_price_kobo, rules_text, rules_sha256, status, draw_at, claim_window_days FROM cycles WHERE id = $1 AND status NOT IN ('DRAFT','SUBMITTED','APPROVED')", [cycleId]);
+  const c = await one<{ name: string; total_tickets: number; ticket_price_kobo: number; rules_text: string | null; rules_sha256: Buffer | null; status: string; draw_at: Date; claim_window_days: number; winnings_tax_bp: number }>(ctx.pool,
+    "SELECT name, total_tickets, ticket_price_kobo, rules_text, rules_sha256, status, draw_at, claim_window_days, winnings_tax_bp FROM cycles WHERE id = $1 AND status NOT IN ('DRAFT','SUBMITTED','APPROVED')", [cycleId]);
   if (!c) throw notFound("Cycle not found.");
   const tiers = (await ctx.pool.query<{ stage: string; title: string; cash_kobo: number | null; quantity: number }>(
     "SELECT stage, title, cash_kobo, quantity FROM prize_tiers WHERE cycle_id = $1 ORDER BY stage DESC, draw_order NULLS LAST, cash_kobo DESC", [cycleId])).rows;
@@ -429,6 +429,8 @@ export async function gameRules(ctx: Ctx, cycleId: string): Promise<unknown> {
     instantOneIn: odds(instantWinners), instantWinners,
     finalDraw: draw.map((t) => ({ title: t.title, quantity: t.quantity })), finalDrawPrizes: drawPrizes,
     finalDrawPercentAtFullSales: Math.round((drawPrizes / c.total_tickets) * 100_000) / 1000,
+    /** Withheld from each cash prize as a statutory deduction, fixed for the campaign. */
+    winningsTaxPercent: c.winnings_tax_bp / 100,
   };
 }
 
@@ -471,7 +473,7 @@ export async function getAdminCycle(ctx: Ctx, admin: Admin, cycleId: string): Pr
   if (!admin.roles.length) throw notFound();
   const c = await one<Record<string, unknown> & { status: string; draw_at: Date; total_tickets: number }>(
     ctx.pool,
-    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day, c.levels,
+    `SELECT c.id, c.name, c.status, c.mode, c.state_code, c.ticket_price_kobo, c.total_tickets, c.max_tickets_per_account, c.max_tickets_per_day, c.levels, c.winnings_tax_bp,
             c.sales_open_at, c.sales_close_at, c.draw_at, c.claim_window_days, c.financial_model_ref, c.rules_document_ref,
             encode(c.rules_sha256, 'hex') AS rules_sha256, c.escrow_reference, c.escrow_funded_kobo,
             c.auditor_admin_id, au.full_name AS auditor_name, c.created_by, cb.full_name AS created_by_name,

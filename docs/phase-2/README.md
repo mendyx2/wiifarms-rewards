@@ -315,10 +315,9 @@ Built from management's instructions of 23 November 2026.
 - Each person can buy **at most 10 cards per Nigerian calendar day** (`WR_CARDS_PER_DAY`), in any number of purchases. At ₦500 that is exactly the default ₦5,000 daily spending limit. The buy screen shows "cards today", offers 1, 3, 5 or 10, and explains that each card is one entry in the final draw.
 - **Speed at scale (measured):** 400,000 cards generated and committed in about 20 seconds; about 73 purchases of 10 cards per second (a full sell-out at maximum rush in about 9 minutes); the final draw over 400,000 entries in about 13 seconds. If nobody scratched their cards, revealing all 400,000 takes about 5 minutes, so it now runs in the background as soon as sales close rather than when the draw is started.
 
-### Referrals ("affiliates")
-- **Every player has an invite code from sign-up; there is no separate affiliate sign-up.** Invite links look like `/r/ABC2345` and fill the code in automatically; it can also be typed.
-- **The referrer earns 2.5% of every card purchase their invited friends make** (₦12.50 per ₦500 card), paid straight into their wallet (`WR_REFERRAL_BP`). **It is paid from the operator's 50%, never from prize money**: it is booked as a cost of the season (`REFERRAL_EXPENSE`), and the finance reports show it as its own line, with the season's contribution after commissions.
-- **Safeguards:** who referred an account is fixed when it is opened and cannot be changed, even in the database. One level only — no earnings from people your friends invite. If a purchase is refunded (or the season cancelled) its commission is taken back automatically; a referrer who had already withdrawn it shows as owing, and Compliance is alerted. People on the staff and exclusion register earn nothing. Referrers never see who their friends are — only counts and amounts.
+### Invite codes (no earnings — replaced by the SRS affiliate model)
+- **Every player still has an invite code from sign-up** to share (`/r/ABC2345` links fill it in at sign-up). Inviting is counted (friends joined, friends who played) but **earns nothing**: the board adopted the SRS affiliate model, so marketing fees are for authorised affiliates only (below).
+- Who invited an account is still fixed when it is opened. Commissions paid under the earlier model remain in the records and are still taken back if their purchase is refunded.
 
 ### Digital cards: scratch, then Accept
 - Every card is digital. The player scratches it by swiping a finger across it on their phone (or taps *Reveal now*); the result underneath was fixed before sale and the phone checks it against the published fingerprint.
@@ -326,13 +325,13 @@ Built from management's instructions of 23 November 2026.
 - **No prize is lost by not tapping.** Prizes still waiting are accepted for the player when the season closes, when it is cancelled (revealed prizes are honoured), and for cards revealed automatically after close. A refunded purchase forfeits its unaccepted prizes, as it forfeits accepted ones.
 
 ### The wallet
-- One wallet per player holds **winnings and referral earnings**, in the double-entry ledger. It can be **withdrawn from ₦500** to a bank account in the player's own verified name, with the PIN (as before), **or spent on cards**.
+- One wallet per player holds **winnings** (net of any statutory deduction), in the double-entry ledger. It can be **withdrawn from ₦500** to a bank account in the player's own verified name, with the PIN (as before), **or spent on cards**.
 - Paying from the wallet asks for the PIN again, and is settled in one database transaction while the player's account is locked against other spending, so the same money cannot be spent or withdrawn twice. Wallet purchases count towards spending limits and the daily card limit like any other, and refunds go back to the wallet.
 - Daily reconciliation compares money through the payment provider, so wallet purchases and wallet refunds (which never pass through it) are kept out of that check and reported separately as wallet sales.
 
 ### Sharing and engagement
 Built in the style of shopping apps such as Temu — invites, sharing, live activity, countdowns, pop-ups and badges — **but only with true information, because this is gambling**: no invented countdowns or "only 3 left" messages, no rewards for spending more, and nothing shown to people who are taking a break.
-- **Invite & earn** screen: the code, the link, the phone's own share sheet, WhatsApp, Facebook, X and Telegram buttons, copy link, and counts of friends joined and earnings. Every message shared says "18+ only. Play responsibly."
+- **Invite friends** screen: the code, the link, the phone's own share sheet, WhatsApp, Facebook, X and Telegram buttons, copy link, and counts of friends joined and who played. Every message shared says "18+ only. Play responsibly."
 - **Share a win** after an instant win, with the invite code.
 - **Link previews**: a title, description and picture when the link is pasted into WhatsApp or Facebook. Set `WR_PUBLIC_URL` to the live https address so the picture's link is absolute.
 - **Home screen**: a live countdown to the real closing time (then to the draw), "cards sold in the last hour", and the latest instant wins (amount and time only, never who won).
@@ -363,6 +362,27 @@ Built in the style of shopping apps such as Temu — invites, sharing, live acti
 - **Versioned game rules (REG-007, WEB-012):** a campaign's approved rules text is stored and published (it cannot change after approval, and must match its published fingerprint). Before their first purchase in a campaign, players tick that they have read and accept the rules; the exact version is recorded. The *Game rules and odds* page shows the rules and the chances: each instant prize's chance per card, the chance of any instant prize, the final-draw prizes, and the final-draw chance at full sales (each card can win at most one final-draw prize).
 - **Play summary (SRS section 7):** the Me page shows what the player has spent, won in cash, their net position, and their cards and final-draw entries.
 - **No repeat-purchase prompts (SRS section 10):** the "Buy more cards" button no longer appears after scratching.
+
+## SRS affiliates and statutory deductions on winnings
+
+### Affiliates (SRS section 13)
+- **Separate application** on the player app's *Become an affiliate* page (linked from *Invite friends*): it needs the **liveness check** (tier 2), a **bank account in the applicant's own verified name** (where fees are paid), contact details, where they will promote, the **compliance training** (shown in the app; acknowledged) and the **affiliate agreement** (version recorded; the text is a draft for legal). Territory is the applicant's verified state, with an optional area. People on the staff and exclusion register cannot apply.
+- **Compliance approves or rejects**, and can **suspend, reinstate or end** an approval, with a reason; every change is kept permanently (history table and audit log) and the affiliate is told. Rejected or ended affiliates cannot be reinstated.
+- **Attribution codes**: on approval the affiliate gets a unique 8-character code (`/r/CODE` links work as for invites; a player's code has 7 characters, so the two can never be confused). A player who opens an account with it is attributed to that affiliate **for good** (the database refuses changes). Codes of suspended or ended affiliates are refused at sign-up.
+- **Fees are off until legally approved** (SRS go-live checklist: *affiliate remuneration disabled without approval*). Switching fees on, or changing the rate (0%–5%; the SRS proposes 2.5%–5%), needs **two people** from Compliance or Finance and **the legal approval's reference**. While fees are off, each attributed purchase is still recorded with a fee of 0, so the reports are complete.
+- **What earns a fee**: purchases by the players the affiliate brought, in the affiliate's territory, while the affiliate is approved. **No downlines and no recruitment bonuses** — players brought in by an affiliate's players earn the affiliate nothing. Fees come from the operator's share (`AFFILIATE_EXPENSE` per campaign), are owed to the affiliate (`AFFILIATE_PAYABLE`, not a player wallet), and are taken back if the purchase is refunded (Compliance is alerted if they were already paid).
+- **Settlements**: Finance prepares a settlement of an affiliate's unpaid fees; a payout approver (a different person) approves it and it is paid to the affiliate's verified bank account (simulated, `SIMAFF-…` reference). Suspended affiliates are not settled until the review ends.
+- **The affiliate's page**: reference, status, territory, code and share links, sign-ups, players who bought, their purchases, fees to be paid and paid, and statements — never who the players are.
+- **Admin app → Affiliates**: applications with the checks (liveness, bank name match, agreement version), decisions, the fee programme switch with its pending request, unsettled fees and settlements. The dashboard shows fees owed and applications to review. Sign-up surges on an affiliate code (200 in 24 hours) alert Compliance.
+- *Not yet (SRS item 3, affiliate portal):* the approved content library and marketing material version control, complaints and investigations against an affiliate, and training records beyond the acknowledgement.
+
+### Statutory deductions on winnings (SRS PAY-009)
+- **A configurable rate** (`WR_WINNINGS_TAX_BP`, basis points, up to 50%) is **fixed on each campaign when it is created**, cannot change once approved (the database refuses), and is **published** on the campaign's *Game rules and odds* page.
+- **The rate is 0% until legal and finance confirm it.** The admin dashboard shows a warning for a live campaign at 0%, and so does the deductions report.
+- **Every cash award** (instant and final-draw cash) records its gross amount, rate, deduction and net in a permanent table. The winner's wallet receives the net; the deduction is held for the tax authority (`STATUTORY_DEDUCTIONS_PAYABLE`). The prize cost of the campaign is the full prize. A forfeited prize gives back both parts.
+- The winner sees it when they scratch: "₦50 statutory deduction (10%) · ₦450 to your wallet". Accepting adds the net.
+- **Reports**: Finance → *Statutory deductions on winnings* (per day and campaign: awards, gross, withheld, net, and the amount held now), `GET /v1/admin/reports/deductions`; campaign results and the spreadsheet show the deductions and affiliate fees as their own columns.
+- *Not yet:* recording remittances to the authority, and deductions on merchandise prizes (whether they apply is for legal to confirm).
 
 ## Liveness and fraud rules
 - **Liveness check before anything large.** Claiming a prize worth ₦100,000 or more (merchandise at its advertised value: the car, motorcycles) and withdrawing ₦100,000 or more need a liveness check: a short live selfie matched to the photo held for the player's identity number (simulated here; the identity provider does it in the live service). It is done once and raises the player to tier 2. A stolen phone and PIN are then not enough to take a major prize. The app takes the player to the check and back to what they were doing. Threshold: `WR_MAJOR_PRIZE_KOBO`.

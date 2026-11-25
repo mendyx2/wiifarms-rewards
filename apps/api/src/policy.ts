@@ -2,7 +2,7 @@
  * Company policy for Rewards seasons. Changing a value here affects cycles
  * drafted afterwards; each cycle keeps the values it was drafted with.
  */
-export interface Policy { prizeShareBp: number; instantShareBp: number; cardsPerDay: number; referralBp: number }
+export interface Policy { prizeShareBp: number; instantShareBp: number; cardsPerDay: number; winningsTaxBp: number }
 
 export const POLICY: Policy = {
   /** Prizes are paid from this share of full sell-out ticket sales (basis points: 5000 = 50%). */
@@ -11,8 +11,12 @@ export const POLICY: Policy = {
   instantShareBp: 500,
   /** Cards one person may buy per Nigerian calendar day in a cycle. */
   cardsPerDay: 10,
-  /** Referral commission on each referred card purchase (250 = 2.5%), paid from the operator's share. */
-  referralBp: 250,
+  /**
+   * Statutory deduction withheld from each cash prize (basis points). 0 until legal and
+   * finance confirm the rate that applies: the admin app warns while it is 0.
+   * (Affiliate fees are not set here: they are switched on by two people in the admin app.)
+   */
+  winningsTaxBp: 0,
 };
 
 const bp = (name: string, fallback: number, max = 10_000): number => {
@@ -28,7 +32,7 @@ export function policyFromEnv(): Policy {
     prizeShareBp: bp("WR_PRIZE_SHARE_BP", POLICY.prizeShareBp),
     instantShareBp: bp("WR_INSTANT_SHARE_BP", POLICY.instantShareBp),
     cardsPerDay: bp("WR_CARDS_PER_DAY", POLICY.cardsPerDay, 1000),
-    referralBp: bp("WR_REFERRAL_BP", POLICY.referralBp, 1000),
+    winningsTaxBp: bp("WR_WINNINGS_TAX_BP", POLICY.winningsTaxBp, 5000),
   };
 }
 

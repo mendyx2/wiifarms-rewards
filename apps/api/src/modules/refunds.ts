@@ -8,6 +8,8 @@ import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { getCycle } from "./cycles.ts";
 import { winningsBalance } from "./wallet.ts";
 import { reverseReferral } from "./referrals.ts";
+import { reverseAffiliateFee } from "./affiliates.ts";
+import { forfeitCashPrize } from "./deductions.ts";
 import { acceptWaitingInTx } from "./tickets.ts";
 
 /**
@@ -47,6 +49,7 @@ async function postRefund(db: Db, refundId: string, orderId: string, cycleId: st
   const to = paid?.provider === "WALLET" ? accounts.playerWinnings(paid.user_id) : accounts.gatewayClearing();
   await post(db, { kind: "REFUND", reference: `refund:${refundId}`, cycleId, debit: accounts.refundsPayable(), credit: to, amountKobo });
   await reverseReferral(db, orderId);
+  await reverseAffiliateFee(db, orderId);
 }
 
 // --- Finding purchases ----------------------------------------------------------------------
@@ -144,9 +147,7 @@ export async function decideRefund(ctx: Ctx, admin: Admin, refundId: string, app
     for (const w of won.rows) {
       await db.query("UPDATE prize_claims SET status = 'VOID', hold_reason = NULL WHERE id = $1", [w.claim_id]);
       if (w.kind === "CASH" && w.status === "PAID") {
-        await post(db, { kind: "ADJUSTMENT", reference: `ticket:${w.ticket_id}:${w.stage === "INSTANT" ? "instant" : "draw"}:forfeit`, cycleId: order!.cycle_id,
-          memo: "Prize forfeited: purchase refunded", debit: accounts.playerWinnings(order!.user_id), credit: accounts.prizeExpense(order!.cycle_id), amountKobo: w.cash_kobo! });
-        forfeitedKobo += w.cash_kobo!;
+        forfeitedKobo += await forfeitCashPrize(db, w.ticket_id, w.stage as "INSTANT" | "FINAL_DRAW", "Prize forfeited: purchase refunded");
       }
     }
 

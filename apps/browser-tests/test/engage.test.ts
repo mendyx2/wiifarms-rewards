@@ -38,7 +38,8 @@ test("invite screen and share links, live activity, countdown, milestones, achie
 
   // Invite screen: the code, a link that works, and share buttons carrying both.
   await p.click(".invite-card");
-  await p.waitForSelector("h1:has-text('Invite friends, earn 2.5%')");
+  await p.waitForSelector("h1:has-text('Invite friends')");
+  assert.match(await p.innerText("main"), /does not earn money/);
   assert.equal((await p.innerText(".code-big")).trim(), code);
   const link = `${s.base}/r/${code}`;
   const wa = await p.getAttribute(".share-whatsapp", "href");

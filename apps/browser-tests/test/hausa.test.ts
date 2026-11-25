@@ -105,6 +105,8 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await toast(p, /An aika/);
   await visit(p, s.base + "/#/invite");
   await p.waitForSelector("h1:has-text('Gayyaci abokai')");
+  await visit(p, s.base + "/#/affiliate");
+  await p.waitForSelector("h1:has-text('Zama wakili')");
 
   // A 7-day break: the buying screen explains that play is paused.
   await p.click("#tabs a[data-tab=me]");
@@ -119,7 +121,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   assert.deepEqual(await untranslated(p, serverData), [], "text shown in English in Hausa mode");
   await assertClean(p, "Hausa screens");
   // Hausa phrases are longer than the English: every screen must still fit a small phone.
-  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support", "/#/demo", "/#/invite", "/#/liveness", "/#/rules", "/#/privacy"], "main h1, main .hero");
+  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support", "/#/demo", "/#/invite", "/#/affiliate", "/#/liveness", "/#/rules", "/#/privacy"], "main h1, main .hero");
 
   // Switching back: everything is English again, and the choice is remembered after a reload.
   await visit(p, s.base + "/#/home");

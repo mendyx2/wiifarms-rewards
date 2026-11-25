@@ -9,7 +9,8 @@ import { accounts, post } from "../ledger.ts";
 import { assertSimulated, closeIfDue, cycleKeyContext, getCycle, rulesAccepted, ticketAad, type CycleRow } from "./cycles.ts";
 import { naira, notify } from "./notify.ts";
 import { activeExclusion, getLimits, onExclusionRegister, type User } from "./identity.ts";
-import { creditReferral } from "./referrals.ts";
+import { creditAffiliateFee } from "./affiliates.ts";
+import { payCashPrize } from "./deductions.ts";
 import { winningsBalance } from "./wallet.ts";
 
 const MAX_PER_ORDER = 20;
@@ -264,7 +265,7 @@ async function settleOrder(ctx: Ctx, db: Db, order: { id: string; user_id: strin
   await post(db, { kind: "TICKET_SALE", reference: `order:${order.id}`, cycleId: order.cycle_id, debit: from, credit: accounts.ticketRevenue(order.cycle_id), amountKobo: order.amount_kobo });
   await db.query("UPDATE orders SET status = 'FULFILLED' WHERE id = $1", [order.id]);
   await audit(db, SYSTEM, "order.fulfilled", "order", order.id, { tickets: ticketIds.length, amountKobo: order.amount_kobo, paidWith });
-  await creditReferral(ctx, db, order);
+  await creditAffiliateFee(db, order);
 
   // Closing rule: the cycle closes the moment the last card is sold.
   await closeIfDue(db, order.cycle_id);
@@ -434,13 +435,13 @@ async function acceptInTx(db: Db, ticketId: string, actor: Actor, ownerId?: stri
   if (t.prize_accepted_at) return 0;
   const tier = await one<{ id: string }>(db, "SELECT id FROM prize_tiers WHERE cycle_id = $1 AND stage = 'INSTANT' AND outcome_code = $2", [t.cycle_id, t.revealed_outcome]);
   const cycle = await getCycle(db, t.cycle_id);
-  await post(db, { kind: "INSTANT_PRIZE", reference: `ticket:${t.id}:instant`, cycleId: t.cycle_id, debit: accounts.prizeExpense(t.cycle_id), credit: accounts.playerWinnings(t.owner_id), amountKobo: cash });
+  const paid = await payCashPrize(db, { ticketId: t.id, stage: "INSTANT", userId: t.owner_id, cycleId: t.cycle_id, grossKobo: cash });
   await db.query(
     `INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at)
      VALUES ($1, 'INSTANT', $2, $3, 'PAID', now() + make_interval(days => $4))`,
     [t.id, tier!.id, t.owner_id, cycle.claim_window_days]);
   await db.query("UPDATE tickets SET prize_accepted_at = now() WHERE id = $1", [t.id]);
-  await audit(db, actor, "ticket.prize_accepted", "ticket", t.id, { cycleId: t.cycle_id, cashKobo: cash, automatic: !ownerId });
+  await audit(db, actor, "ticket.prize_accepted", "ticket", t.id, { cycleId: t.cycle_id, cashKobo: cash, deductionKobo: paid.deductionKobo, automatic: !ownerId });
   return cash;
 }
 

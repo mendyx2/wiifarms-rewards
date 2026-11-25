@@ -3,16 +3,15 @@ import type { Ctx } from "../context.ts";
 import { one, type Db } from "../db.ts";
 import { badRequest } from "../errors.ts";
 import { accounts, post } from "../ledger.ts";
-import { POLICY, share } from "../policy.ts";
 import { audit, SYSTEM } from "../audit.ts";
-import { onExclusionRegister, type User } from "./identity.ts";
 
 /**
- * Referrals. Every player has a code; whoever's code was used when an account
- * was opened earns a commission on each card purchase that account makes,
- * paid into their wallet from the operator's share of the sale (never from the
- * prize money). There is no separate affiliate sign-up and only one level: a
- * referrer earns from the people they invited, not from people those invited.
+ * Player invite codes. Every player has one to share; whoever's code was used
+ * when an account was opened is recorded as having invited it. Since the
+ * board adopted the SRS affiliate model, inviting friends earns nothing:
+ * marketing fees are for authorised affiliates only (affiliates.ts).
+ * Commissions paid under the earlier model stay in the records, and are still
+ * taken back if the purchase they came from is refunded.
  */
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I look-alikes
@@ -48,28 +47,6 @@ export async function findReferrer(db: Db, code: string): Promise<string> {
 }
 
 /**
- * Pays the commission on a completed purchase, in the purchase's transaction.
- * Nothing is paid to closed accounts or to people on the staff and exclusion
- * register (who must not profit from play).
- */
-export async function creditReferral(ctx: Ctx, db: Db, order: { id: string; user_id: string; cycle_id: string; quantity: number; amount_kobo: number }): Promise<void> {
-  const ref = await one<User & { referred_by: string | null }>(db,
-    `SELECT r.id, r.phone_e164, r.full_name, r.date_of_birth::text, r.kyc_tier, r.identity_hash, r.state_code, r.status, r.language
-     FROM users b JOIN users r ON r.id = b.referred_by WHERE b.id = $1`, [order.user_id]);
-  if (!ref || ref.status === "CLOSED" || (await onExclusionRegister(db, ref))) return;
-  const rateBp = (ctx.config.policy ?? POLICY).referralBp;
-  const amount = share(Number(order.amount_kobo), rateBp);
-  if (amount <= 0) return;
-  const row = await db.query(
-    `INSERT INTO referral_commissions (order_id, referrer_id, buyer_id, cycle_id, cards, rate_bp, amount_kobo)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (order_id) DO NOTHING`,
-    [order.id, ref.id, order.user_id, order.cycle_id, order.quantity, rateBp, amount]);
-  if (!row.rowCount) return;
-  await post(db, { kind: "REFERRAL_COMMISSION", reference: `order:${order.id}:referral`, cycleId: order.cycle_id,
-    debit: accounts.referralExpense(order.cycle_id), credit: accounts.playerWinnings(ref.id), amountKobo: amount });
-}
-
-/**
  * Takes back the commission on a purchase that has been refunded. If the
  * referrer has already withdrawn it, their wallet goes below zero (owed) and
  * Compliance is told.
@@ -90,25 +67,16 @@ export async function reverseReferral(db: Db, orderId: string): Promise<void> {
   }
 }
 
-/**
- * What a player sees about their referrals. Never who the referred people are:
- * only counts and amounts.
- */
+/** What a player sees about their invites. Never who the invited people are: only counts. */
 export async function referralSummary(ctx: Ctx, userId: string): Promise<unknown> {
   const db = await ctx.pool.connect();
   try {
     const code = await ensureReferralCode(db, userId);
-    const s = (await one<{ joined: number; buyers: number; cards: number; earned: number; reversed: number }>(db,
+    const s = (await one<{ joined: number; buyers: number }>(db,
       `SELECT (SELECT count(*) FROM users WHERE referred_by = $1)::int AS joined,
-              (SELECT count(DISTINCT buyer_id) FROM referral_commissions WHERE referrer_id = $1 AND status = 'EARNED')::int AS buyers,
-              (SELECT coalesce(sum(cards), 0) FROM referral_commissions WHERE referrer_id = $1 AND status = 'EARNED')::int AS cards,
-              (SELECT coalesce(sum(amount_kobo), 0) FROM referral_commissions WHERE referrer_id = $1 AND status = 'EARNED')::bigint AS earned,
-              (SELECT coalesce(sum(amount_kobo), 0) FROM referral_commissions WHERE referrer_id = $1 AND status = 'REVERSED')::bigint AS reversed`, [userId]))!;
-    const recent = (await db.query(
-      "SELECT cards, amount_kobo, status, created_at FROM referral_commissions WHERE referrer_id = $1 ORDER BY created_at DESC LIMIT 30", [userId])).rows;
-    const policy = ctx.config.policy ?? POLICY;
-    return { code, link: `/r/${code}`, ratePercent: policy.referralBp / 100, friendsJoined: s.joined, friendsWhoBought: s.buyers,
-      cardsBought: s.cards, earnedKobo: Number(s.earned), reversedKobo: Number(s.reversed), recent };
+              (SELECT count(DISTINCT u.id) FROM users u WHERE u.referred_by = $1 AND EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'FULFILLED'))::int AS buyers`, [userId]))!;
+    const affiliate = await one<{ status: string }>(db, "SELECT status FROM affiliates WHERE user_id = $1", [userId]);
+    return { code, link: `/r/${code}`, friendsJoined: s.joined, friendsWhoPlayed: s.buyers, affiliateStatus: affiliate?.status ?? null };
   } finally {
     db.release();
   }

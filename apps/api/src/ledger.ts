@@ -19,7 +19,13 @@ export const accounts = {
   prizeExpense: (cycleId: string): AccountRef => ({ code: `PRIZE_EXPENSE:${cycleId}`, kind: "EXPENSE", cycleId }),
   /** Referral commissions: an operating cost of the cycle, paid from the operator's share (not the prize money). */
   referralExpense: (cycleId: string): AccountRef => ({ code: `REFERRAL_EXPENSE:${cycleId}`, kind: "EXPENSE", cycleId }),
-  /** A player's wallet: winnings and referral earnings. Withdrawable to their own bank account, or spendable on cards. */
+  /** Statutory deductions withheld from cash prizes, held until remitted to the authority. */
+  deductionsPayable: (): AccountRef => ({ code: "STATUTORY_DEDUCTIONS_PAYABLE", kind: "LIABILITY" }),
+  /** Affiliate marketing fees: an operating cost of the cycle, from the operator's share. */
+  affiliateExpense: (cycleId: string): AccountRef => ({ code: `AFFILIATE_EXPENSE:${cycleId}`, kind: "EXPENSE", cycleId }),
+  /** Fees owed to one affiliate, until settled. Not a player wallet: affiliates are paid by settlement to their bank account. */
+  affiliatePayable: (affiliateId: string): AccountRef => ({ code: `AFFILIATE_PAYABLE:${affiliateId}`, kind: "LIABILITY" }),
+  /** A player's wallet: winnings (net of deductions), and referral earnings from before the affiliate model. Withdrawable to their own bank account, or spendable on cards. */
   playerWinnings: (userId: string): AccountRef => ({ code: `PLAYER_WINNINGS:${userId}`, kind: "LIABILITY", userId }),
 };
 
@@ -39,7 +45,7 @@ async function accountId(db: Db, a: AccountRef): Promise<string> {
 
 export interface Posting {
   kind: "TICKET_SALE" | "INSTANT_PRIZE" | "DRAW_PRIZE" | "PAYOUT" | "PAYOUT_REVERSAL" | "REFUND" | "ADJUSTMENT" | "EXPENSE" | "EXPENSE_REVERSAL"
-    | "REFERRAL_COMMISSION" | "REFERRAL_REVERSAL";
+    | "REFERRAL_COMMISSION" | "REFERRAL_REVERSAL" | "TAX" | "TAX_REVERSAL" | "AFFILIATE_FEE" | "AFFILIATE_FEE_REVERSAL" | "AFFILIATE_SETTLEMENT";
   /** Unique name of the business event. Posting the same reference twice is rejected by the database. */
   reference: string;
   cycleId?: string | undefined;
