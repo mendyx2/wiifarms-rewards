@@ -118,3 +118,10 @@ input, select, textarea { border: 1px solid #cbbfa6; background: linear-gradient
 .bar { box-shadow: var(--well); } .bar i { background: linear-gradient(#5fbf85, #2a8a50 40%, var(--green-2)); }
 .toast { background: linear-gradient(#3a4a40, #17231c); box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 8px 20px rgba(0,0,0,.35); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Two-step sign-in */
+.qr { display: grid; place-items: center; margin: 8px 0 12px; }
+.qr img { border-radius: 10px; box-shadow: var(--raise); background: #fff; padding: 4px; image-rendering: pixelated; }
+.key { font-size: 15px; letter-spacing: .06em; color: var(--ink); }
+.recovery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.recovery code { font: 15px ui-monospace, Menlo, Consolas, monospace; text-align: center; padding: 8px; border-radius: 8px; background: linear-gradient(#ebe3d2, #f8f4ea 60%); box-shadow: var(--well); }

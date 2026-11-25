@@ -3,6 +3,8 @@
 // locking, the draw sign-offs) is enforced by the server and the database; this
 // app only shows what is possible and reports refusals in plain words.
 
+import { qrDataUrl } from "/admin/js/qr.js";
+
 const view = document.getElementById("view");
 let me = null;
 
@@ -89,13 +91,60 @@ const bar = (fraction) => { const i = el("i"); i.style.width = Math.round(Math.m
 
 function login() {
   const demo = ["manager", "operations", "finance", "approver", "compliance", "auditor"];
-  const form = el("form", { class: "card login", onsubmit: action(async () => { await post("/v1/admin/dev-login", { email: v(form, "email") }); me = await get("/v1/admin/me"); location.hash = "#/dashboard"; }) },
+  const form = el("form", { class: "card login", onsubmit: action(async () => {
+    const r = await post("/v1/admin/dev-login", { email: v(form, "email") });
+    // Two-step sign-in: set up the authenticator on first sign-in, then a code every time.
+    if (r.mfa === "ENROL") return view.replaceChildren(...await enrolScreen());
+    if (r.mfa === "VERIFY") return view.replaceChildren(...codeScreen());
+    me = await get("/v1/admin/me"); location.hash = "#/dashboard"; await render();
+  }, false) },
     el("h1", {}, "Admin sign-in"),
     el("div", { class: "lock" }, "Simulation sign-in by email only. The live service uses company single sign-on with a hardware security key, from an approved network."),
     el("div", { class: "form" }, input("Work email", { name: "email", type: "email", required: true, list: "demoAdmins", autocomplete: "username" }, true)),
     el("datalist", { id: "demoAdmins" }, demo.map((d) => el("option", { value: d + "@demo.wiifarm.test" }))),
     el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Sign in")),
     el("p", { class: "sub" }, "Demo accounts: " + demo.join(", ") + " @demo.wiifarm.test"));
+  return [form];
+}
+
+/** First sign-in: scan the code into an authenticator app, confirm with a code, keep the recovery codes. */
+async function enrolScreen() {
+  const e = await post("/v1/admin/mfa/enrol");
+  const form = el("form", { class: "card login", onsubmit: action(async () => {
+    const r = await post("/v1/admin/mfa/enrol/confirm", { code: v(form, "code") });
+    view.replaceChildren(el("div", { class: "card login" },
+      el("h1", {}, "Save your recovery codes"),
+      el("p", { class: "sub" }, "If you lose your phone, each of these codes lets you sign in once. Keep them somewhere safe and private, away from your phone. They are shown only now."),
+      el("div", { class: "recovery" }, r.recoveryCodes.map((c) => el("code", {}, c))),
+      el("div", { class: "actions" }, el("button", { class: "btn", onclick: async () => { me = await get("/v1/admin/me"); location.hash = "#/dashboard"; render(); } }, "I have saved them — continue"))));
+  }, false) },
+    el("h1", {}, "Set up two-step sign-in"),
+    el("p", { class: "sub" }, "Staff accounts need a second step every time you sign in. Scan this with an authenticator app (Google Authenticator, Microsoft Authenticator or similar) on your phone, then enter the 6-digit code it shows."),
+    el("div", { class: "qr" }, el("img", { src: qrDataUrl(e.uri), alt: "Code to scan with your authenticator app", width: 220, height: 220 })),
+    el("p", { class: "sub" }, "Cannot scan? Enter this key in the app instead:"), el("p", { class: "mono key" }, e.secret),
+    el("div", { class: "form" }, input("6-digit code", { name: "code", inputmode: "numeric", autocomplete: "one-time-code", maxlength: 6, pattern: "\\d{6}", required: true })),
+    el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Confirm")));
+  return [form];
+}
+
+/** Every later sign-in: the code from the authenticator app, or a recovery code. */
+function codeScreen() {
+  let recovery = false;
+  const field = el("div", { class: "form" });
+  const showField = () => field.replaceChildren(recovery
+    ? input("Recovery code", { name: "recovery", autocomplete: "off", maxlength: 12, required: true })
+    : input("6-digit code from your authenticator app", { name: "code", inputmode: "numeric", autocomplete: "one-time-code", maxlength: 6, pattern: "\\d{6}", required: true }));
+  showField();
+  const form = el("form", { class: "card login", onsubmit: action(async () => {
+    const r = await post("/v1/admin/mfa/verify", recovery ? { recoveryCode: v(form, "recovery") } : { code: v(form, "code") });
+    me = await get("/v1/admin/me"); location.hash = "#/dashboard"; await render();
+    if (r.method === "RECOVERY_CODE") toast(`Signed in with a recovery code. ${r.recoveryCodesLeft} left: if you have lost your phone, ask a security administrator to reset two-step sign-in.`);
+  }, false) },
+    el("h1", {}, "Two-step sign-in"),
+    el("p", { class: "sub" }, "Enter the current code from your authenticator app. Each code works once. Five wrong codes lock the account for 15 minutes."),
+    field,
+    el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Sign in"),
+      el("button", { class: "btn ghost", type: "button", onclick: (ev) => { recovery = !recovery; showField(); ev.currentTarget.textContent = recovery ? "Use the authenticator app" : "Use a recovery code"; } }, "Use a recovery code")));
   return [form];
 }
 
@@ -229,7 +278,7 @@ async function finance() {
   return nodes;
 }
 
-const ACCESS_TEXT = { GRANT_ROLE: "Give role", REVOKE_ROLE: "Remove role", ENABLE: "Re-enable account" };
+const ACCESS_TEXT = { GRANT_ROLE: "Give role", REVOKE_ROLE: "Remove role", ENABLE: "Re-enable account", RESET_MFA: "Reset two-step sign-in" };
 
 async function access() {
   const nodes = [el("h1", {}, "Access & licences")];
@@ -252,7 +301,7 @@ async function access() {
               await post(`/v1/admin/staff/requests/${q.id}/decision`, { approve: false, reason }); return "Rejected. Nothing changed.";
             }) }, "Reject")) : pill(q.requested_by === me.id ? "Needs another security admin" : "Needs a security admin", "gold")))))));
     }
-    nodes.push(el("div", { class: "card" }, table(["Person", "Roles", "Status", "Last sign-in", ""], s.staff.map((a) => {
+    nodes.push(el("div", { class: "card" }, table(["Person", "Roles", "Status", "Two-step sign-in", "Last sign-in", ""], s.staff.map((a) => {
       let actions = "";
       if (sec && a.id !== me.id) {
         const form = el("form", { onsubmit: action(async () => {
@@ -261,7 +310,8 @@ async function access() {
           return "Request made. Another security administrator must approve it.";
         }) }, el("div", { class: "form" },
           select("Change", "change", a.status === "DISABLED" ? [["ENABLE", "Re-enable account"]]
-            : [...s.roles.filter((r) => !a.roles.includes(r)).map((r) => [`GRANT_ROLE:${r}`, `Give: ${roleName(r)}`]), ...a.roles.map((r) => [`REVOKE_ROLE:${r}`, `Remove: ${roleName(r)}`])]),
+            : [...s.roles.filter((r) => !a.roles.includes(r)).map((r) => [`GRANT_ROLE:${r}`, `Give: ${roleName(r)}`]), ...a.roles.map((r) => [`REVOKE_ROLE:${r}`, `Remove: ${roleName(r)}`]),
+              ...(a.mfa_enabled ? [["RESET_MFA", "Reset two-step sign-in (lost phone)"]] : [])]),
           input("Reason", { name: "reason", required: true, maxlength: 500 }), el("button", { class: "btn ghost", type: "submit" }, "Request")),
           a.status === "ACTIVE" ? el("div", { class: "actions" }, el("button", { class: "btn danger", type: "button", onclick: action(async () => {
             const reason = prompt(`Disable ${a.full_name} now? They are signed out everywhere at once. Reason:`); if (!reason) return;
@@ -270,7 +320,9 @@ async function access() {
         actions = el("details", {}, el("summary", {}, "Change access"), form);
       }
       return el("tr", {}, td([el("b", {}, a.full_name), el("div", { class: "sub" }, a.email)]), td(a.roles.length ? a.roles.map((r) => pill(roleName(r), r === "SECURITY_ADMIN" ? "gold" : "")) : el("span", { class: "sub" }, "No roles")),
-        td(a.status === "ACTIVE" ? pill("Active") : pill("Disabled", "red")), td(when(a.last_sign_in)), td(a.id === me.id ? el("span", { class: "sub" }, "You") : actions));
+        td(a.status === "ACTIVE" ? pill("Active") : pill("Disabled", "red")),
+        td(a.mfa_locked_until && new Date(a.mfa_locked_until) > new Date() ? pill("Locked (wrong codes)", "red") : a.mfa_enabled ? pill("Set up") : pill("Not set up yet", "gold")),
+        td(when(a.last_sign_in)), td(a.id === me.id ? el("span", { class: "sub" }, "You") : actions));
     }))));
     if (sec) {
       const form = el("form", { class: "card", onsubmit: action(async () => {
@@ -747,6 +799,33 @@ async function cycle(id) {
         table(["Prize", "#Position", "Ticket"], d.winners.map((w) => el("tr", {}, td(w.title), td(w.position, true), td(el("span", { class: "mono" }, w.serial))))),
         el("p", { class: "sub" }, "The public results page lets anyone re-run this draw from the published data.")));
     }
+  }
+
+  // The independent draw report (SRS DRW-010): generated once, attested by the appointed auditor.
+  if (["DRAWN", "SETTLING", "ARCHIVED"].includes(c.status)) {
+    const rep = await get(`/v1/cycles/${id}/draw-report`).catch(() => null);
+    const box = el("div", { class: "card" });
+    if (!rep) {
+      box.append(el("p", { class: "sub" }, "The report re-checks the draw from the records alone (the frozen register and its reconciliation, the committed secret, the seed, a re-run of the draw, the multiple-win rule and the sign-offs), is fingerprinted, and is then attested by the appointed auditor and published."),
+        can("CYCLE_MANAGER", "COMPLIANCE", "AUDITOR") ? el("div", { class: "actions" }, el("button", { class: "btn", onclick: action(async () => {
+          const r = await post(`/v1/admin/cycles/${id}/draw-report`);
+          return r.allChecksPass ? "Draw report generated: every check passed." : "Draw report generated, but a check failed. Compliance has been alerted.";
+        }) }, "Generate the draw report")) : null);
+    } else {
+      const failed = rep.report.checks.filter((x) => !x.pass);
+      box.append(
+        el("div", { class: "note" + (rep.allChecksPass ? "" : " bad") }, rep.allChecksPass ? "Every check passed." : `Failed: ${failed.map((x) => x.id).join(", ")}`),
+        ...rep.report.checks.map((x) => el("div", { class: "check" + (x.pass ? " yes" : "") }, el("i", {}, x.pass ? "✓" : "!"), el("div", {}, `${x.id} · ${x.description}`, x.detail ? el("small", {}, x.detail) : null))),
+        el("p", { class: "mono" }, `Fingerprint (SHA-256): ${rep.sha256}`),
+        rep.attestation ? el("div", { class: "check yes" }, el("i", {}, "✓"), el("div", {}, `Attested by ${rep.attestation.by} on ${when(rep.attestation.at)}`, el("small", {}, rep.attestation.statement)))
+          : can("AUDITOR") ? el("div", { class: "actions" }, el("button", { class: "btn", onclick: action(async () => {
+            const statement = prompt("Your attestation (it is published with the report):", "I have reviewed the draw records and re-run the draw; this report is accurate."); if (!statement) return;
+            await post(`/v1/admin/cycles/${id}/draw-report/attest`, { sha256: rep.sha256, statement });
+            return "Attested and published.";
+          }) }, "Attest this report")) : el("div", { class: "note" }, "Waiting for the appointed auditor to attest."),
+        el("div", { class: "actions" }, el("a", { class: "btn ghost", href: `/#/draw-report/${id}`, target: "_blank", rel: "noopener" }, "Open the published report")));
+    }
+    nodes.push(el("h2", {}, "Independent draw report"), box);
   }
 
   // Close-out and archive (two people)

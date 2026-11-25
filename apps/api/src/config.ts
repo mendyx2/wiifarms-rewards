@@ -16,6 +16,11 @@ export interface Config {
    * need a liveness check (a live selfie matched to the verified identity) first. Default ₦100,000.
    */
   majorPrizeKobo?: number;
+  /**
+   * Two-step sign-in for staff. Always "required" outside simulation; a simulation may switch it
+   * off (WR_ADMIN_MFA=off) for automated tests that are not about sign-in.
+   */
+  adminMfa?: "required" | "off";
   /** Corporate details for the About us page (published as given; nothing is shown that has not been set). */
   company?: { name?: string; registration?: string; address?: string; email?: string };
   /** Hours before a newly added bank account can receive a payout. */
@@ -81,6 +86,7 @@ export function loadConfig(): Config {
     payoutApprovalThresholdKobo: Number(process.env.PAYOUT_APPROVAL_THRESHOLD_KOBO ?? 10_000_000),
     bankCoolingOffHours: Number(process.env.BANK_COOLING_OFF_HOURS ?? 24),
     majorPrizeKobo: Number(process.env.WR_MAJOR_PRIZE_KOBO ?? 10_000_000),
+    adminMfa: process.env.WR_ADMIN_MFA === "off" ? "off" : "required",
     company: Object.fromEntries(Object.entries({ name: process.env.WR_COMPANY_NAME, registration: process.env.WR_COMPANY_RC,
       address: process.env.WR_COMPANY_ADDRESS, email: process.env.WR_COMPANY_EMAIL }).filter(([, v]) => v)),
     beaconPeriodSeconds: 30,

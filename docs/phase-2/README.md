@@ -423,6 +423,36 @@ Every page the SRS lists is in the app, open to visitors before they sign in (ex
 
 *Not yet:* server-rendered copies of these pages for search engines (they are rendered in the app today; link previews already work), and the corporate details themselves (to be supplied).
 
+## Two-step sign-in for staff (SRS: administrator authentication — mandatory MFA)
+
+- **Every staff sign-in has two steps.** The first step (company single sign-on in production; email in the simulation) gives only a **pending session**: valid for 10 minutes and for nothing but the second step — every other admin request is refused.
+- **First sign-in: set-up.** The admin app shows a **QR code** (drawn in the browser by our own small encoder, so the secret never reaches another service; the key is also shown for typing) for any standard authenticator app (Google Authenticator, Microsoft Authenticator…; RFC 6238, 6 digits, 30 seconds — checked against the RFC's test values). The person confirms with a code, and is shown **ten one-time recovery codes**, once.
+- **Every later sign-in:** the current code from the app, or a recovery code. **A code works once** (a code from a time step already used is refused, so an observed code cannot be replayed); clocks may differ by 30 seconds either way.
+- **Five wrong codes in a row** lock the account for 15 minutes and raise a **critical Compliance alert**.
+- **Storage:** the authenticator secret is encrypted by the key service; recovery codes are kept only as keyed hashes.
+- **Lost phone:** a security administrator asks for a **reset of two-step sign-in**; **another security administrator approves** (the usual access-change rule). The reset signs the person out everywhere; they set it up again at their next sign-in. The Access page shows who has set it up and who is locked out.
+- It cannot be switched off outside a simulation. Automated tests that are not about sign-in run a simulation with `WR_ADMIN_MFA=off`; the demo has it on, so each demo account sets up an authenticator at its first sign-in.
+
+## Independent draw report (SRS DRW-001 to DRW-010)
+
+After the draw, a cycle manager, Compliance or the auditor **generates the report, once**. It is built only from stored records and **recomputes rather than copies** every figure the draw relied on:
+
+| Check | What is re-checked |
+|---|---|
+| DRW-001 | The draw ran at or after its approved, published time |
+| DRW-002 | The frozen register: entry count and SHA-256 recomputed from the stored entries |
+| DRW-003 | Every entry is a card paid for with a confirmed payment, and every sold card was entered |
+| DRW-004 | No unsold, cancelled or held card is an entry |
+| DRW-005 | The secret revealed at the draw matches the commitment published before sales; the seed recomputed from the secret, the public randomness and the register matches; **re-running the draw procedure gives exactly the recorded winners**; and whether the engine version holds a verified certification (reported as open, not failed, in a simulation) |
+| DRW-006 | Each card won at most one final-draw prize and every prize went to an entry |
+| DRW-007 | Two different operators and the appointed auditor signed off before the draw; every authorised step is listed with its time |
+| DRW-008 | Each winning card against its prize (card references only — nobody is named) |
+| DRW-009 | Where the results, entries and report are published, and how anyone can verify them |
+
+- The report is **fingerprinted** (SHA-256 of its canonical JSON, which anyone can recompute from the published report) and stored permanently; a failed check raises a critical Compliance alert.
+- **Only the auditor appointed to the campaign** can attest it, and only by quoting that exact fingerprint; the attestation (name, time, statement) is published with it and cannot be changed.
+- Players read it from the Draw centre (*Independent draw report*), and can download it as JSON. The admin cycle page shows each check, the fingerprint, and the attest button for the auditor.
+
 ## Liveness and fraud rules
 - **Liveness check before anything large.** Claiming a prize worth ₦100,000 or more (merchandise at its advertised value: the car, motorcycles) and withdrawing ₦100,000 or more need a liveness check: a short live selfie matched to the photo held for the player's identity number (simulated here; the identity provider does it in the live service). It is done once and raises the player to tier 2. A stolen phone and PIN are then not enough to take a major prize. The app takes the player to the check and back to what they were doing. Threshold: `WR_MAJOR_PRIZE_KOBO`.
 - **Fraud rules (alerts to Compliance):**

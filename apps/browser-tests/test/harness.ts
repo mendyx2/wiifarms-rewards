@@ -30,7 +30,8 @@ export interface Stack {
   stop(): Promise<void>;
 }
 
-export async function startStack(): Promise<Stack> {
+/** `mfa: true` runs the stack with two-step sign-in for staff, as in production; other tests switch it off. */
+export async function startStack(opts: { mfa?: boolean } = {}): Promise<Stack> {
   const dbName = "wr_browser_" + randomBytes(4).toString("hex");
   const dbUrl = (() => { const u = new URL(adminUrl); u.pathname = "/" + dbName; return u.toString(); })();
   const admin = new pg.Client({ connectionString: adminUrl });
@@ -41,7 +42,7 @@ export async function startStack(): Promise<Stack> {
     databaseUrl: dbUrl, masterKey: randomBytes(32), hashKey: randomBytes(32), simulated: true,
     payoutApprovalThresholdKobo: 500_000, bankCoolingOffHours: 0, beaconPeriodSeconds: 1, sessionDays: 30,
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 },
-    cookieSecure: false, webRoot: root("../../web/public"), adminRoot: root("../../admin/public"),
+    cookieSecure: false, webRoot: root("../../web/public"), adminRoot: root("../../admin/public"), adminMfa: opts.mfa ? "required" : "off",
   };
   const messenger = new SimulatedMessenger();
   const ctx: Ctx = { pool, config, keys: new LocalKeyService(config.masterKey), beacon: new SimulatedBeacon(pool, 1), messenger };
@@ -213,3 +214,32 @@ export async function untranslated(page: Page, serverData: Set<string>): Promise
   const missing: string[] = await page.evaluate(() => [...((window as any).__i18nMissing as Set<string>)]);
   return missing.filter((t) => !serverData.has(t) && !serverData.has(t.trim()));
 }
+
+/** A small season with one merchandise prize, run to its draw through the API (not what is under test here). */
+export async function wonPrize(s: Stack, token: string): Promise<string> {
+  const [ft, mt, ot, fin, aud] = await Promise.all(["fulfilment", "manager", "operations", "finance", "auditor"].map((w) => adminToken(s, w))) as [string, string, string, string, string];
+  const supplier = (await call(s, "POST", "/v1/admin/suppliers", { token: ft, body: { name: "Rice Mill" } })).id;
+  const warehouse = (await call(s, "POST", "/v1/admin/warehouses", { token: ft, body: { name: "Store", address: "1 Store Road, Minna", stateCode: "NG-NI" } })).id;
+  const sku = (await call(s, "POST", "/v1/admin/skus", { token: ft, body: { name: "Rice 50kg bag", advertisedValueKobo: 500_000, serialised: true } })).id;
+  await call(s, "POST", "/v1/admin/stock/receive", { token: ft, body: { skuId: sku, supplierId: supplier, warehouseId: warehouse, poReference: "PO-RICE", serialNumbers: ["RICE-001"], acquisitionCostKobo: 1, landedCostKobo: 1 } });
+  const now = Date.now(), close = new Date(now + 15_000).toISOString();
+  const c = (await call(s, "POST", "/v1/admin/cycles", { token: mt, body: { name: "Rice Season", ticketPriceKobo: 50_000, totalTickets: 20, maxTicketsPerAccount: 20,
+    salesOpenAt: new Date(now - 1000).toISOString(), salesCloseAt: close, drawAt: close } })).id;
+  await call(s, "POST", `/v1/admin/cycles/${c}/prize-tiers`, { token: mt, body: { stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Rice 50kg bag", skuId: sku, quantity: 1, drawOrder: 1 } });
+  const auditorId = (await call(s, "GET", "/v1/admin/auditors", { token: mt })).auditors[0].id;
+  await call(s, "PUT", `/v1/admin/cycles/${c}/evidence`, { token: mt, body: { financialModelRef: "fm", rulesDocumentRef: "rules", rulesText: "Rice Season rules.",
+    escrowReference: "ESC", escrowFundedKobo: 0, auditorAdminId: auditorId } });
+  await call(s, "POST", `/v1/admin/cycles/${c}/reserve-stock`, { token: ft });
+  await call(s, "POST", `/v1/admin/cycles/${c}/submit`, { token: mt });
+  await call(s, "POST", `/v1/admin/cycles/${c}/approve`, { token: ot });
+  await call(s, "POST", `/v1/admin/cycles/${c}/approve`, { token: fin });
+  await call(s, "POST", `/v1/admin/cycles/${c}/commit`, { token: mt });
+  await call(s, "POST", `/v1/admin/cycles/${c}/open`, { token: mt });
+  await apiBuy(s, token, c, 5);
+  await call(s, "PUT", "/v1/me/next-of-kin", { token, body: { fullName: "Musa Kin", relationship: "Brother", phone: "08030004444" } });
+  await sleep(Math.max(0, Date.parse(close) - Date.now()) + 2500);
+  for (const t of [mt, fin, aud]) await call(s, "POST", `/v1/admin/cycles/${c}/draw/sign`, { token: t });
+  await call(s, "POST", `/v1/admin/cycles/${c}/draw/execute`, { token: mt });
+  return c;
+}
+

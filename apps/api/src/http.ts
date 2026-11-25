@@ -28,6 +28,8 @@ import * as deductions from "./modules/deductions.ts";
 import * as portal from "./modules/portal.ts";
 import * as stockists from "./modules/stockists.ts";
 import * as site from "./modules/site.ts";
+import * as mfa from "./modules/mfa.ts";
+import * as drawReport from "./modules/drawReport.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
 const str = (max = 200) => ({ type: "string", minLength: 1, maxLength: max });
@@ -279,6 +281,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     return reply.header("Content-Type", img.type).header("Cache-Control", staffView ? "no-store" : "public, max-age=300").header("ETag", img.etag).send(img.bytes);
   });
   app.get<{ Params: { id: string } }>("/v1/cycles/:id/draw", { schema: idParam }, async (req) => draw.getPublicDraw(ctx, req.params.id));
+  app.get<{ Params: { id: string } }>("/v1/cycles/:id/draw-report", { schema: idParam }, async (req) => drawReport.publicDrawReport(ctx, req.params.id));
   app.get<{ Params: { id: string }; Querystring: { offset?: string; limit?: string } }>("/v1/cycles/:id/tickets", {
     schema: { ...idParam, querystring: { type: "object", additionalProperties: false, properties: { offset: { type: "string", pattern: "^[0-9]{1,9}$" }, limit: { type: "string", pattern: "^[0-9]{1,5}$" } } } },
   }, async (req) => archive.publishedTickets(ctx, req.params.id, Number(req.query.offset ?? 0), Number(req.query.limit ?? 5000)));
@@ -395,6 +398,14 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     // Admin sessions are short (8 hours) and use their own cookie, separate from player sessions.
     reply.header("Set-Cookie", `${ADMIN_COOKIE}=${r.token}; Path=/; HttpOnly; SameSite=Strict${ctx.config.cookieSecure ? "; Secure" : ""}; Max-Age=28800`);
     return r;
+  });
+  // The second step of signing in (two-step sign-in).
+  app.post("/v1/admin/mfa/enrol", async (req) => { authLimit(req.ip); return mfa.startEnrolment(ctx, await mfa.pendingSession(ctx, adminToken(req))); });
+  app.post<{ Body: { code: string } }>("/v1/admin/mfa/enrol/confirm", { schema: body({ code: str(6) }) }, async (req) => {
+    authLimit(req.ip); return mfa.confirmEnrolment(ctx, await mfa.pendingSession(ctx, adminToken(req)), req.body.code);
+  });
+  app.post<{ Body: { code?: string; recoveryCode?: string } }>("/v1/admin/mfa/verify", { schema: body({ code: str(6), recoveryCode: str(12) }, ["code", "recoveryCode"]) }, async (req) => {
+    authLimit(req.ip); return mfa.verifySecondStep(ctx, await mfa.pendingSession(ctx, adminToken(req)), req.body);
   });
   app.post("/v1/admin/logout", async (req, reply) => {
     const t = adminToken(req);
@@ -528,8 +539,8 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.get("/v1/admin/staff", async (req) => governance.listStaff(ctx, await staff(req)));
   app.post<{ Body: { email: string; fullName: string; stockistId?: string } }>("/v1/admin/staff", { schema: body({ email: str(200), fullName: str(120), stockistId: uuid }, ["stockistId"]) },
     async (req) => governance.createStaff(ctx, await staff(req), req.body));
-  app.post<{ Body: { adminUserId: string; action: "GRANT_ROLE" | "REVOKE_ROLE" | "ENABLE"; role?: admin.Role; reason: string } }>("/v1/admin/staff/requests", {
-    schema: body({ adminUserId: uuid, action: { enum: ["GRANT_ROLE", "REVOKE_ROLE", "ENABLE"] }, role: { enum: governance.ROLES }, reason: str(500) }, ["role"]),
+  app.post<{ Body: { adminUserId: string; action: "GRANT_ROLE" | "REVOKE_ROLE" | "ENABLE" | "RESET_MFA"; role?: admin.Role; reason: string } }>("/v1/admin/staff/requests", {
+    schema: body({ adminUserId: uuid, action: { enum: ["GRANT_ROLE", "REVOKE_ROLE", "ENABLE", "RESET_MFA"] }, role: { enum: governance.ROLES }, reason: str(500) }, ["role"]),
   }, async (req) => governance.requestAccessChange(ctx, await staff(req), req.body));
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/staff/requests/:id/decision", {
     schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
@@ -610,6 +621,10 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   step("open", (a, id) => cycles.openCycle(ctx, a, id));
   step("draw/sign", (a, id) => draw.signDraw(ctx, a, id));
   step("draw/execute", (a, id) => draw.executeDraw(ctx, a, id));
+  step("draw-report", (a, id) => drawReport.generateDrawReport(ctx, a, id));
+  app.post<{ Params: { id: string }; Body: { sha256: string; statement: string } }>("/v1/admin/cycles/:id/draw-report/attest", {
+    schema: { ...idParam, ...body({ sha256: { type: "string", pattern: "^[0-9a-fA-F]{64}$" }, statement: str(2000) }) },
+  }, async (req) => drawReport.attestDrawReport(ctx, await staff(req), req.params.id, req.body));
   step("archive/request", (a, id) => archive.requestArchive(ctx, a, id));
   step("archive/confirm", (a, id) => archive.confirmArchive(ctx, a, id));
   app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id/archive", { schema: idParam }, async (req) => ({ checks: await archive.archiveReadiness(ctx, await staff(req), req.params.id) }));

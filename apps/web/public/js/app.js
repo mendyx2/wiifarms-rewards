@@ -834,7 +834,8 @@ async function draw() {
         const r = await verifyDraw(d, c.commitment.draw_secret_commitment);
         checks.replaceChildren(...r.checks.map((k) => el("div", { class: "check" }, el("span", { class: "tick" + (k.ok ? "" : " no") }, k.ok ? "✓" : "!"), k.label)),
           el("div", { class: "note" + (r.ok ? "" : " bad") }, r.ok ? "Verified: the published winners are exactly what the rules produce." : "The published result does not match. Please report this."));
-      }) }, "Verify the draw"), checks));
+      }) }, "Verify the draw"), checks),
+    el("a", { class: "btn ghost", href: `#/draw-report/${c.id}` }, "Independent draw report"));
   if (c.status === "ARCHIVED") {
     // After close-out every card is published: the phone can check the whole cycle.
     const result = el("div");
@@ -1307,6 +1308,44 @@ async function pastScreen() {
       : el("p", { class: "muted" }, "No campaign has finished yet.")];
 }
 
+/** The independent draw report (SRS DRW-009/010), as published. */
+async function drawReportScreen(id) {
+  const back = el("a", { href: "#/draw" }, "← Draw centre");
+  let pub;
+  try { pub = await api.get(`/v1/cycles/${id}/draw-report`); } catch (err) {
+    if (err.status === 404) return [back, el("h1", {}, "Independent draw report"), el("p", { class: "muted" }, "The report for this draw has not been published yet.")];
+    throw err;
+  }
+  const r = pub.report, row = (k, v) => el("div", { class: "row" }, el("span", {}, k), el("b", {}, v));
+  const hex = (label, v) => el("div", { class: "hexrow" }, el("small", { class: "muted" }, label), el("code", { class: "mono-sm" }, v));
+  return [back, el("h1", {}, "Independent draw report"),
+    el("p", { class: "muted" }, `${r.campaign.name} · drawn ${when(r.operations.find((o) => o.action === "Draw executed")?.at)}`),
+    pub.attestation ? el("div", { class: "note" }, el("b", {}, `Attested by ${pub.attestation.by}, independent auditor`), el("br"), when(pub.attestation.at), el("br"), pub.attestation.statement)
+      : el("div", { class: "note warn" }, "Waiting for the independent auditor's attestation."),
+    el("div", { class: "note" + (pub.allChecksPass ? "" : " bad") }, pub.allChecksPass ? "Every check in this report passed." : "A check in this report did not pass."),
+    el("h2", {}, "Checks"),
+    el("div", { class: "card" }, r.checks.map((k) => el("div", { class: "check" }, el("span", { class: "tick" + (k.pass ? "" : " no") }, k.pass ? "✓" : "!"),
+      el("div", {}, el("b", {}, k.description), k.detail ? el("small", { class: "muted" }, " ", k.detail) : null)))),
+    el("h2", {}, "Entries"),
+    el("div", { class: "card" }, row("Approved draw time", when(r.campaign.approvedDrawTime)), row("Register frozen", when(r.register.frozenAt)),
+      row("Entries", r.register.entries.toLocaleString("en-NG")), row("Cards not sold", r.register.unsoldCards.toLocaleString("en-NG")),
+      row("Cards cancelled", r.register.cancelledCards.toLocaleString("en-NG")), hex("Entries fingerprint", r.register.entriesSha256)),
+    el("h2", {}, "Winning cards"),
+    el("div", { class: "card" }, r.winners.flatMap((w) => w.cards.map((x) => el("div", { class: "row" }, el("div", {}, el("b", {}, w.prize), el("small", {}, `${naira(w.valueKobo)} · ${x.position} of ${w.quantity}`)), el("code", { class: "mono-sm" }, x.serial))))),
+    el("details", { class: "card" }, el("summary", {}, "How the winners were chosen"),
+      el("p", { class: "muted" }, r.mechanism.multipleWinRule),
+      hex("Engine", r.mechanism.engine), hex("Secret commitment (published before sales)", r.mechanism.secretCommitment), hex("Secret revealed at the draw", r.mechanism.revealedSecret),
+      hex("Public randomness", `${r.mechanism.beacon.source} round ${r.mechanism.beacon.round}: ${r.mechanism.beacon.value}`), hex("Seed", r.mechanism.seed),
+      el("p", { class: "muted" }, r.publication.howToVerify)),
+    el("details", { class: "card" }, el("summary", {}, "Every authorised step"),
+      r.operations.map((o) => el("div", { class: "row" }, el("small", {}, when(o.at)), el("span", {}, OPERATION_TEXT[o.action] ?? o.action)))),
+    hex("Report fingerprint (SHA-256)", pub.sha256),
+    el("a", { class: "btn ghost", href: `/v1/cycles/${id}/draw-report`, download: `draw-report-${id}.json` }, "Download the report (JSON)")];
+}
+const OPERATION_TEXT = { "cycle.submitted": "Campaign submitted for approval", "cycle.approved": "Campaign approved", "cycle.committed": "Results sealed and fingerprint published",
+  "cycle.opened": "Sales opened", "cycle.closed": "Sales closed", "Operator signed off the draw": "Operator signed off the draw",
+  "Independent auditor countersigned the draw": "Independent auditor countersigned the draw", "Draw executed": "Draw executed" };
+
 /** The stockist locator (SRS WEB-009): approved collection centres. */
 async function centresScreen() {
   const { centres } = await api.get("/v1/stockists");
@@ -1468,7 +1507,7 @@ const ROUTES = {
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
   wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, affiliate: { screen: affiliateScreen, tab: "me", auth: true }, centres: { screen: centresScreen, tab: "wallet" }, site: { screen: siteMap, tab: "home" }, prizes: { screen: prizesScreen, tab: "home" },
   prize: { screen: prizeScreen, tab: "home" }, how: { screen: howScreen, tab: "home" }, help: { screen: helpScreen, tab: "me" }, responsible: { screen: responsibleScreen, tab: "me" },
-  about: { screen: aboutScreen, tab: "home" }, past: { screen: pastScreen, tab: "draw" }, liveness: { screen: liveness, tab: "wallet", auth: true },
+  about: { screen: aboutScreen, tab: "home" }, past: { screen: pastScreen, tab: "draw" }, "draw-report": { screen: drawReportScreen, tab: "draw" }, liveness: { screen: liveness, tab: "wallet", auth: true },
   rules: { screen: rulesScreen, tab: "home" }, privacy: { screen: privacyScreen, tab: "me" }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 

@@ -60,7 +60,7 @@ async function activeSecurityAdmins(db: Db): Promise<number> {
 export async function listStaff(ctx: Ctx, admin: Admin): Promise<unknown> {
   requireRole(admin, "SECURITY_ADMIN", "COMPLIANCE", "AUDITOR");
   const staff = (await ctx.pool.query(
-    `SELECT a.id, a.email, a.full_name, a.status, a.created_at, a.disabled_at, a.stockist_id,
+    `SELECT a.id, a.email, a.full_name, a.status, a.created_at, a.disabled_at, a.stockist_id, a.totp_enabled_at IS NOT NULL AS mfa_enabled, a.mfa_locked_until,
             (SELECT st.name FROM stockists st WHERE st.id = a.stockist_id) AS stockist_name,
             coalesce(array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL), '{}')::text[] AS roles,
             (SELECT max(s.created_at) FROM admin_sessions s WHERE s.admin_user_id = a.id) AS last_sign_in
@@ -90,10 +90,11 @@ export async function createStaff(ctx: Ctx, admin: Admin, input: { email: string
   });
 }
 
-export async function requestAccessChange(ctx: Ctx, admin: Admin, input: { adminUserId: string; action: "GRANT_ROLE" | "REVOKE_ROLE" | "ENABLE"; role?: Role; reason: string }): Promise<{ id: string }> {
+export async function requestAccessChange(ctx: Ctx, admin: Admin, input: { adminUserId: string; action: "GRANT_ROLE" | "REVOKE_ROLE" | "ENABLE" | "RESET_MFA"; role?: Role; reason: string }): Promise<{ id: string }> {
   requireRole(admin, "SECURITY_ADMIN");
   if (input.adminUserId === admin.id) throw forbidden("OWN_ACCESS", "You cannot change your own access. Ask another security administrator.");
-  if ((input.action === "ENABLE") !== !input.role) throw badRequest("INVALID_REQUEST", input.action === "ENABLE" ? "Enabling an account takes no role." : "Choose the role.");
+  const roleless = input.action === "ENABLE" || input.action === "RESET_MFA";
+  if (roleless !== !input.role) throw badRequest("INVALID_REQUEST", roleless ? "This change takes no role." : "Choose the role.");
   if (!input.reason.trim()) throw badRequest("REASON_REQUIRED", "Give the reason for the change.");
   return withTx(ctx.pool, async (db) => {
     const target = await one<{ status: string; roles: Role[] }>(db,
@@ -107,6 +108,9 @@ export async function requestAccessChange(ctx: Ctx, admin: Admin, input: { admin
     }
     if (input.action === "REVOKE_ROLE" && !target.roles.includes(input.role!)) throw conflict("NOT_HELD", "They do not have that role.");
     if (input.action === "ENABLE" && target.status === "ACTIVE") throw conflict("ALREADY_ACTIVE", "This account is already active.");
+    if (input.action === "RESET_MFA" && !(await one(db, "SELECT 1 FROM admin_users WHERE id = $1 AND totp_enabled_at IS NOT NULL", [input.adminUserId]))) {
+      throw conflict("NOT_ENROLLED", "This person has not set up two-step sign-in yet.");
+    }
     const r = await db.query<{ id: string }>(
       "INSERT INTO admin_access_requests (admin_user_id, action, role, reason, requested_by) VALUES ($1, $2, $3, $4, $5) RETURNING id",
       [input.adminUserId, input.action, input.role ?? null, input.reason.trim(), admin.id]).catch(dbRule);
@@ -140,6 +144,12 @@ export async function decideAccessChange(ctx: Ctx, admin: Admin, requestId: stri
       }
       await db.query("DELETE FROM admin_roles WHERE admin_user_id = $1 AND role = $2", [q.admin_user_id, q.role]);
       await db.query("DELETE FROM admin_sessions WHERE admin_user_id = $1", [q.admin_user_id]); // sign in again with the new access
+    } else if (q.action === "RESET_MFA") {
+      // A lost phone: the person sets two-step sign-in up again at their next sign-in. Every session ends now.
+      await db.query(`UPDATE admin_users SET totp_secret_enc = NULL, totp_pending_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL,
+                      mfa_failures = 0, mfa_locked_until = NULL WHERE id = $1`, [q.admin_user_id]);
+      await db.query("UPDATE admin_recovery_codes SET used_at = coalesce(used_at, now()) WHERE admin_user_id = $1", [q.admin_user_id]);
+      await db.query("DELETE FROM admin_sessions WHERE admin_user_id = $1", [q.admin_user_id]);
     } else {
       await db.query("UPDATE admin_users SET status = 'ACTIVE', disabled_at = NULL, disabled_by = NULL WHERE id = $1", [q.admin_user_id]);
     }

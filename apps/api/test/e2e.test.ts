@@ -134,7 +134,7 @@ before(async () => {
   config = {
     databaseUrl: dbUrl, masterKey: randomBytes(32), hashKey: randomBytes(32), simulated: true,
     payoutApprovalThresholdKobo: 100_000, bankCoolingOffHours: 0, beaconPeriodSeconds: 1, sessionDays: 30,
-    maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 }, cookieSecure: true,
+    maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 }, rateLimits: { auth: 100_000, general: 1_000_000 }, cookieSecure: true, adminMfa: "off", // two-step sign-in has its own test
     // Real prize shares; a higher daily card limit so the older tests can buy 20 cards at once (the 10-a-day default has its own test).
     // The older test seasons were sized for a 10% instant share; the real policy (5%) has its own test.
     policy: { ...POLICY, instantShareBp: 1000, cardsPerDay: 30 },
@@ -1970,6 +1970,125 @@ test("public website pages: prize catalogue with supplier, warranty and a retail
   assert.deepEqual([r.status, r.draw_winners, r.goods_won, r.goods_delivered, r.goods_outstanding], ["DRAWN", 2, 2, 2, 0]);
   assert.ok(past.some((c: any) => c.status === "VOID"), "cancelled campaigns are listed too");
   assert.ok(!JSON.stringify(past).match(/phone|full_name|user_id|serial/));
+});
+
+test("two-step sign-in for staff: authenticator set-up on first sign-in, a code every time, single-use codes, lock-out, and a two-person reset", async () => {
+  const { totpCode, base32Decode, stepAt } = await import("../src/totp.ts");
+  const { mfaRequired } = await import("../src/modules/admin.ts");
+  // Outside a simulation it cannot be switched off.
+  assert.equal(mfaRequired({ ...ctx, config: { ...config, simulated: false, adminMfa: "off" } }), true);
+  const srv = buildServer({ ...ctx, config: { ...config, adminMfa: "required" } });
+  const call = async (method: string, url: string, token?: string, body?: object) => {
+    const r = await srv.inject({ method: method as "GET", url, ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}), ...(body ? { payload: body } : {}) });
+    return { status: r.statusCode, body: r.json() };
+  };
+  const sec = admins.security!.token, sec2 = admins.security2!.token;
+  const staff = ok(await api("POST", "/v1/admin/staff", { token: sec, body: { email: "two.step@example.test", fullName: "Two Step" } }));
+  const g = ok(await api("POST", "/v1/admin/staff/requests", { token: sec, body: { adminUserId: staff.id, action: "GRANT_ROLE", role: "AUDITOR", reason: "Test auditor" } }));
+  ok(await api("POST", `/v1/admin/staff/requests/${g.id}/decision`, { token: sec2, body: { approve: true } }));
+
+  // First sign-in: the first step gives a pending session that can do nothing but set up the authenticator.
+  let s1 = await call("POST", "/v1/admin/dev-login", undefined, { email: "two.step@example.test" });
+  assert.equal(s1.body.mfa, "ENROL");
+  const t1 = s1.body.token;
+  assert.equal((await call("GET", "/v1/admin/me", t1)).status, 401);
+  assert.equal((await call("GET", "/v1/admin/dashboard", t1)).status, 401);
+  assert.equal((await call("POST", "/v1/admin/mfa/verify", t1, { code: "123456" })).body.error.code, "NOT_ENROLLED");
+  const enrol = (await call("POST", "/v1/admin/mfa/enrol", t1)).body;
+  assert.match(enrol.uri, /^otpauth:\/\/totp\/WiiFarm%20Rewards%3Atwo\.step%40example\.test\?secret=[A-Z2-7]+&issuer=WiiFarm%20Rewards/);
+  const secret = base32Decode(enrol.secret);
+  assert.equal(secret.length, 20);
+  const code = (offset = 0) => totpCode(secret, stepAt(Date.now()) + offset);
+  const wrong = (c: string) => (c === "000000" ? "000001" : "000000");
+  assert.equal((await call("POST", "/v1/admin/mfa/enrol/confirm", t1, { code: wrong(code()) })).body.error.code, "WRONG_CODE");
+  const confirmed = await call("POST", "/v1/admin/mfa/enrol/confirm", t1, { code: code() });
+  assert.equal(confirmed.status, 200);
+  const recovery: string[] = confirmed.body.recoveryCodes;
+  assert.equal(recovery.length, 10); assert.equal(new Set(recovery).size, 10);
+  assert.equal((await call("GET", "/v1/admin/me", t1)).body.email, "two.step@example.test");
+  // The secret is stored encrypted; recovery codes only as keyed hashes.
+  const row = (await pool.query("SELECT totp_secret_enc, totp_pending_enc FROM admin_users WHERE id = $1", [staff.id])).rows[0];
+  assert.ok(row.totp_secret_enc && !row.totp_secret_enc.includes(secret) && row.totp_pending_enc === null);
+  const stored = (await pool.query("SELECT code_hash FROM admin_recovery_codes WHERE admin_user_id = $1", [staff.id])).rows.map((r) => r.code_hash);
+  assert.ok(stored.length === 10 && !stored.some((h: string) => recovery.some((c) => h.includes(c.replace("-", "")))));
+
+  // Every later sign-in needs a code; a code already used cannot be used again.
+  const signIn = async () => { const r = await call("POST", "/v1/admin/dev-login", undefined, { email: "two.step@example.test" }); assert.equal(r.body.mfa, "VERIFY"); return r.body.token as string; };
+  let t2 = await signIn();
+  assert.equal((await call("GET", "/v1/admin/me", t2)).status, 401);
+  assert.equal((await call("POST", "/v1/admin/mfa/verify", t2, { code: code() })).body.error.code, "WRONG_CODE", "the code from set-up cannot be replayed");
+  assert.equal((await call("POST", "/v1/admin/mfa/verify", t2, { code: code(1) })).body.method, "TOTP");
+  assert.equal((await call("GET", "/v1/admin/me", t2)).status, 200);
+
+  // A recovery code works once.
+  let t3 = await signIn();
+  assert.equal((await call("POST", "/v1/admin/mfa/verify", t3, { recoveryCode: recovery[0]!.toUpperCase() })).body.recoveryCodesLeft, 9);
+  t3 = await signIn();
+  assert.equal((await call("POST", "/v1/admin/mfa/verify", t3, { recoveryCode: recovery[0] })).body.error.code, "WRONG_CODE");
+
+  // Five wrong codes lock the account and alert Compliance; even a right code is refused while locked.
+  // (The wrong recovery code above already counts: it is five in a row.)
+  const t4 = await signIn();
+  const before = Number((await pool.query("SELECT count(*) FROM compliance_alerts WHERE kind = 'ADMIN_MFA_LOCKED' AND entity_id = $1", [staff.id])).rows[0].count);
+  for (let i = 0; i < 3; i++) assert.equal((await call("POST", "/v1/admin/mfa/verify", t4, { code: "999999" })).status, 403);
+  assert.equal(Number((await pool.query("SELECT count(*) FROM compliance_alerts WHERE kind = 'ADMIN_MFA_LOCKED' AND entity_id = $1", [staff.id])).rows[0].count), before);
+  await call("POST", "/v1/admin/mfa/verify", t4, { code: "999998" });
+  assert.equal(Number((await pool.query("SELECT count(*) FROM compliance_alerts WHERE kind = 'ADMIN_MFA_LOCKED' AND entity_id = $1", [staff.id])).rows[0].count), before + 1);
+  const locked = await call("POST", "/v1/admin/mfa/verify", t4, { recoveryCode: recovery[1] });
+  assert.equal(locked.status, 429); assert.equal(locked.body.error.code, "MFA_LOCKED");
+
+  // A lost phone: one security administrator asks, another approves; all sessions end; set-up starts again.
+  fails(await api("POST", "/v1/admin/staff/requests", { token: sec, body: { adminUserId: staff.id, action: "RESET_MFA", role: "AUDITOR", reason: "x" } }), 400, "INVALID_REQUEST");
+  const rq = ok(await api("POST", "/v1/admin/staff/requests", { token: sec, body: { adminUserId: staff.id, action: "RESET_MFA", reason: "Lost phone" } }));
+  fails(await api("POST", `/v1/admin/staff/requests/${rq.id}/decision`, { token: sec, body: { approve: true } }), 403, "SAME_PERSON");
+  ok(await api("POST", `/v1/admin/staff/requests/${rq.id}/decision`, { token: sec2, body: { approve: true } }));
+  assert.equal((await call("GET", "/v1/admin/me", t2)).status, 401, "signed out everywhere");
+  s1 = await call("POST", "/v1/admin/dev-login", undefined, { email: "two.step@example.test" });
+  assert.equal(s1.body.mfa, "ENROL");
+  fails(await api("POST", "/v1/admin/staff/requests", { token: sec, body: { adminUserId: staff.id, action: "RESET_MFA", reason: "again" } }), 409, "NOT_ENROLLED");
+  const listed = ok(await api("GET", "/v1/admin/staff", { token: sec })).staff.find((x: any) => x.id === staff.id);
+  assert.equal(listed.mfa_enabled, false);
+  await srv.close();
+});
+
+test("independent draw report: generated once from the records, every step re-checked, fingerprinted, attested by the appointed auditor, published", async () => {
+  const { canonicalJson } = await import("../src/modules/drawReport.ts");
+  const { sha256 } = await import("../src/crypto.ts");
+  const cycleId = (await pool.query("SELECT id FROM cycles WHERE name = 'Rice draw'")).rows[0].id;
+  fails(await api("GET", `/v1/cycles/${cycleId}/draw-report`), 404, "NOT_FOUND");
+  fails(await api("POST", `/v1/admin/cycles/${cycleId}/draw-report`, { token: admins.finance!.token }), 403, "ROLE_REQUIRED");
+  const open = (await pool.query("SELECT id FROM cycles WHERE status = 'OPEN' LIMIT 1")).rows[0];
+  if (open) fails(await api("POST", `/v1/admin/cycles/${open.id}/draw-report`, { token: admins.manager!.token }), 404, "NOT_FOUND");
+
+  const g = ok(await api("POST", `/v1/admin/cycles/${cycleId}/draw-report`, { token: admins.manager!.token }));
+  assert.equal(g.allChecksPass, true);
+  fails(await api("POST", `/v1/admin/cycles/${cycleId}/draw-report`, { token: admins.manager!.token }), 409, "ALREADY_GENERATED");
+  const pub = ok(await api("GET", `/v1/cycles/${cycleId}/draw-report`));
+  const r = pub.report;
+  assert.equal(pub.sha256, g.sha256);
+  assert.equal(sha256(canonicalJson(r)).toString("hex"), pub.sha256, "anyone can recompute the fingerprint from the published report");
+  assert.deepEqual(r.checks.map((c: any) => c.id), ["DRW-001", "DRW-002", "DRW-003", "DRW-004", "DRW-005a", "DRW-005b", "DRW-005c", "DRW-005d", "DRW-006", "DRW-007"]);
+  assert.ok(r.checks.filter((c: any) => c.id !== "DRW-005d").every((c: any) => c.pass), JSON.stringify(r.checks));
+  // The report matches the published draw exactly.
+  const drawn = ok(await api("GET", `/v1/cycles/${cycleId}/draw`));
+  assert.equal(r.register.entries, drawn.entries_count); assert.equal(r.register.entriesSha256, drawn.entries_sha256); assert.equal(r.mechanism.seed, drawn.seed);
+  assert.deepEqual(r.winners.flatMap((w: any) => w.cards.map((c: any) => c.serial)).sort(), drawn.winners.map((w: any) => w.serial).sort());
+  assert.equal(r.auditor, "auditor"); assert.ok(r.operations.some((o: any) => o.action === "Draw executed"));
+  // Nobody's identity is in it: no player names or phone numbers, no staff ids.
+  const text = JSON.stringify(pub);
+  assert.ok(!/Aisha Bello|\+234|admin_user_id|user_id/.test(text));
+
+  // Attestation: only the appointed auditor, only for the exact fingerprint, once.
+  const attest = (token: string, b: object) => api("POST", `/v1/admin/cycles/${cycleId}/draw-report/attest`, { token, body: { sha256: g.sha256, statement: "I reviewed the draw records and re-ran the draw; the report is accurate.", ...b } });
+  fails(await attest(admins.manager!.token, {}), 403, "ROLE_REQUIRED");
+  fails(await attest(admins.auditor2!.token, {}), 403, "NOT_APPOINTED_AUDITOR");
+  fails(await attest(admins.auditor!.token, { sha256: "0".repeat(64) }), 409, "FINGERPRINT_MISMATCH");
+  ok(await attest(admins.auditor!.token, {}));
+  fails(await attest(admins.auditor!.token, {}), 409, "ALREADY_ATTESTED");
+  const after = ok(await api("GET", `/v1/cycles/${cycleId}/draw-report`));
+  assert.equal(after.attestation.by, "auditor"); assert.match(after.attestation.statement, /re-ran the draw/);
+  await assert.rejects(pool.query("UPDATE draw_reports SET all_checks_pass = false WHERE cycle_id = $1", [cycleId]), /cannot be changed/);
+  await assert.rejects(pool.query("DELETE FROM draw_reports WHERE cycle_id = $1", [cycleId]), /not allowed/);
 });
 
 test("statutory deductions on winnings: the rate is fixed on the campaign and published; every cash award records gross, deduction and net", async () => {

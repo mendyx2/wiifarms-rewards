@@ -324,4 +324,7 @@ nav.tabs a:active { box-shadow: inset 0 2px 4px rgba(70,50,20,.3); }
   background: radial-gradient(circle at 35% 30%, #fff3c4, var(--gold-hi) 30%, var(--gold) 60%, var(--gold-lo)); box-shadow: inset 0 -2px 3px rgba(90,55,0,.4), 0 2px 3px rgba(0,0,0,.25); }
 .faq summary { padding: 2px 0 2px 22px; }
 .faq p { margin: 10px 0 0; }
-.mono-sm { font: 12px ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.mono-sm { font: 12px ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; word-break: break-all; min-width: 0; }
+.hexrow { display: grid; gap: 2px; padding: 9px 0; border-bottom: 1px solid rgba(120,95,50,.16); min-width: 0; }
+.hexrow:last-child { border-bottom: 0; }
+.check > div { min-width: 0; overflow-wrap: anywhere; }

@@ -26,7 +26,7 @@ export async function authenticateAdmin(ctx: Ctx, token: string | undefined): Pr
             coalesce(array_agg(r.role) FILTER (WHERE r.role IS NOT NULL), '{}')::text[] AS roles
      FROM admin_sessions s JOIN admin_users a ON a.id = s.admin_user_id
      LEFT JOIN admin_roles r ON r.admin_user_id = a.id
-     WHERE s.token_hash = $1 AND s.expires_at > now() AND a.status = 'ACTIVE'
+     WHERE s.token_hash = $1 AND s.stage = 'ACTIVE' AND s.expires_at > now() AND a.status = 'ACTIVE'
      GROUP BY a.id`,
     [sha256(token)]);
   if (!row) throw unauthorized();
@@ -44,14 +44,20 @@ export function requireRole(admin: Admin, ...roles: Role[]): void {
  * company's single sign-on with a hardware key; this function refuses to run
  * outside simulation.
  */
-export async function devAdminLogin(ctx: Ctx, email: string): Promise<{ token: string }> {
+export async function devAdminLogin(ctx: Ctx, email: string): Promise<{ token: string; mfa: "OFF" | "ENROL" | "VERIFY" }> {
   if (!ctx.config.simulated) throw forbidden("NOT_AVAILABLE", "Not available.");
-  const admin = await one<{ id: string }>(ctx.pool, "SELECT id FROM admin_users WHERE email = $1 AND status = 'ACTIVE'", [email]);
+  const admin = await one<{ id: string; enrolled: boolean }>(ctx.pool, "SELECT id, totp_enabled_at IS NOT NULL AS enrolled FROM admin_users WHERE email = $1 AND status = 'ACTIVE'", [email]);
   if (!admin) throw unauthorized("Unknown administrator.");
   const { token, hash } = newToken();
-  await ctx.pool.query("INSERT INTO admin_sessions (token_hash, admin_user_id, expires_at) VALUES ($1, $2, now() + interval '8 hours')", [hash, admin.id]);
-  return { token };
+  // With two-step sign-in (always, outside simulation) this first step gives only a short pending session.
+  const mfa = mfaRequired(ctx);
+  await ctx.pool.query(`INSERT INTO admin_sessions (token_hash, admin_user_id, stage, expires_at) VALUES ($1, $2, $3, now() + $4::interval)`,
+    [hash, admin.id, mfa ? "MFA_PENDING" : "ACTIVE", mfa ? "10 minutes" : "8 hours"]);
+  return { token, mfa: !mfa ? "OFF" : admin.enrolled ? "VERIFY" : "ENROL" };
 }
+
+/** Two-step sign-in can be switched off only in a simulation. */
+export const mfaRequired = (ctx: Ctx): boolean => !(ctx.config.simulated && ctx.config.adminMfa === "off");
 
 /** Adds a person to the staff/family/auditor/supplier exclusion register. */
 export async function addToExclusionRegister(ctx: Ctx, admin: Admin, input: { category: string; phone?: string; idKind?: "NIN" | "BVN"; idNumber?: string; note?: string }): Promise<{ id: string }> {
