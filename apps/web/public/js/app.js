@@ -174,11 +174,23 @@ function scratchSurface(resultNode, { onStart, onDone }) {
     const r = wrap.getBoundingClientRect(), d = window.devicePixelRatio || 1;
     canvas.width = r.width * d; canvas.height = r.height * d;
     ctx.setTransform(d, 0, 0, d, 0, 0);
+    // Silver scratch foil: brushed metal, fine grit, a diagonal sheen and an embossed label.
     const g = ctx.createLinearGradient(0, 0, r.width, r.height);
-    g.addColorStop(0, "#b4babd"); g.addColorStop(0.5, "#e9ecee"); g.addColorStop(1, "#a9b0b3");
+    g.addColorStop(0, "#a3abaf"); g.addColorStop(0.3, "#e4e8ea"); g.addColorStop(0.5, "#b9c0c4"); g.addColorStop(0.72, "#f0f2f3"); g.addColorStop(1, "#9aa2a6");
     ctx.fillStyle = g; ctx.fillRect(0, 0, r.width, r.height);
-    ctx.fillStyle = "#6c757a"; ctx.font = "600 18px system-ui"; ctx.textAlign = "center";
-    ctx.fillText("Scratch here", r.width / 2, r.height / 2 + 6);
+    for (let y = 0; y < r.height; y += 2) { ctx.fillStyle = `rgba(255,255,255,${0.04 + 0.05 * Math.random()})`; ctx.fillRect(0, y, r.width, 1); }
+    for (let i = 0; i < r.width * r.height / 40; i++) {
+      ctx.fillStyle = Math.random() < 0.5 ? "rgba(255,255,255,.35)" : "rgba(60,66,70,.18)";
+      ctx.fillRect(Math.random() * r.width, Math.random() * r.height, 1, 1);
+    }
+    const sheen = ctx.createLinearGradient(0, 0, r.width, r.height);
+    sheen.addColorStop(0.35, "rgba(255,255,255,0)"); sheen.addColorStop(0.5, "rgba(255,255,255,.45)"); sheen.addColorStop(0.65, "rgba(255,255,255,0)");
+    ctx.fillStyle = sheen; ctx.fillRect(0, 0, r.width, r.height);
+    const label = tr("Scratch here"), cx = r.width / 2, cy = r.height / 2 + 8;
+    ctx.font = "800 24px system-ui"; ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.fillText(label, cx, cy + 1.5);
+    ctx.fillStyle = "rgba(55,62,66,.75)"; ctx.fillText(label, cx, cy);
+    ctx.font = "22px system-ui"; ctx.fillStyle = "rgba(55,62,66,.55)"; ctx.fillText("✦  ✦  ✦", cx, cy - 34); ctx.fillText("✦  ✦  ✦", cx, cy + 34);
   }
   function finish() {
     if (done || !ready) return;
@@ -194,6 +206,7 @@ function scratchSurface(resultNode, { onStart, onDone }) {
   function scratchAt(e) {
     const r = canvas.getBoundingClientRect();
     ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "#000"; // fully opaque, so the foil is removed completely where the finger passes
     ctx.beginPath(); ctx.arc(e.clientX - r.left, e.clientY - r.top, 26, 0, Math.PI * 2); ctx.fill();
     ctx.globalCompositeOperation = "source-over";
     if (++moves % 8 === 0) measure();
@@ -210,6 +223,11 @@ function scratchSurface(resultNode, { onStart, onDone }) {
   requestAnimationFrame(paint);
   return { wrap, revealNow() { enough = true; begin(); finish(); } };
 }
+
+/** A light tap felt through the phone when a physical-looking control is pressed (where the phone supports it). */
+document.addEventListener("pointerdown", (e) => {
+  if (e.target instanceof Element && e.target.closest(".btn, .chips button, .qty button, .ticket, nav.tabs a, .lang button")) navigator.vibrate?.(8);
+}, { passive: true });
 
 // --- Screens ----------------------------------------------------------------------------
 
@@ -549,7 +567,7 @@ function resultNodes(cashKobo, demo, accepted = false, taxBp = 0) {
   const net = netOf(cashKobo, taxBp);
   return cashKobo
     ? [el("div", { class: "muted" }, "You won"), el("div", { class: "big" }, naira(cashKobo)),
-       !demo && net < cashKobo ? el("div", { class: "muted deduction" }, `${naira(cashKobo - net)} statutory deduction (${taxBp / 100}%) · ${naira(net)} to your wallet`) : null,
+       ...(!demo && net < cashKobo ? [el("div", { class: "muted deduction" }, `${naira(cashKobo - net)} statutory deduction (${taxBp / 100}%) · ${naira(net)} to your wallet`)] : []),
        el("div", { class: "muted" }, demo ? "Demo only — nothing is paid" : accepted ? "Added to your wallet" : "Tap Accept to add it to your wallet")]
     : [el("div", { class: "big none" }, "No instant win"), el("div", { class: "muted" }, demo ? "Demo card" : "You still qualify for the final prize draw at the end of the season")];
 }
