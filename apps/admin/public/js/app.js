@@ -944,7 +944,15 @@ async function merchandise() {
 
   // Stock
   nodes.push(el("h2", {}, "Items"), el("div", { class: "card" }, inv.items.length ? table(["Item", "#Advertised value", "#Avg landed cost", "#Free", "#Reserved", "#With winners", "#Handed over", "Warranty"], inv.items.map((i) =>
-    el("tr", {}, td(el("b", {}, i.name)), td(naira(i.advertised_value_kobo), true), td(i.avg_landed_cost_kobo ? naira(i.avg_landed_cost_kobo) : "—", true), td(num(i.in_stock), true), td(num(i.reserved), true),
+    el("tr", {}, td([el("b", {}, i.name), el("div", { class: "sub" }, i.description ?? "No description for the prize catalogue yet."),
+      i.retail_url ? el("div", { class: "mono" }, i.retail_url) : null,
+      can("FULFILMENT", "CYCLE_MANAGER") ? el("button", { class: "btn small ghost", onclick: action(async () => {
+        const description = prompt("Description for the public prize catalogue:", i.description ?? ""); if (description === null) return;
+        const retailUrl = prompt("Ordinary retail link where the product can be bought without playing (https://…), or leave empty:", i.retail_url ?? ""); if (retailUrl === null) return;
+        const redemptionNotes = prompt("Anything else winners should know to redeem it (optional):", i.redemption_notes ?? ""); if (redemptionNotes === null) return;
+        await put(`/v1/admin/skus/${i.id}/catalogue`, { ...(description.trim() ? { description } : {}), retailUrl: retailUrl.trim() || null, ...(redemptionNotes.trim() ? { redemptionNotes } : {}) });
+        return "Catalogue details saved.";
+      }) }, "Catalogue details") : null]), td(naira(i.advertised_value_kobo), true), td(i.avg_landed_cost_kobo ? naira(i.avg_landed_cost_kobo) : "—", true), td(num(i.in_stock), true), td(num(i.reserved), true),
       td(num(i.with_winners), true), td(num(i.delivered), true), td(i.warranty_months ? i.warranty_months + " months" : "—")))) : el("p", { class: "sub" }, "No items yet.")));
 
   if (f) {
@@ -1139,7 +1147,7 @@ async function affiliatesPage() {
       }) },
         el("div", { class: "form" },
           select("Fees", "enable", [["on", "Switch on"], ["off", "Switch off"]]),
-          input("Rate (%)", { name: "rate", type: "number", min: 0, max: 5, step: 0.1, value: String(p.rate_bp / 100), required: true }),
+          input("Rate (%)", { name: "rate", type: "number", min: 0, max: 10, step: 0.1, value: String(p.rate_bp / 100), required: true }),
           input("Legal approval reference (required to switch on)", { name: "legal", maxlength: 200 }),
           input("Reason", { name: "reason", required: true, maxlength: 500 })),
         el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Request change")));

@@ -283,7 +283,7 @@ async function home() {
     el("h2", {}, "Final-draw prizes"),
     el("p", { class: "muted" }, "Every card you buy is entered automatically, win or lose."),
     el("div", { class: "prizes" }, c.prizes.filter((p) => p.stage === "FINAL_DRAW").map((p) =>
-      el("div", { class: "prize" }, el("div", { class: "pic" }, p.has_image ? el("img", { src: `/v1/prize-images/${p.id}`, alt: p.title, loading: "lazy" }) : PRIZE_ICON(p.title)),
+      el("a", { class: "prize prize-link", href: `#/prize/${p.id}` }, el("div", { class: "pic" }, p.has_image ? el("img", { src: `/v1/prize-images/${p.id}`, alt: p.title, loading: "lazy" }) : PRIZE_ICON(p.title)),
         el("b", {}, p.title), el("span", {}, plural(p.quantity, "winner"))))),
     el("h2", {}, "Instant prizes"),
     el("div", { class: "card" }, c.prizes.filter((p) => p.stage === "INSTANT").map((p) =>
@@ -307,7 +307,9 @@ async function home() {
   }
   nodes.push(installCard({ dismissible: true }));
   nodes.push(el("p", { class: "muted" }, "18+ only. Play within your limits. This is a simulation: no real money is taken or paid."),
-    el("p", { class: "muted links" }, el("a", { href: `#/rules/${c.id}` }, "Game rules and odds"), " · ", el("a", { href: "#/centres" }, "Collection centres"), " · ", el("a", { href: "#/privacy" }, "Privacy policy")));
+    el("p", { class: "muted links" }, el("a", { href: `#/rules/${c.id}` }, "Game rules and odds"), " · ", el("a", { href: "#/how" }, "How it works"), " · ", el("a", { href: "#/prizes" }, "Prize catalogue"), " · ",
+      el("a", { href: "#/centres" }, "Collection centres"), " · ", el("a", { href: "#/responsible" }, "Responsible play"), " · ", el("a", { href: "#/help" }, "Help centre"), " · ",
+      el("a", { href: "#/about" }, "About us"), " · ", el("a", { href: "#/privacy" }, "Privacy policy"), " · ", el("a", { href: "#/site" }, "All pages")));
   return nodes;
 }
 
@@ -706,7 +708,7 @@ function prizeCard(p, centres = []) {
         el("div", { class: "voucher-head" }, el("b", {}, "Collection voucher"), el("span", { class: "pill" }, "Ready to collect")),
         el("div", { class: "voucher-ref" }, p.voucher_ref),
         el("div", { class: "row" }, el("span", {}, "Where"), el("b", {}, p.centre_name)),
-        el("div", { class: "row" }, el("span", {}, "Address"), el("span", {}, `${p.centre_address}, ${p.centre_area}`)),
+        el("div", { class: "row" }, el("span", {}, "Address"), el("span", {}, p.centre_address, ", ", p.centre_area)),
         p.centre_hours ? el("div", { class: "row" }, el("span", {}, "Opening hours"), el("span", {}, p.centre_hours)) : null,
         el("div", { class: "row" }, el("span", {}, "Bring"), el("span", {}, "Your photo ID (NIN slip, voter's card, driver's licence or passport)"))),
       el("div", { class: "note warn" }, "Show the voucher at the centre. Your handover code: read it out only when the prize is in your hands."),
@@ -939,6 +941,7 @@ async function me() {
       el("div", { class: "row" }, el("div", {}, el("b", {}, "Next of kin"), el("small", {}, m.nextOfKin ? `${m.nextOfKin.full_name} · ${m.nextOfKin.relationship}` : "Not added — needed before a big prize is claimed")))),
     el("details", { class: "card" }, el("summary", {}, m.nextOfKin ? "Change next of kin" : "Add next of kin"), nok),
     el("a", { class: "btn gold", href: "#/invite" }, "Invite friends"), el("p"),
+    el("a", { class: "btn ghost", href: "#/site" }, "All pages: prizes, help, rules, about us"), el("p"),
     el("h2", {}, "Achievements"), await achievements(m),
     el("a", { class: "btn ghost", href: "#/support" }, "Help and support"), el("p"),
     await purchasesSection(),
@@ -1138,6 +1141,172 @@ async function approvedMaterials() {
 }
 const CHANNEL_TEXT = { WHATSAPP: "WhatsApp", SMS: "Text message", SOCIAL: "Social media", PRINT: "Print", RADIO: "Radio" };
 
+// --- Public website pages (SRS WEB-001 to WEB-015) --------------------------------------------
+// Home and the current campaign (WEB-001/002), My cards (005), the draw centre (006), claiming
+// prizes (007), affiliates (008), collection centres (009), game rules (012) and privacy (014)
+// are screens of their own; these are the rest, and the site map that links them all.
+
+const SITE_PAGES = [
+  ["#/home", "🏠", "Current campaign", "Prices, prizes, what is left and when it closes"],
+  ["#/prizes", "🎁", "Prize catalogue", "Every prize, its value, supplier and warranty"],
+  ["#/how", "🧭", "How it works", "Buying, scratching, the final draw and claiming"],
+  ["#/cards", "🎟️", "My cards", "Your cards and results"],
+  ["#/draw", "🎯", "Draw centre", "The draw date and verified results"],
+  ["#/wallet", "🏆", "Claim your prize", "Cash winnings and merchandise prizes"],
+  ["#/affiliate", "📣", "Digital agency", "Become an authorised affiliate"],
+  ["#/centres", "📍", "Collection centres", "Where winners collect prizes"],
+  ["#/past", "📜", "Previous campaigns", "Results and how prizes were delivered"],
+  ["#/rules", "📘", "Game rules and odds", "The approved terms and chances of winning"],
+  ["#/responsible", "🛟", "Responsible play", "Limits, breaks and help"],
+  ["#/help", "❓", "Help centre", "Questions and answers, and contacting us"],
+  ["#/about", "🏢", "About us", "Who we are, licences and certification"],
+  ["#/privacy", "🔒", "Privacy policy", "How your information is used"],
+];
+
+function siteMap() {
+  return [el("h1", {}, "WiiFarm Rewards"),
+    el("p", { class: "muted" }, "Everything about the campaign, the prizes and how we run it."),
+    el("div", { class: "sitemap" }, SITE_PAGES.map(([href, icon, title, text]) =>
+      el("a", { class: "card site-link", href }, el("span", { class: "site-icon", "aria-hidden": "true" }, icon), el("div", {}, el("b", {}, title), el("small", {}, text)))))];
+}
+
+/** WEB-003: the prize catalogue for the current campaign. */
+async function prizesScreen() {
+  await loadCycle();
+  if (!state.cycleId) return [el("h1", {}, "Prize catalogue"), el("p", { class: "muted" }, "No prize cycle yet.")];
+  const cat = await api.get(`/v1/cycles/${state.cycleId}/catalogue`);
+  state.catalogue = cat;
+  const draw = cat.prizes.filter((p) => p.stage === "FINAL_DRAW"), instant = cat.prizes.filter((p) => p.stage === "INSTANT");
+  return [el("h1", {}, "Prize catalogue"), el("p", { class: "muted" }, `${cat.campaign.name} · final draw ${when(cat.campaign.drawAt)}`),
+    el("h2", {}, "Final-draw prizes"),
+    el("div", { class: "prizes" }, draw.map((p) => el("a", { class: "prize prize-link", href: `#/prize/${p.id}` },
+      el("div", { class: "pic" }, p.has_image ? el("img", { src: `/v1/prize-images/${p.id}`, alt: p.title, loading: "lazy" }) : PRIZE_ICON(p.title)),
+      el("b", {}, p.title), el("span", {}, `${plural(p.quantity, "winner")} · ${naira(p.value_kobo)}`)))),
+    el("h2", {}, "Instant cash prizes"),
+    el("div", { class: "card" }, instant.map((p) => el("div", { class: "row" }, el("b", {}, naira(p.cash_kobo)), el("span", {}, plural(p.quantity, "prize"))))),
+    el("p", { class: "muted" }, "Values are the published value of each prize. You never pay anything to claim or collect a prize.")];
+}
+
+/** One prize page: picture, description, quantity, value, supplier, warranty and redemption conditions; a retail link to buy it without playing. */
+async function prizeScreen(id) {
+  if (!state.catalogue?.prizes.some((p) => p.id === id)) { await loadCycle(); if (state.cycleId) state.catalogue = await api.get(`/v1/cycles/${state.cycleId}/catalogue`); }
+  const cat = state.catalogue, p = cat?.prizes.find((x) => x.id === id);
+  if (!p) return [el("h1", {}, "Prize not found"), el("a", { class: "btn", href: "#/prizes" }, "Prize catalogue")];
+  const goods = p.kind === "MERCHANDISE";
+  return [el("a", { href: "#/prizes" }, "← Prize catalogue"),
+    el("h1", {}, p.title),
+    el("div", { class: "card prize-hero" }, el("div", { class: "pic" }, p.has_image ? el("img", { src: `/v1/prize-images/${p.id}`, alt: p.title }) : PRIZE_ICON(p.title))),
+    p.description ? el("p", {}, p.description) : null,
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("span", {}, "Value"), el("b", {}, naira(p.value_kobo))),
+      el("div", { class: "row" }, el("span", {}, "Quantity"), el("b", {}, plural(p.quantity, "winner"))),
+      el("div", { class: "row" }, el("span", {}, "How it is won"), el("span", {}, p.stage === "FINAL_DRAW" ? "Final draw: every card is entered" : "Instant win when you scratch")),
+      goods ? el("div", { class: "row" }, el("span", {}, "Supplier"), el("span", {}, p.suppliers.length ? p.suppliers.join(", ") : "To be confirmed")) : null,
+      goods ? el("div", { class: "row" }, el("span", {}, "Warranty"), el("span", {}, p.warranty_months ? `${p.warranty_months} months` : "None")) : null),
+    el("h2", {}, "Redemption conditions"),
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("small", {}, `Claim within ${cat.campaign.claimWindowDays} days of winning, in the app. After that the prize is no longer available, as the rules say.`)),
+      goods ? el("div", { class: "row" }, el("small", {}, `Choose delivery or collection at one of ${cat.collectionCentres} approved collection centres. Bring photo ID; the prize is handed over against a one-time code only you see.`))
+        : el("div", { class: "row" }, el("small", {}, "Cash goes into your wallet when you accept it, less any statutory deduction; withdraw it to a bank account in your own name.")),
+      el("div", { class: "row" }, el("small", {}, "You need a verified account and a next of kin on file. Prizes worth ₦100,000 or more also need the liveness check.")),
+      p.redemption_notes ? el("div", { class: "row" }, el("small", {}, p.redemption_notes)) : null,
+      el("div", { class: "row" }, el("small", {}, "No purchase, membership or payment is ever needed to claim a prize."))),
+    goods && p.retail_url ? el("a", { class: "btn ghost", href: p.retail_url, target: "_blank", rel: "noopener noreferrer" }, "Buy this product (no lottery)") : null,
+    goods && p.retail_url ? el("p", { class: "muted" }, "You can buy this product in the ordinary way, without playing.") : null];
+}
+
+/** WEB-004: participation and redemption instructions. */
+function howScreen() {
+  const step = (n, title, text) => el("div", { class: "card step-card" }, el("span", { class: "step-no" }, String(n)), el("div", {}, el("b", {}, title), el("p", { class: "muted" }, text)));
+  return [el("h1", {}, "How it works"),
+    step(1, "Open an account", "You must be 18 or over and live where the campaign is licensed (Niger State). Verify your identity with your NIN or BVN; it takes a minute."),
+    step(2, "Buy scratch cards", "Each card costs ₦500; you can buy up to 10 a day, within the spending limits you choose. Read and accept the game rules first. All sales are final, and every payment gets its cards."),
+    step(3, "Scratch", "Swipe across the card to scratch it. The result was fixed before sales opened and your phone checks it against the published fingerprint."),
+    step(4, "Instant cash", "If you win instant cash, tap Accept and it goes into your wallet. Withdraw it (from ₦500) to a bank account in your own name, or use it to buy cards."),
+    step(5, "The final draw", "Every card — win or lose — is entered in the final draw at the end of the season. The draw is public, overseen by an independent auditor, and anyone can check it."),
+    step(6, "Claim your prize", "If you win a prize in the draw, claim it in the app within the claim period: choose delivery, or collection at an approved centre with your voucher and photo ID."),
+    el("a", { class: "btn gold", href: "#/home" }, "See the current campaign"),
+    el("p"), el("a", { class: "btn ghost", href: "#/demo" }, "Try a free demo card")];
+}
+
+/** WEB-011: questions and answers, and the way to support. */
+function helpScreen() {
+  const qa = (q, a) => el("details", { class: "card faq" }, el("summary", {}, q), el("p", { class: "muted" }, a));
+  return [el("h1", {}, "Help centre"),
+    qa("Who can play?", "Anyone aged 18 or over, in the area where the campaign is licensed (Niger State), with a verified account. Staff and their close family cannot play."),
+    qa("Are the results fair?", "Every card's result is fixed and sealed before sales open, and its fingerprint is published. Your phone checks each card you scratch, and the final draw uses a public random source with an independent auditor."),
+    qa("How many cards can I buy?", "Up to 10 a day, and never more than your own spending limits. You can lower your limits or take a break at any time on the Me page."),
+    qa("Can I get a refund?", "All sales are final. If a payment goes through but no card can be given (for example the last cards sold at the same moment), the full amount goes into your wallet."),
+    qa("How do I get my winnings?", "Accept instant cash into your wallet, then withdraw it from ₦500 to a bank account in your own verified name. Large amounts need a short liveness check."),
+    qa("How do I collect a merchandise prize?", "Claim it in the app, choose delivery or an approved collection centre, and bring photo ID. Give your handover code only when the prize is in your hands."),
+    qa("Do I have to pay to collect a prize?", "No. Nobody may ask you to pay, buy anything or join anything to receive a prize. Report anyone who does."),
+    qa("Is any tax taken from winnings?", "If the law requires a deduction, it is shown in the game rules and when you scratch, and only the rest goes to your wallet."),
+    qa("I lost my phone or forgot my PIN.", "Reset your PIN with a code sent to your phone number. If you no longer have the number, contact support. We will never ask for your PIN."),
+    qa("Someone promoting WiiFarm misled me.", "Report them from the help page below (Report a promoter). Only authorised affiliates may promote us, with approved materials."),
+    el("a", { class: "btn gold", href: "#/support" }, "Contact support"),
+    el("p", { class: "muted" }, "Support replies in the app and by text message. We never ask for your PIN or the codes sent to your phone.")];
+}
+
+/** WEB-013: responsible play — the controls and where to get help. */
+function responsibleScreen() {
+  return [el("h1", {}, "Responsible play"),
+    el("p", {}, "WiiFarm Rewards is entertainment. Play only with money you can afford to lose, and never to make money or pay debts."),
+    el("h2", {}, "Your controls"),
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("div", {}, el("b", {}, "Spending limits"), el("small", {}, "Daily, weekly and monthly. Lowering a limit takes effect at once; raising one waits 24 hours."))),
+      el("div", { class: "row" }, el("div", {}, el("b", {}, "Daily card limit"), el("small", {}, "At most 10 cards a day for everyone."))),
+      el("div", { class: "row" }, el("div", {}, el("b", {}, "Take a 7-day break"), el("small", {}, "Buying is switched off for 7 days and cannot be undone early."))),
+      el("div", { class: "row" }, el("div", {}, el("b", {}, "Self-exclusion"), el("small", {}, "Stop buying altogether. Your winnings stay yours and can still be withdrawn."))),
+      el("div", { class: "row" }, el("div", {}, el("b", {}, "Your play summary"), el("small", {}, "See what you have spent and won, and your net position, on the Me page.")))),
+    state.me ? el("a", { class: "btn gold", href: "#/me" }, "Set my limits") : el("a", { class: "btn gold", href: "#/signup" }, "Open an account"),
+    el("h2", {}, "Warning signs"),
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("small", {}, "Spending more than you planned, or chasing losses.")),
+      el("div", { class: "row" }, el("small", {}, "Borrowing money, or using money meant for food, rent or school fees.")),
+      el("div", { class: "row" }, el("small", {}, "Hiding how much you play from family."))),
+    el("div", { class: "note" }, "If any of this sounds familiar, take a break now and talk to someone you trust. Our support team can help you set limits or exclude yourself."),
+    el("a", { class: "btn ghost", href: "#/support" }, "Talk to support"),
+    el("p", { class: "muted" }, "18+ only. Under-18s cannot open an account, claim prizes or be promoted to.")];
+}
+
+/** WEB-010: who we are, and the licences and certifications currently in force. */
+async function aboutScreen() {
+  const a = await api.get("/v1/site/about");
+  return [el("h1", {}, "About us"),
+    el("p", {}, `${a.company.name} runs reward campaigns with scratch cards and a final prize draw, alongside WiiFarm's farm products. Prizes include NaijaSweetRice and other products, cash and a vehicle.`),
+    el("div", { class: "card" },
+      el("div", { class: "row" }, el("span", {}, "Company"), el("b", {}, a.company.name)),
+      a.company.registration ? el("div", { class: "row" }, el("span", {}, "Registration"), el("span", {}, a.company.registration)) : null,
+      a.company.address ? el("div", { class: "row" }, el("span", {}, "Address"), el("span", {}, a.company.address)) : null,
+      a.company.email ? el("div", { class: "row" }, el("span", {}, "Email"), el("a", { href: `mailto:${a.company.email}` }, a.company.email)) : null),
+    el("h2", {}, "Licences"),
+    a.licences.length ? el("div", { class: "card" }, a.licences.map((l) => el("div", { class: "row" },
+      el("div", {}, el("b", {}, l.authority), el("small", {}, `${l.state_code === "NG-NI" ? "Niger State" : l.state_code} · valid ${l.valid_from} to ${l.valid_to}`)), el("span", { class: "mono-sm" }, l.licence_number))))
+      : el("div", { class: "note warn" }, "No licence is in force yet. Until one is, WiiFarm Rewards runs only as a simulation: no real money is taken or paid."),
+    el("h2", {}, "Certification"),
+    a.certifications.length ? el("div", { class: "card" }, a.certifications.map((c) => el("div", { class: "row" },
+      el("div", {}, el("b", {}, CERT_TEXT[c.component] ?? c.component), el("small", {}, `${c.lab} · ${c.certificate_ref}`)), el("span", { class: "mono-sm" }, c.component_version.slice(0, 22)))))
+      : el("div", { class: "note warn" }, "The game engine has not yet been certified by an independent laboratory."),
+    el("p", { class: "muted" }, "Game engine fingerprint: ", el("code", { class: "mono-sm" }, a.engineFingerprint)),
+    a.simulated ? el("div", { class: "note warn" }, "This is a simulation: no real money is taken or paid.") : null];
+}
+const CERT_TEXT = { GAME_CORE: "Game engine", DRAW: "Final draw", PLATFORM_SECURITY: "Platform security" };
+
+/** WEB-015: finished campaigns, their results and how their prizes were delivered. */
+async function pastScreen() {
+  const { campaigns } = await api.get("/v1/site/past-campaigns");
+  return [el("h1", {}, "Previous campaigns"),
+    campaigns.length ? campaigns.map((c) => el("div", { class: "card" },
+      el("div", { class: "row" }, el("b", {}, c.name), el("span", { class: "pill" + (c.status === "VOID" ? " grey" : "") }, c.status === "VOID" ? "Cancelled" : "Completed")),
+      c.status === "VOID" ? el("p", { class: "muted" }, "This campaign was cancelled and every payment refunded.") : [
+        el("div", { class: "row" }, el("span", {}, "Cards sold"), el("b", {}, `${c.cards_sold.toLocaleString("en-NG")} of ${c.total_tickets.toLocaleString("en-NG")}`)),
+        el("div", { class: "row" }, el("span", {}, "Instant cash won"), el("b", {}, `${naira(c.instant_cash_kobo)} (${c.instant_wins.toLocaleString("en-NG")} prizes)`)),
+        el("div", { class: "row" }, el("span", {}, "Final draw"), el("b", {}, `${when(c.drawn_at ?? c.draw_at)} · ${plural(c.draw_winners, "winner")}`)),
+        c.goods_won ? el("div", { class: "row" }, el("span", {}, "Merchandise prizes"), el("b", {}, `${c.goods_delivered} delivered · ${c.goods_outstanding} in progress · ${c.goods_unclaimed} unclaimed`)) : null,
+        el("button", { class: "btn small ghost", onclick: () => { state.drawCycleId = c.id; location.hash = "#/draw"; } }, "See and verify the draw")]))
+      : el("p", { class: "muted" }, "No campaign has finished yet.")];
+}
+
 /** The stockist locator (SRS WEB-009): approved collection centres. */
 async function centresScreen() {
   const { centres } = await api.get("/v1/stockists");
@@ -1145,9 +1314,9 @@ async function centresScreen() {
     el("p", { class: "muted" }, "Authorised centres where winners collect merchandise prizes. You never pay anything to collect a prize, and you never need to buy anything or join anything."),
     centres.length ? centres.map((c) => el("div", { class: "card" },
       el("div", { class: "row" }, el("b", {}, c.name), el("span", { class: "pill grey" }, c.tier === "MEGA" ? "Regional centre" : "Local centre")),
-      el("div", { class: "row" }, el("span", {}, "Address"), el("span", {}, `${c.address}, ${c.area}`)),
+      el("div", { class: "row" }, el("span", {}, "Address"), el("span", {}, c.address, ", ", c.area)),
       c.opening_hours ? el("div", { class: "row" }, el("span", {}, "Opening hours"), el("span", {}, c.opening_hours)) : null,
-      el("div", { class: "row" }, el("span", {}, "Serves"), el("span", {}, c.coverage.join(", "))),
+      el("div", { class: "row" }, el("span", {}, "Serves"), el("span", {}, ...c.coverage.flatMap((x, i) => (i ? [", ", x] : [x])))),
       el("div", { class: "row" }, el("span", {}, "Phone"), el("a", { href: `tel:${c.phone}` }, c.phone))))
       : el("p", { class: "muted" }, "No collection centres yet. Winners can choose delivery.")];
 }
@@ -1297,7 +1466,9 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, affiliate: { screen: affiliateScreen, tab: "me", auth: true }, centres: { screen: centresScreen, tab: "wallet" }, liveness: { screen: liveness, tab: "wallet", auth: true },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, affiliate: { screen: affiliateScreen, tab: "me", auth: true }, centres: { screen: centresScreen, tab: "wallet" }, site: { screen: siteMap, tab: "home" }, prizes: { screen: prizesScreen, tab: "home" },
+  prize: { screen: prizeScreen, tab: "home" }, how: { screen: howScreen, tab: "home" }, help: { screen: helpScreen, tab: "me" }, responsible: { screen: responsibleScreen, tab: "me" },
+  about: { screen: aboutScreen, tab: "home" }, past: { screen: pastScreen, tab: "draw" }, liveness: { screen: liveness, tab: "wallet", auth: true },
   rules: { screen: rulesScreen, tab: "home" }, privacy: { screen: privacyScreen, tab: "me" }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },
 };
 

@@ -139,7 +139,7 @@ export async function inventoryOverview(ctx: Ctx, admin: Admin): Promise<unknown
   requireRole(admin, ...VIEW);
   const q = (sql: string) => ctx.pool.query(sql).then((r) => r.rows);
   const [items, suppliers, warehouses, units] = await Promise.all([
-    q(`SELECT s.id, s.name, s.advertised_value_kobo, s.serialised, s.warranty_months,
+    q(`SELECT s.id, s.name, s.advertised_value_kobo, s.serialised, s.warranty_months, s.description, s.retail_url, s.redemption_notes,
               count(u.id) FILTER (WHERE u.status = 'IN_STOCK')::int AS in_stock,
               count(u.id) FILTER (WHERE u.status = 'RESERVED')::int AS reserved,
               count(u.id) FILTER (WHERE u.status IN ('ALLOCATED','DISPATCHED'))::int AS with_winners,

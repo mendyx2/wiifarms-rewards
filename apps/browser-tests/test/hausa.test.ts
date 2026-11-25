@@ -89,7 +89,11 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await p.selectOption("select[name=daily]", "1000000");
   await p.click("text=Ajiye iyaka");
   await p.waitForSelector("text=zai fara");
-  await p.click('summary:has-text("Ƙara magaji")');
+  // The page may redraw once more after saving the limit (closing the section), so open it until it stays open.
+  for (let i = 0; i < 5 && !(await p.locator("input[name=name]").isVisible()); i++) {
+    await p.click('summary:has-text("Ƙara magaji")');
+    await p.waitForTimeout(300);
+  }
   await p.fill("input[name=name]", "Halima Garba");
   await p.fill("input[name=rel]", "Matarsa");
   await p.fill("input[name=phone]", "08030002222");
@@ -107,6 +111,13 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await p.waitForSelector("h1:has-text('Gayyaci abokai')");
   await visit(p, s.base + "/#/affiliate");
   await p.waitForSelector("h1:has-text('Zama wakili')");
+  for (const r of ["/#/site", "/#/prizes", "/#/how", "/#/help", "/#/responsible", "/#/about", "/#/past", "/#/centres"]) {
+    await visit(p, s.base + r);
+    await p.waitForSelector("main h1");
+  }
+  await visit(p, s.base + "/#/prizes");
+  await p.locator(".prize-link").first().click();
+  await p.waitForSelector("h2:has-text('Sharuɗɗan karɓa')");
 
   // A 7-day break: the buying screen explains that play is paused.
   await p.click("#tabs a[data-tab=me]");
@@ -121,7 +132,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   assert.deepEqual(await untranslated(p, serverData), [], "text shown in English in Hausa mode");
   await assertClean(p, "Hausa screens");
   // Hausa phrases are longer than the English: every screen must still fit a small phone.
-  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support", "/#/demo", "/#/invite", "/#/affiliate", "/#/liveness", "/#/rules", "/#/privacy"], "main h1, main .hero");
+  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support", "/#/demo", "/#/invite", "/#/affiliate", "/#/site", "/#/prizes", "/#/how", "/#/help", "/#/responsible", "/#/about", "/#/past", "/#/centres", "/#/liveness", "/#/rules", "/#/privacy"], "main h1, main .hero");
 
   // Switching back: everything is English again, and the choice is remembered after a reload.
   await visit(p, s.base + "/#/home");

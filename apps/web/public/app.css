@@ -307,3 +307,21 @@ nav.tabs a:active { box-shadow: inset 0 2px 4px rgba(70,50,20,.3); }
 .voucher::before { left: -9px; } .voucher::after { right: -9px; }
 .voucher-head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 2px dashed rgba(170,120,20,.35); }
 .voucher-ref { font: 800 26px/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .08em; text-align: center; margin: 12px 0 6px; color: #4d3300; text-shadow: 0 1px 0 #fff; }
+
+/* Public website pages */
+.sitemap { display: grid; gap: 10px; }
+.site-link { display: flex; gap: 12px; align-items: center; text-decoration: none; color: inherit; margin: 0; transition: transform .06s, box-shadow .06s; }
+.site-link:active { transform: translateY(2px); box-shadow: var(--raise-sm); }
+.site-link b, .site-link small { display: block; } .site-link small { color: var(--muted); }
+.site-icon { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; background: linear-gradient(#ece4d3, #f8f4ea 60%); box-shadow: var(--well); }
+.prize-link { text-decoration: none; color: inherit; display: block; transition: transform .06s, box-shadow .06s; }
+.prize-link:active { transform: translateY(2px); box-shadow: inset 0 1px 0 #fff; }
+.prize-hero .pic { height: 190px; border-radius: 12px; display: grid; place-items: center; font-size: 72px; background: linear-gradient(#e9f2e5, #d8e7d2); box-shadow: var(--well); overflow: hidden; }
+.prize-hero .pic img { width: 100%; height: 100%; object-fit: cover; }
+.step-card { display: flex; gap: 12px; align-items: flex-start; }
+.step-card p { margin: 4px 0 0; }
+.step-no { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; color: #5a3b00;
+  background: radial-gradient(circle at 35% 30%, #fff3c4, var(--gold-hi) 30%, var(--gold) 60%, var(--gold-lo)); box-shadow: inset 0 -2px 3px rgba(90,55,0,.4), 0 2px 3px rgba(0,0,0,.25); }
+.faq summary { padding: 2px 0 2px 22px; }
+.faq p { margin: 10px 0 0; }
+.mono-sm { font: 12px ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }

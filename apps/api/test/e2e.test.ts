@@ -1604,7 +1604,7 @@ test("affiliates: a separate application, approved by Compliance; attribution co
   // Applying needs the liveness check, a bank account in the applicant's own name, the agreement and the training.
   const a = await newPlayer({ name: "Musa Bello" });
   const before = ok(await api("GET", "/v1/me/affiliate", { token: a.token }));
-  assert.equal(before.affiliate, null); assert.equal(before.programme.enabled, false);
+  assert.equal(before.affiliate, null); assert.deepEqual(before.programme, { enabled: false, ratePercent: 10 }); // off until legally approved
   const bankFor = async (p: Player, name: string, n: string) => ok(await api("POST", "/v1/me/bank-accounts", { token: p.token, body: { bankCode: "058", accountNumber: n, accountName: name } })).id as string;
   const wrong = await bankFor(a, "Someone Else", "0200000001");
   fails(await api("POST", "/v1/me/affiliate", { token: a.token, body: { ...app1, bankAccountId: wrong } }), 403, "LIVENESS_REQUIRED");
@@ -1651,57 +1651,57 @@ test("affiliates: a separate application, approved by Compliance; attribution co
   assert.equal(await balanceOf(`AFFILIATE_EXPENSE:${cyc.id}`), 0);
 
   // Switching fees on: two people, and the legal approval's reference.
-  const change = (token: string, body: object) => api("POST", "/v1/admin/affiliate-programme/changes", { token, body: { enable: true, ratePercent: 2.5, reason: "Board approval", ...body } });
+  const change = (token: string, body: object) => api("POST", "/v1/admin/affiliate-programme/changes", { token, body: { enable: true, ratePercent: 10, reason: "Board approval", ...body } });
   fails(await change(ct, {}), 400, "LEGAL_APPROVAL_REQUIRED");
-  fails(await change(ct, { ratePercent: 6, legalReference: "LEGAL/2026/14" }), 400, "INVALID_REQUEST");
+  fails(await change(ct, { ratePercent: 11, legalReference: "LEGAL/2026/14" }), 400, "INVALID_REQUEST");
   fails(await change(admins.manager!.token, { legalReference: "LEGAL/2026/14" }), 403, "ROLE_REQUIRED");
   const req = ok(await change(ct, { legalReference: "LEGAL/2026/14" }));
   fails(await change(fin, { legalReference: "LEGAL/2026/14" }), 409, "ALREADY_REQUESTED");
   fails(await api("POST", `/v1/admin/affiliate-programme/changes/${req.id}/decision`, { token: ct, body: { approve: true } }), 403, "SAME_PERSON");
   await assert.rejects(pool.query("UPDATE affiliate_programme_changes SET status = 'APPROVED', decided_by = requested_by, decided_at = now() WHERE id = $1", [req.id]), /check/);
   ok(await api("POST", `/v1/admin/affiliate-programme/changes/${req.id}/decision`, { token: fin, body: { approve: true } }));
-  assert.deepEqual(ok(await api("GET", "/v1/me/affiliate", { token: a.token })).programme, { enabled: true, ratePercent: 2.5 });
+  assert.deepEqual(ok(await api("GET", "/v1/me/affiliate", { token: a.token })).programme, { enabled: true, ratePercent: 10 });
 
-  // Now each purchase earns 2.5%, from the operator's share, owed to the affiliate (not paid into a player wallet).
-  await buy(b, cyc.id, 10); // ₦2,000 → ₦50
-  assert.equal(await balanceOf(`AFFILIATE_EXPENSE:${cyc.id}`), 5_000);
-  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), -5_000);
+  // Now each purchase earns 10% (the board's rate), from the operator's share, owed to the affiliate (not paid into a player wallet).
+  await buy(b, cyc.id, 10); // ₦2,000 → ₦200
+  assert.equal(await balanceOf(`AFFILIATE_EXPENSE:${cyc.id}`), 20_000);
+  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), -20_000);
   assert.equal(await balanceOf(`PRIZE_EXPENSE:${cyc.id}`), 0);
   assert.equal(ok(await api("GET", "/v1/wallet", { token: a.token })).balanceKobo, 0);
   // No downlines: a player the attributed buyer invites earns the affiliate nothing.
   const bCode = ok(await api("GET", "/v1/me/referrals", { token: b.token })).code;
   const c = await signUp(bCode, "Second Level");
   await buy(c, cyc.id, 4);
-  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), -5_000);
+  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), -20_000);
   // Outside the territory nothing is earned.
   await pool.query("UPDATE affiliates SET territory_state = 'NG-KN' WHERE id = $1", [row.id]);
   await buy(b, cyc.id, 1);
   await pool.query("UPDATE affiliates SET territory_state = 'NG-NI' WHERE id = $1", [row.id]);
-  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), -5_000);
+  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), -20_000);
 
   // The affiliate's page: counts and amounts, never who the players are.
   const stats = ok(await api("GET", "/v1/me/affiliate", { token: a.token })).stats;
-  assert.deepEqual([stats.signUps, stats.buyers, stats.cards, stats.salesKobo, stats.earnedKobo, stats.pendingKobo, stats.paidKobo], [1, 1, 15, 300_000, 5_000, 5_000, 0]);
+  assert.deepEqual([stats.signUps, stats.buyers, stats.cards, stats.salesKobo, stats.earnedKobo, stats.pendingKobo, stats.paidKobo], [1, 1, 15, 300_000, 20_000, 20_000, 0]);
   assert.ok(!JSON.stringify(stats).includes("Attributed Buyer"));
 
   // Settlement: Finance prepares, a payout approver (another person) approves and it is paid to the verified bank account.
   fails(await api("POST", `/v1/admin/affiliates/${row.id}/settlements`, { token: pa }), 403, "ROLE_REQUIRED");
   const st = ok(await api("POST", `/v1/admin/affiliates/${row.id}/settlements`, { token: fin }));
-  assert.equal(st.amountKobo, 5_000);
+  assert.equal(st.amountKobo, 20_000);
   fails(await api("POST", `/v1/admin/affiliates/${row.id}/settlements`, { token: fin }), 409, "NOTHING_DUE");
   fails(await api("POST", `/v1/admin/affiliate-settlements/${st.id}/decision`, { token: fin, body: { approve: true } }), 403, "ROLE_REQUIRED");
   const paid = ok(await api("POST", `/v1/admin/affiliate-settlements/${st.id}/decision`, { token: pa, body: { approve: true } }));
   assert.equal(paid.status, "PAID"); assert.match(paid.paymentRef, /^SIMAFF-/);
   assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), 0);
   const after = ok(await api("GET", "/v1/me/affiliate", { token: a.token }));
-  assert.deepEqual([after.stats.pendingKobo, after.stats.paidKobo, after.statements.length, after.statements[0].status], [0, 5_000, 1, "PAID"]);
+  assert.deepEqual([after.stats.pendingKobo, after.stats.paidKobo, after.statements.length, after.statements[0].status], [0, 20_000, 1, "PAID"]);
   await assert.rejects(pool.query("UPDATE affiliate_fees SET amount_kobo = 1 WHERE affiliate_id = $1", [row.id]), /can only be reversed or settled/);
 
   // A refunded purchase takes its fee back; already paid, so Compliance is told to recover it.
   const order = (await pool.query("SELECT order_id FROM affiliate_fees WHERE affiliate_id = $1 AND amount_kobo > 0", [row.id])).rows[0].order_id;
   const rq = ok(await api("POST", `/v1/admin/orders/${order}/refund`, { token: ct, body: { reason: "INELIGIBLE_PURCHASE", note: "Test" } }));
   ok(await api("POST", `/v1/admin/refunds/${rq.id}/decision`, { token: fin, body: { approve: true } }));
-  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), 5_000, "the affiliate now owes it");
+  assert.equal(await balanceOf(`AFFILIATE_PAYABLE:${row.id}`), 20_000, "the affiliate now owes it");
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'AFFILIATE_RECOVERY_REQUIRED' AND entity_id = $1", [row.id])).rows[0].n, 1);
 
   // Suspension: new sign-ups with the code are refused; the history is kept; ending is final.
@@ -1717,7 +1717,7 @@ test("affiliates: a separate application, approved by Compliance; attribution co
   assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id = $1 AND title = 'Affiliate application approved'", [a.id])).rows.length);
 
   // Fees back off, for the tests that follow.
-  const off = ok(await api("POST", "/v1/admin/affiliate-programme/changes", { token: fin, body: { enable: false, ratePercent: 2.5, reason: "Test reset" } }));
+  const off = ok(await api("POST", "/v1/admin/affiliate-programme/changes", { token: fin, body: { enable: false, ratePercent: 10, reason: "Test reset" } }));
   ok(await api("POST", `/v1/admin/affiliate-programme/changes/${off.id}/decision`, { token: ct, body: { approve: true } }));
   const res = ok(await api("GET", "/v1/admin/finance/cycle-results", { token: fin })).cycles.find((x: any) => x.id === cyc.id);
   assert.equal(res.affiliate_fees_kobo, 0, "the refunded purchase's fee was reversed");
@@ -1937,6 +1937,39 @@ test("stockist portal: centres approved by two people, vouchers verified and red
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM stock_movements WHERE stock_unit_id = $1", [third])).rows[0].n, 1);
   await assert.rejects(pool.query("DELETE FROM stock_movements WHERE stock_unit_id = $1", [third]), /not allowed|append-only|cannot/);
   assert.equal((await pool.query("SELECT coalesce(sum(amount_kobo), 0)::bigint AS s FROM ledger_entries")).rows[0].s, 0);
+});
+
+test("public website pages: prize catalogue with supplier, warranty and a retail link; about us with licences in force only; previous campaigns with results and fulfilment", async () => {
+  const ft = admins.fulfilment!.token;
+  const rice = (await pool.query("SELECT c.id AS cycle, p.sku_id FROM cycles c JOIN prize_tiers p ON p.cycle_id = c.id WHERE c.name = 'Rice draw'")).rows[0];
+
+  // Catalogue details kept with the product.
+  fails(await api("PUT", `/v1/admin/skus/${rice.sku_id}/catalogue`, { token: ft, body: { retailUrl: "http://shop.example/rice" } }), 400, "INVALID_URL");
+  fails(await api("PUT", `/v1/admin/skus/${rice.sku_id}/catalogue`, { token: admins.finance!.token, body: { description: "x" } }), 403, "ROLE_REQUIRED");
+  ok(await api("PUT", `/v1/admin/skus/${rice.sku_id}/catalogue`, { token: ft, body: { description: "NaijaSweetRice, 50kg bag, long grain.", retailUrl: "https://shop.example/naijasweetrice-50kg", redemptionNotes: "Collect within opening hours." } }));
+
+  const cat = ok(await api("GET", `/v1/cycles/${rice.cycle}/catalogue`));
+  const p = cat.prizes.find((x: any) => x.title === "Rice 50kg");
+  assert.deepEqual([p.quantity, p.value_kobo, p.description, p.retail_url, p.redemption_notes], [2, 7_500_000, "NaijaSweetRice, 50kg bag, long grain.", "https://shop.example/naijasweetrice-50kg", "Collect within opening hours."]);
+  assert.deepEqual(p.suppliers, ["Test Supplier"]);
+  assert.equal(cat.campaign.claimWindowDays, 90); assert.ok(cat.collectionCentres >= 1);
+  assert.ok(!JSON.stringify(cat).match(/landed|acquisition/), "costs are not public");
+  const draft = (await pool.query("SELECT id FROM cycles WHERE status = 'DRAFT' LIMIT 1")).rows[0];
+  if (draft) fails(await api("GET", `/v1/cycles/${draft.id}/catalogue`), 404, "NOT_FOUND");
+
+  // About us: only verified licences that are in force (the test licence was revoked); the certified engine is shown.
+  const about = ok(await api("GET", "/v1/site/about"));
+  assert.equal(about.company.name, "WiiFarm Rewards & Lotto");
+  assert.ok(!about.licences.some((l: any) => l.licence_number === "NSL-TEST-1"));
+  assert.ok(about.certifications.some((c: any) => c.component === "GAME_CORE"));
+  assert.equal(about.simulated, true);
+
+  // Previous campaigns: results and fulfilment, never anyone's identity.
+  const past = ok(await api("GET", "/v1/site/past-campaigns")).campaigns;
+  const r = past.find((c: any) => c.name === "Rice draw");
+  assert.deepEqual([r.status, r.draw_winners, r.goods_won, r.goods_delivered, r.goods_outstanding], ["DRAWN", 2, 2, 2, 0]);
+  assert.ok(past.some((c: any) => c.status === "VOID"), "cancelled campaigns are listed too");
+  assert.ok(!JSON.stringify(past).match(/phone|full_name|user_id|serial/));
 });
 
 test("statutory deductions on winnings: the rate is fixed on the campaign and published; every cash award records gross, deduction and net", async () => {

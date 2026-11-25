@@ -369,7 +369,7 @@ Built in the style of shopping apps such as Temu — invites, sharing, live acti
 - **Separate application** on the player app's *Become an affiliate* page (linked from *Invite friends*): it needs the **liveness check** (tier 2), a **bank account in the applicant's own verified name** (where fees are paid), contact details, where they will promote, the **compliance training** (shown in the app; acknowledged) and the **affiliate agreement** (version recorded; the text is a draft for legal). Territory is the applicant's verified state, with an optional area. People on the staff and exclusion register cannot apply.
 - **Compliance approves or rejects**, and can **suspend, reinstate or end** an approval, with a reason; every change is kept permanently (history table and audit log) and the affiliate is told. Rejected or ended affiliates cannot be reinstated.
 - **Attribution codes**: on approval the affiliate gets a unique 8-character code (`/r/CODE` links work as for invites; a player's code has 7 characters, so the two can never be confused). A player who opens an account with it is attributed to that affiliate **for good** (the database refuses changes). Codes of suspended or ended affiliates are refused at sign-up.
-- **Fees are off until legally approved** (SRS go-live checklist: *affiliate remuneration disabled without approval*). Switching fees on, or changing the rate (0%–5%; the SRS proposes 2.5%–5%), needs **two people** from Compliance or Finance and **the legal approval's reference**. While fees are off, each attributed purchase is still recorded with a fee of 0, so the reports are complete.
+- **Fees are off until legally approved** (SRS go-live checklist: *affiliate remuneration disabled without approval*). **The board set the fee at 10% of each referred card sale** (₦50 per ₦500 card; at most ₦134.3m if all 2,686,000 cards of the inaugural campaign were sold through affiliates, paid from the operator's share). Switching fees on, or changing the rate (0%–10%), needs **two people** from Compliance or Finance and **the legal approval's reference**. While fees are off, each attributed purchase is still recorded with a fee of 0, so the reports are complete.
 - **What earns a fee**: purchases by the players the affiliate brought, in the affiliate's territory, while the affiliate is approved. **No downlines and no recruitment bonuses** — players brought in by an affiliate's players earn the affiliate nothing. Fees come from the operator's share (`AFFILIATE_EXPENSE` per campaign), are owed to the affiliate (`AFFILIATE_PAYABLE`, not a player wallet), and are taken back if the purchase is refunded (Compliance is alerted if they were already paid).
 - **Settlements**: Finance prepares a settlement of an affiliate's unpaid fees; a payout approver (a different person) approves it and it is paid to the affiliate's verified bank account (simulated, `SIMAFF-…` reference). Suspended affiliates are not settled until the review ends.
 - **The affiliate's page**: reference, status, territory, code and share links, sign-ups, players who bought, their purchases, fees to be paid and paid, and statements — never who the players are.
@@ -399,6 +399,29 @@ Merchandise prizes are collected at authorised **collection centres**: Mega Stoc
 - **Reports (STK-008, 012).** *Collection centres* page: reconciliation by centre (on the shelf, awaiting collection, handed over, open reports, fees, and **mismatches** — a unit delivered without a handover there, or a voucher waiting without its unit there), and **prizes still owed to winners** by stage, with how many have waited over 14 days and whose claim period ends within a week. The portal dashboard shows assigned units, fulfilled/outstanding, the fulfilment rate, stock on the shelf and invoices.
 - **Demo:** `stockist@demo.wiifarm.test` signs in to the portal of *Minna Central Stockist*.
 - *Not yet:* specialist-partner delivery workflow (vehicles, appliances) beyond the centre record; supplier invoices against purchase orders (purchase orders keep their document reference today); the marketplace stockist-directory API.
+
+## Public website pages (SRS section 5, WEB-001 to WEB-015)
+
+Every page the SRS lists is in the app, open to visitors before they sign in (except their own records), in English and Hausa, and linked from a site map (*All pages*, from the home footer and the Me page):
+
+| SRS | Page | Where |
+|---|---|---|
+| WEB-001/002 | Home, current campaign | Home (`#/home`) |
+| WEB-003 | **Prize catalogue** | `#/prizes`, and a page per prize (`#/prize/:id`): picture, description, quantity, value, supplier (from the purchase records of the units reserved as that prize), warranty, redemption conditions (claim period, delivery or collection, ID, next of kin, liveness for major prizes, no purchase ever needed), and an **ordinary retail link** to buy the product without playing. Staff set the description, retail link (https only) and redemption notes per product on the Merchandise page. Costs are never public. |
+| WEB-004 | **How it works** | `#/how`: six steps from opening an account to claiming a prize |
+| WEB-005 | My tickets | My cards |
+| WEB-006 | Draw centre | Draw |
+| WEB-007 | Claim your prize | Wallet → My prizes |
+| WEB-008 | Digital agency | Affiliate application |
+| WEB-009 | Stockist locator | Collection centres |
+| WEB-010 | **About us** | `#/about`: company details (published only as configured: `WR_COMPANY_NAME`, `WR_COMPANY_RC`, `WR_COMPANY_ADDRESS`, `WR_COMPANY_EMAIL`), **licences that are verified and in force** and **certifications in force** (from the two-person records), the engine fingerprint, and a clear notice while no licence is in force that it is a simulation |
+| WEB-011 | **Help centre** | `#/help`: ten questions and answers, and contact support |
+| WEB-012 | Game rules | Game rules and odds |
+| WEB-013 | **Responsible play** | `#/responsible`: the controls (limits, daily card limit, 7-day break, self-exclusion, play summary), warning signs, and help |
+| WEB-014 | Privacy policy | Privacy policy |
+| WEB-015 | **Previous campaigns** | `#/past`: each finished campaign's cards sold, instant cash won, draw date and winners, and merchandise delivered / in progress / unclaimed, with a link to verify its draw; cancelled campaigns are listed as such. Nobody is identified. |
+
+*Not yet:* server-rendered copies of these pages for search engines (they are rendered in the app today; link previews already work), and the corporate details themselves (to be supplied).
 
 ## Liveness and fraud rules
 - **Liveness check before anything large.** Claiming a prize worth ₦100,000 or more (merchandise at its advertised value: the car, motorcycles) and withdrawing ₦100,000 or more need a liveness check: a short live selfie matched to the photo held for the player's identity number (simulated here; the identity provider does it in the live service). It is done once and raises the player to tier 2. A stolen phone and PIN are then not enough to take a major prize. The app takes the player to the check and back to what they were doing. Threshold: `WR_MAJOR_PRIZE_KOBO`.

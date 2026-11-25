@@ -16,6 +16,8 @@ export interface Config {
    * need a liveness check (a live selfie matched to the verified identity) first. Default ₦100,000.
    */
   majorPrizeKobo?: number;
+  /** Corporate details for the About us page (published as given; nothing is shown that has not been set). */
+  company?: { name?: string; registration?: string; address?: string; email?: string };
   /** Hours before a newly added bank account can receive a payout. */
   bankCoolingOffHours: number;
   /** Seconds per simulated beacon round. */
@@ -79,6 +81,8 @@ export function loadConfig(): Config {
     payoutApprovalThresholdKobo: Number(process.env.PAYOUT_APPROVAL_THRESHOLD_KOBO ?? 10_000_000),
     bankCoolingOffHours: Number(process.env.BANK_COOLING_OFF_HOURS ?? 24),
     majorPrizeKobo: Number(process.env.WR_MAJOR_PRIZE_KOBO ?? 10_000_000),
+    company: Object.fromEntries(Object.entries({ name: process.env.WR_COMPANY_NAME, registration: process.env.WR_COMPANY_RC,
+      address: process.env.WR_COMPANY_ADDRESS, email: process.env.WR_COMPANY_EMAIL }).filter(([, v]) => v)),
     beaconPeriodSeconds: 30,
     sessionDays: 30,
     maxLimitsKobo: { daily: 2_000_000, weekly: 8_000_000, monthly: 20_000_000 },

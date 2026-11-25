@@ -21,7 +21,7 @@ import { notify } from "./notify.ts";
  *   who open an account with it are attributed to the affiliate for good.
  * - Fees: a percentage of the attributed players' purchases in the
  *   affiliate's territory, from the operator's share, and only while the fee
- *   programme is switched on. Switching it on (or changing the rate) takes two
+ *   programme is switched on (board decision: 10% of each referred sale). Switching it on (or changing the rate) takes two
  *   people and the reference of the legal approval. While it is off, sales are
  *   still recorded against the affiliate with a fee of 0.
  * - No downlines and no recruitment bonuses: fees come only from purchases
@@ -243,7 +243,7 @@ export async function decideAffiliateInTx(db: Db, admin: Admin, affiliateId: str
 export async function requestProgrammeChange(ctx: Ctx, admin: Admin, input: { enable: boolean; ratePercent: number; legalReference?: string; reason: string }): Promise<{ id: string }> {
   requireRole(admin, "COMPLIANCE", "FINANCE");
   const rateBp = Math.round(input.ratePercent * 100);
-  if (!Number.isFinite(rateBp) || rateBp < 0 || rateBp > 500) throw badRequest("INVALID_RATE", "The fee must be between 0% and 5%.");
+  if (!Number.isFinite(rateBp) || rateBp < 0 || rateBp > 1000) throw badRequest("INVALID_RATE", "The fee must be between 0% and 10%.");
   if (input.enable && !input.legalReference?.trim()) throw badRequest("LEGAL_APPROVAL_REQUIRED", "Give the reference of the legal approval for affiliate fees.");
   if (!input.reason.trim()) throw badRequest("REASON_REQUIRED", "Give the reason for the change.");
   return withTx(ctx.pool, async (db) => {

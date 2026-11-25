@@ -91,7 +91,7 @@ test("a player applies to be an affiliate, Compliance approves, and the affiliat
   const change = (await call(s, "GET", "/v1/admin/affiliates", { token: fin })).programmeChanges[0];
   await call(s, "POST", `/v1/admin/affiliate-programme/changes/${change.id}/decision`, { token: fin, body: { approve: true } });
   await p.reload();
-  await p.waitForSelector("text=Affiliate fees: 2.5%");
+  await p.waitForSelector("text=Affiliate fees: 10%");
   await assertClean(p, "affiliate page");
 });
 

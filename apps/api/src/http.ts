@@ -27,6 +27,7 @@ import * as affiliates from "./modules/affiliates.ts";
 import * as deductions from "./modules/deductions.ts";
 import * as portal from "./modules/portal.ts";
 import * as stockists from "./modules/stockists.ts";
+import * as site from "./modules/site.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
 const str = (max = 200) => ({ type: "string", minLength: 1, maxLength: max });
@@ -259,6 +260,12 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     if (req.headers["if-none-match"] === img.etag) return reply.status(304).send();
     return reply.header("Content-Type", img.contentType).header("Cache-Control", "public, max-age=300").header("ETag", img.etag).send(img.bytes);
   });
+  // Public website pages (SRS WEB-003, WEB-010, WEB-015).
+  app.get<{ Params: { id: string } }>("/v1/cycles/:id/catalogue", { schema: idParam }, async (req, reply) => {
+    reply.header("Cache-Control", "public, max-age=60"); return site.catalogue(ctx, req.params.id);
+  });
+  app.get("/v1/site/about", async (_req, reply) => { reply.header("Cache-Control", "public, max-age=300"); return site.about(ctx); });
+  app.get("/v1/site/past-campaigns", async (_req, reply) => { reply.header("Cache-Control", "public, max-age=60"); return site.pastCampaigns(ctx); });
   // The stockist locator: approved collection centres.
   app.get<{ Querystring: { state?: string } }>("/v1/stockists", {
     schema: { querystring: { type: "object", additionalProperties: false, properties: { state: { type: "string", pattern: "^NG-[A-Z]{2}$" } } } },
@@ -403,6 +410,9 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   }, async (req) => inventory.createItem(ctx, await staff(req), req.body));
 
   // ---- Merchandise: stock, reservation, fulfilment ----
+  app.put<{ Params: { id: string }; Body: { description?: string; retailUrl?: string | null; redemptionNotes?: string } }>("/v1/admin/skus/:id/catalogue", {
+    schema: { ...idParam, ...body({ description: str(2000), retailUrl: { anyOf: [str(500), { type: "null" }] }, redemptionNotes: str(1000) }, ["description", "retailUrl", "redemptionNotes"]) },
+  }, async (req) => site.setCatalogueDetails(ctx, await staff(req), req.params.id, req.body));
   app.get("/v1/admin/inventory", async (req) => inventory.inventoryOverview(ctx, await staff(req)));
   app.post<{ Body: { name: string; country?: string; contact?: string } }>("/v1/admin/suppliers", { schema: body({ name: str(120), country: str(60), contact: str(300) }, ["country", "contact"]) },
     async (req) => inventory.createSupplier(ctx, await staff(req), req.body));
@@ -610,7 +620,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     schema: { ...idParam, ...body({ decision: { enum: ["APPROVE", "REJECT", "SUSPEND", "REINSTATE", "TERMINATE"] }, reason: str(500) }, ["reason"]) },
   }, async (req) => affiliates.decideAffiliate(ctx, await staff(req), req.params.id, req.body.decision, req.body.reason));
   app.post<{ Body: { enable: boolean; ratePercent: number; legalReference?: string; reason: string } }>("/v1/admin/affiliate-programme/changes", {
-    schema: body({ enable: { type: "boolean" }, ratePercent: { type: "number", minimum: 0, maximum: 5 }, legalReference: str(200), reason: str(500) }, ["legalReference"]),
+    schema: body({ enable: { type: "boolean" }, ratePercent: { type: "number", minimum: 0, maximum: 10 }, legalReference: str(200), reason: str(500) }, ["legalReference"]),
   }, async (req) => affiliates.requestProgrammeChange(ctx, await staff(req), req.body));
   app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/affiliate-programme/changes/:id/decision", {
     schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
