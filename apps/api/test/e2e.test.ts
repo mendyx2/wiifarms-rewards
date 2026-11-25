@@ -71,6 +71,17 @@ async function buy(p: Player, cycleId: string, quantity: number): Promise<any> {
   return ok(await api("POST", "/v1/simulated-gateway/pay", { token: p.token, body: { paymentRef: order.paymentRef } }));
 }
 
+/** An approved collection centre in Minna (registered by Fulfilment, approved by Compliance), created once. */
+let centreId: string | undefined;
+async function centre(): Promise<string> {
+  if (centreId) return centreId;
+  const r = ok(await api("POST", "/v1/admin/stockists", { token: admins.fulfilment!.token, body: {
+    name: "Minna Central Stockist", tier: "MEGA", stateCode: "NG-NI", area: "Minna", address: "Plot 4, Paiko Road, Minna", phone: "08030001111",
+    coverage: ["Chanchaga", "Bosso"], openingHours: "Mon–Sat 8am–6pm", feeKobo: 50_000 } }));
+  ok(await api("POST", `/v1/admin/stockists/${r.id}/decision`, { token: admins.compliance!.token, body: { decision: "APPROVE" } }));
+  return (centreId = r.id);
+}
+
 /** Creates a cycle and takes it through approval, commitment and opening. */
 /**
  * Standard test season: ₦200 cards and a prize table that fits the real budget
@@ -722,14 +733,15 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
   assert.ok(mine.some((x: any) => x.id === claim1 && x.status === "ENTITLED" && x.handoverCode === null));
   const redeem = (p: Player, id: string, b: object) => api("POST", `/v1/claims/${id}/redeem`, { token: p.token, body: b });
   const hadKin = ok(await api("GET", "/v1/me", { token: w1.token })).nextOfKin;
-  if (!hadKin) fails(await redeem(w1, claim1, { method: "COLLECTION", pin: w1.pin }), 403, "NEXT_OF_KIN_REQUIRED");
+  if (!hadKin) fails(await redeem(w1, claim1, { method: "COLLECTION", stockistId: await centre(), pin: w1.pin }), 403, "NEXT_OF_KIN_REQUIRED");
   await setKin(w1); // adding a next of kin for the first time is allowed even with a prize waiting
-  fails(await redeem(w1, claim1, { method: "COLLECTION", pin: "135790" }), 403, "PIN_REQUIRED");
+  fails(await redeem(w1, claim1, { method: "COLLECTION", stockistId: await centre(), pin: "135790" }), 403, "PIN_REQUIRED");
+  fails(await redeem(w1, claim1, { method: "COLLECTION", pin: w1.pin }), 400, "CENTRE_REQUIRED");
   fails(await redeem(w1, claim1, { method: "DELIVERY", pin: w1.pin }), 400, "ADDRESS_REQUIRED");
   const stranger = players.find((p) => p.id !== w1.id && p.id !== open[1].user_id) ?? await newPlayer();
-  fails(await redeem(stranger, claim1, { method: "COLLECTION", pin: stranger.pin }), 404, "NOT_FOUND");
+  fails(await redeem(stranger, claim1, { method: "COLLECTION", stockistId: await centre(), pin: stranger.pin }), 404, "NOT_FOUND");
   assert.equal(ok(await redeem(w1, claim1, { method: "DELIVERY", address: "12 Bosso Road, Minna", pin: w1.pin })).status, "VERIFIED");
-  fails(await redeem(w1, claim1, { method: "COLLECTION", pin: w1.pin }), 409, "ALREADY_CLAIMED");
+  fails(await redeem(w1, claim1, { method: "COLLECTION", stockistId: await centre(), pin: w1.pin }), 409, "ALREADY_CLAIMED");
   // With a claim in progress, the next of kin can no longer be swapped.
   fails(await api("PUT", "/v1/me/next-of-kin", { token: w1.token, body: { fullName: "Someone Else", relationship: "Friend", phone: "08030000098" } }), 409, "CLAIM_IN_PROGRESS");
 
@@ -749,7 +761,7 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
   assert.ok(!stored.handover_otp_hash.includes(code) && !stored.handover_otp_enc.toString("latin1").includes(code), "code is not stored in readable form");
   const wrong = code === "000000" ? "000001" : "000000";
   fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code: wrong, photoRef: "p.jpg" } }), 403, "WRONG_CODE");
-  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code } }), 400, "INVALID_REQUEST"); // photo is mandatory
+  fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code } }), 400, "PHOTO_REQUIRED"); // a photo is mandatory
   assert.equal(ok(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code, photoRef: "handover/claim1.jpg", warrantyDocumentRef: "warranty/SN.pdf" } })).status, "DELIVERED");
   fails(await api("POST", `/v1/admin/fulfilment/${claim1}/handover`, { token: ft, body: { code, photoRef: "p.jpg" } }), 409, "NOT_IN_TRANSIT");
   const delivered = ok(await api("GET", "/v1/claims", { token: w1.token })).claims.find((x: any) => x.id === claim1);
@@ -759,12 +771,13 @@ test("merchandise: stock must exist before approval, cannot be diverted, and is 
   // --- Guessing the code locks the handover. ---
   const w2 = playerOf(open[1].user_id), claim2 = open[1].id;
   await setKin(w2);
-  ok(await redeem(w2, claim2, { method: "COLLECTION", pin: w2.pin }));
+  ok(await redeem(w2, claim2, { method: "COLLECTION", stockistId: await centre(), pin: w2.pin }));
   ok(await api("POST", `/v1/admin/fulfilment/${claim2}/dispatch`, { token: ft, body: {} })); // collection needs no carrier
   const code2 = ok(await api("GET", "/v1/claims", { token: w2.token })).claims.find((x: any) => x.id === claim2).handoverCode;
   const bad = code2 === "111111" ? "111112" : "111111";
-  for (let i = 0; i < 5; i++) fails(await api("POST", `/v1/admin/fulfilment/${claim2}/handover`, { token: ft, body: { code: bad, photoRef: "p.jpg" } }), 403, "WRONG_CODE");
-  fails(await api("POST", `/v1/admin/fulfilment/${claim2}/handover`, { token: ft, body: { code: code2, photoRef: "p.jpg" } }), 429, "HANDOVER_LOCKED");
+  fails(await api("POST", `/v1/admin/fulfilment/${claim2}/handover`, { token: ft, body: { code: bad, photoRef: "p.jpg" } }), 400, "ID_CHECK_REQUIRED"); // collected at a centre
+  for (let i = 0; i < 5; i++) fails(await api("POST", `/v1/admin/fulfilment/${claim2}/handover`, { token: ft, body: { code: bad, photoRef: "p.jpg", idChecked: "NIN_SLIP" } }), 403, "WRONG_CODE");
+  fails(await api("POST", `/v1/admin/fulfilment/${claim2}/handover`, { token: ft, body: { code: code2, photoRef: "p.jpg", idChecked: "NIN_SLIP" } }), 429, "HANDOVER_LOCKED");
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM compliance_alerts WHERE kind = 'HANDOVER_CODE_FAILURES' AND entity_id = $1", [claim2])).rows[0].n, 1);
 
   // --- Records: costs, serial numbers, where every unit is. ---
@@ -1790,6 +1803,142 @@ test("affiliate portal: approved materials with versions (two people, never edit
     ["APPLIED", "APPROVED", "WARNED", "SUSPENDED", "TERMINATED"]);
 });
 
+test("stockist portal: centres approved by two people, vouchers verified and redeemed once with ID and photo, fees invoiced, stock moves recorded, reconciliation", async () => {
+  const ft = admins.fulfilment!.token, ct = admins.compliance!.token, fin = admins.finance!.token, sec = admins.security!.token, sec2 = admins.security2!.token;
+  const balanceOf = async (code: string) => Number((await pool.query("SELECT coalesce(balance_kobo, 0)::bigint AS b FROM ledger_balances WHERE code = $1", [code])).rows[0]?.b ?? 0);
+  const reg = (b: object) => api("POST", "/v1/admin/stockists", { token: ft, body: { name: "Bida Sub Stockist", tier: "SUB", stateCode: "NG-NI", area: "Bida",
+    address: "12 Market Road, Bida", phone: "08030002222", coverage: ["Bida", "Katcha"], feeKobo: 100_000, ...b } });
+
+  // STK-001/002: registered by Fulfilment with coverage; approved by Compliance (not the same person).
+  const mega = await centre();
+  fails(await reg({}), 400, "INVALID_TIER"); // a Sub Stockist needs its Mega Stockist
+  fails(await api("POST", "/v1/admin/stockists", { token: ct, body: { name: "X", tier: "MEGA", stateCode: "NG-NI", area: "Minna", address: "Somewhere 1", phone: "1", coverage: ["A"], feeKobo: 0 } }), 403, "ROLE_REQUIRED");
+  const sub = ok(await reg({ parentId: mega }));
+  assert.match(sub.code, /^STK-\d{4}$/);
+  assert.ok(!ok(await api("GET", "/v1/stockists?state=NG-NI")).centres.some((c: any) => c.id === sub.id), "not listed until approved");
+  fails(await api("POST", `/v1/admin/stockists/${sub.id}/decision`, { token: ft, body: { decision: "APPROVE" } }), 403, "ROLE_REQUIRED");
+  ok(await api("POST", `/v1/admin/stockists/${sub.id}/decision`, { token: ct, body: { decision: "APPROVE" } }));
+  const listed = ok(await api("GET", "/v1/stockists?state=NG-NI")).centres.find((c: any) => c.id === sub.id);
+  assert.deepEqual(listed.coverage, ["Bida", "Katcha"]); assert.equal(listed.fee_kobo, undefined, "fees are not public");
+
+  // STK-009: a fee change needs someone in Finance.
+  ok(await api("POST", `/v1/admin/stockists/${sub.id}/fee`, { token: ft, body: { feeKobo: 150_000 } }));
+  fails(await api("POST", `/v1/admin/stockists/${sub.id}/fee`, { token: ft, body: { feeKobo: 1 } }), 409, "FEE_CHANGE_PENDING");
+  assert.equal(ok(await api("POST", `/v1/admin/stockists/${sub.id}/fee/decision`, { token: fin, body: { approve: true } })).feeKobo, 150_000);
+
+  // A centre's staff account: linked to the centre at creation; the role is granted by two security administrators and held alone.
+  const nobody = ok(await api("POST", "/v1/admin/staff", { token: sec, body: { email: "loose@example.test", fullName: "Not At A Centre" } }));
+  const r0 = ok(await api("POST", "/v1/admin/staff/requests", { token: sec, body: { adminUserId: nobody.id, action: "GRANT_ROLE", role: "STOCKIST", reason: "x" } }));
+  fails(await api("POST", `/v1/admin/staff/requests/${r0.id}/decision`, { token: sec2, body: { approve: true } }), 409, "RULE_VIOLATION");
+  const clerk = ok(await api("POST", "/v1/admin/staff", { token: sec, body: { email: "clerk@bida.example.test", fullName: "Bida Clerk", stockistId: sub.id } }));
+  const r1 = ok(await api("POST", "/v1/admin/staff/requests", { token: sec, body: { adminUserId: clerk.id, action: "GRANT_ROLE", role: "STOCKIST", reason: "Bida centre clerk" } }));
+  ok(await api("POST", `/v1/admin/staff/requests/${r1.id}/decision`, { token: sec2, body: { approve: true } }));
+  fails(await api("POST", "/v1/admin/staff/requests", { token: sec, body: { adminUserId: clerk.id, action: "GRANT_ROLE", role: "FULFILMENT", reason: "x" } }), 409, "ROLE_CONFLICT");
+  const st = ok(await api("POST", "/v1/admin/dev-login", { body: { email: "clerk@bida.example.test" } })).token;
+  assert.equal(ok(await api("GET", "/v1/admin/me", { token: st })).stockistId, sub.id);
+  for (const path of ["/v1/admin/dashboard", "/v1/admin/cycles", "/v1/admin/fulfilment", "/v1/admin/stockists", "/v1/admin/auditors"]) {
+    fails(await api("GET", path, { token: st }), 403, "ROLE_REQUIRED");
+  }
+  let dash = ok(await api("GET", "/v1/admin/stockist-portal", { token: st }));
+  assert.equal(dash.centre.name, "Bida Sub Stockist"); assert.equal(dash.stats.assigned, 0);
+  fails(await api("GET", "/v1/admin/stockist-portal", { token: ft }), 403, "ROLE_REQUIRED");
+
+  // A merchandise winner.
+  const rice = ok(await api("POST", "/v1/admin/skus", { token: ft, body: { name: "Rice 50kg", advertisedValueKobo: 7_500_000, serialised: true } })).id;
+  ok(await api("POST", "/v1/admin/stock/receive", { token: ft, body: { skuId: rice, supplierId, warehouseId, poReference: "PO-RICE", serialNumbers: ["RICE-1", "RICE-2", "RICE-3"], acquisitionCostKobo: 1, landedCostKobo: 1 } }));
+  const policy = config.policy!;
+  config.policy = { ...POLICY, prizeShareBp: 10_000, instantShareBp: 0 };
+  const cyc = await openCycle({ total: 400, closeInMs: 2500, cap: 400, name: "Rice draw", priceKobo: 50_000, escrowKobo: 0,
+    tiers: [{ stage: "FINAL_DRAW", kind: "MERCHANDISE", title: "Rice 50kg", skuId: rice, quantity: 2, drawOrder: 1 }] });
+  config.policy = policy;
+  const w = await newPlayer({ name: "Aisha Bello" });
+  await buy(w, cyc.id, 3);
+  ok(await api("PUT", "/v1/me/next-of-kin", { token: w.token, body: { fullName: "Kin Person", relationship: "Sister", phone: "08030009999" } }));
+  await sleep(Math.max(0, cyc.closeAt - Date.now()) + 2200);
+  await closeDueCycles(ctx);
+  for (const a of ["manager", "finance", "auditor"]) ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/sign`, { token: admins[a]!.token }));
+  ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/execute`, { token: admins.manager!.token }));
+  const claims = ok(await api("GET", "/v1/claims", { token: w.token })).claims.filter((c: any) => c.title === "Rice 50kg");
+  assert.equal(claims.length, 2);
+  const [c1, c2] = claims;
+
+  // STK-003: stock sent to a centre ahead of claims, with a recorded move; the database refuses a move without one.
+  const third = (await pool.query("SELECT u.id FROM stock_units u WHERE u.sku_id = $1 AND NOT EXISTS (SELECT 1 FROM prize_claims pc WHERE pc.stock_unit_id = u.id) LIMIT 1", [rice])).rows[0].id;
+  await assert.rejects(pool.query("UPDATE stock_units SET stockist_id = $2 WHERE id = $1", [third, sub.id]), /recorded stock movement/);
+
+  // The winner collects at the centre: dispatch moves the unit there and issues a voucher.
+  ok(await api("POST", `/v1/claims/${c1.id}/redeem`, { token: w.token, body: { method: "COLLECTION", stockistId: sub.id, pin: w.pin } }));
+  ok(await api("POST", `/v1/claims/${c2.id}/redeem`, { token: w.token, body: { method: "COLLECTION", stockistId: sub.id, pin: w.pin } }));
+  ok(await api("POST", `/v1/admin/fulfilment/${c1.id}/dispatch`, { token: ft, body: {} }));
+  ok(await api("POST", `/v1/admin/fulfilment/${c2.id}/dispatch`, { token: ft, body: {} }));
+  const mine = ok(await api("GET", "/v1/claims", { token: w.token })).claims;
+  const v1 = mine.find((x: any) => x.id === c1.id), v2 = mine.find((x: any) => x.id === c2.id);
+  assert.match(v1.voucher_ref, /^WV-[A-Z2-9]{4}-[A-Z2-9]{4}$/); assert.equal(v1.centre_name, "Bida Sub Stockist"); assert.match(v1.handoverCode, /^\d{6}$/);
+  const moves = (await pool.query("SELECT m.from_stockist, m.to_stockist FROM stock_movements m JOIN prize_claims pc ON pc.stock_unit_id = m.stock_unit_id WHERE pc.id = $1", [c1.id])).rows;
+  assert.deepEqual(moves, [{ from_stockist: null, to_stockist: sub.id }]);
+
+  // STK-005: verifying a voucher; another centre's staff cannot see it.
+  dash = ok(await api("GET", "/v1/admin/stockist-portal", { token: st }));
+  assert.deepEqual([dash.stats.assigned, dash.stats.waiting, dash.pending.length], [2, 2, 2]);
+  fails(await api("POST", "/v1/admin/stockist-portal/verify", { token: st, body: { voucherRef: "WV-AAAA-AAAA" } }), 404, "NOT_FOUND");
+  const check = ok(await api("POST", "/v1/admin/stockist-portal/verify", { token: st, body: { voucherRef: v1.voucher_ref.toLowerCase() } }));
+  assert.deepEqual([check.prize, check.winnerName, check.winnerPhoneLast4], ["Rice 50kg", "Aisha Bello", w.phone.slice(-4)]);
+  assert.ok(!JSON.stringify(check).match(/\b\d{6}\b/), "the handover code is never shown to the centre");
+
+  // STK-007: handover needs the ID check, a real photo and the winner's code.
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(200)]);
+  const hand = (b: object) => api("POST", `/v1/admin/stockist-portal/handover/${c1.id}`, { token: st, body: { code: v1.handoverCode, ...b } });
+  fails(await hand({ photoBase64: png.toString("base64") }), 400, "ID_CHECK_REQUIRED");
+  fails(await hand({ idChecked: "NIN_SLIP", photoRef: "p.jpg" }), 400, "PHOTO_REQUIRED");
+  fails(await hand({ idChecked: "NIN_SLIP", photoBase64: Buffer.from("not a photo").toString("base64") }), 400, "INVALID_IMAGE");
+  assert.equal(ok(await hand({ idChecked: "NIN_SLIP", photoBase64: png.toString("base64") })).status, "DELIVERED");
+  // STK-006: never twice.
+  fails(await api("POST", "/v1/admin/stockist-portal/verify", { token: st, body: { voucherRef: v1.voucher_ref } }), 409, "ALREADY_REDEEMED");
+  fails(await hand({ idChecked: "NIN_SLIP", photoBase64: png.toString("base64") }), 409, "NOT_IN_TRANSIT");
+  const proof = await app.inject({ method: "GET", url: `/v1/admin/fulfilment/${c1.id}/proof`, headers: { authorization: `Bearer ${admins.auditor!.token}` } });
+  assert.equal(proof.statusCode, 200); assert.deepEqual(proof.rawPayload, png);
+  assert.equal((await pool.query("SELECT id_checked FROM shipments WHERE prize_claim_id = $1", [c1.id])).rows[0].id_checked, "NIN_SLIP");
+
+  // STK-010: a damaged unit cannot be handed over until Fulfilment resolves the report.
+  const unit2 = (await pool.query("SELECT stock_unit_id FROM prize_claims WHERE id = $1", [c2.id])).rows[0].stock_unit_id;
+  ok(await api("POST", "/v1/admin/stockist-portal/incidents", { token: st, body: { unitId: unit2, kind: "DAMAGED", description: "Bag torn, rice spilled." } }));
+  fails(await api("POST", "/v1/admin/stockist-portal/incidents", { token: st, body: { unitId: unit2, kind: "OTHER", description: "Again please" } }), 409, "INCIDENT_OPEN");
+  fails(await api("POST", `/v1/admin/stockist-portal/handover/${c2.id}`, { token: st, body: { code: v2.handoverCode, idChecked: "VOTERS_CARD", photoBase64: png.toString("base64") } }), 409, "INCIDENT_OPEN");
+  const inc = ok(await api("GET", "/v1/admin/stock/incidents", { token: ft })).incidents.find((i: any) => i.status === "OPEN" && i.serial_number);
+  ok(await api("POST", `/v1/admin/stock/incidents/${inc.id}/resolve`, { token: ft, body: { resolution: "Rebagged; weight checked at 50kg." } }));
+  assert.equal(ok(await api("POST", `/v1/admin/stockist-portal/handover/${c2.id}`, { token: st, body: { code: v2.handoverCode, idChecked: "VOTERS_CARD", photoBase64: png.toString("base64") } })).status, "DELIVERED");
+
+  // STK-009/011: two handovers at ₦1,500 each; the centre invoices, Finance pays.
+  assert.equal(await balanceOf(`STOCKIST_PAYABLE:${sub.id}`), -300_000);
+  assert.equal(await balanceOf(`FULFILMENT_EXPENSE:${cyc.id}`), 300_000);
+  const invoice = ok(await api("POST", "/v1/admin/stockist-portal/invoices", { token: st, body: { theirReference: "BIDA/2027/001" } }));
+  assert.equal(invoice.amountKobo, 300_000);
+  fails(await api("POST", "/v1/admin/stockist-portal/invoices", { token: st, body: {} }), 409, "NOTHING_DUE");
+  const inv = ok(await api("GET", "/v1/admin/stockist-invoices", { token: fin })).invoices.find((i: any) => i.reference === invoice.reference);
+  fails(await api("POST", `/v1/admin/stockist-invoices/${inv.id}/decision`, { token: ft, body: { approve: true } }), 403, "ROLE_REQUIRED");
+  assert.match(ok(await api("POST", `/v1/admin/stockist-invoices/${inv.id}/decision`, { token: fin, body: { approve: true } })).paymentRef, /^SIMSTK-/);
+  assert.equal(await balanceOf(`STOCKIST_PAYABLE:${sub.id}`), 0);
+  dash = ok(await api("GET", "/v1/admin/stockist-portal", { token: st }));
+  assert.deepEqual([dash.stats.fulfilled, dash.stats.outstanding, dash.stats.fulfilmentRate, dash.fees.paidKobo], [2, 0, 100, 300_000]);
+
+  // STK-008/012: reconciliation adds up; outstanding obligations are reported.
+  const rec = ok(await api("GET", "/v1/admin/reports/stockist-reconciliation", { token: admins.auditor!.token }));
+  const row = rec.centres.find((c: any) => c.id === sub.id);
+  assert.deepEqual([row.handed_over, row.awaiting_collection, row.mismatches], [2, 0, 0]);
+  assert.equal(rec.totalMismatches, 0);
+  const out = ok(await api("GET", "/v1/admin/reports/outstanding-prizes", { token: fin }));
+  assert.ok(Array.isArray(out.byStatus) && Array.isArray(out.byCentre));
+
+  // Suspending a centre takes it off the locator; claims can no longer choose it.
+  ok(await api("POST", `/v1/admin/stockists/${sub.id}/decision`, { token: ct, body: { decision: "SUSPEND", reason: "Audit visit" } }));
+  assert.ok(!ok(await api("GET", "/v1/stockists")).centres.some((c: any) => c.id === sub.id));
+  ok(await api("POST", "/v1/admin/stock/allocate", { token: ft, body: { unitIds: [third], toStockistId: mega, reason: "Pre-position for collections" } }));
+  fails(await api("POST", "/v1/admin/stock/allocate", { token: ft, body: { unitIds: [third], toStockistId: sub.id, reason: "x" } }), 400, "INVALID_STOCKIST");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM stock_movements WHERE stock_unit_id = $1", [third])).rows[0].n, 1);
+  await assert.rejects(pool.query("DELETE FROM stock_movements WHERE stock_unit_id = $1", [third]), /not allowed|append-only|cannot/);
+  assert.equal((await pool.query("SELECT coalesce(sum(amount_kobo), 0)::bigint AS s FROM ledger_entries")).rows[0].s, 0);
+});
+
 test("statutory deductions on winnings: the rate is fixed on the campaign and published; every cash award records gross, deduction and net", async () => {
   const fin = admins.finance!.token;
   const balanceOf = async (code: string) => Number((await pool.query("SELECT coalesce(balance_kobo, 0)::bigint AS b FROM ledger_balances WHERE code = $1", [code])).rows[0]?.b ?? 0);
@@ -2015,7 +2164,8 @@ test("major prizes and large withdrawals need the liveness check; fraud rules al
   for (const a of ["manager", "finance", "auditor"]) ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/sign`, { token: admins[a]!.token }));
   ok(await api("POST", `/v1/admin/cycles/${cyc.id}/draw/execute`, { token: admins.manager!.token }));
   const claim = ok(await api("GET", "/v1/claims", { token: w.token })).claims.find((c: any) => c.title === "Big prize");
-  const redeem = () => api("POST", `/v1/claims/${claim.id}/redeem`, { token: w.token, body: { method: "COLLECTION", pin: w.pin } });
+  const stockistId = await centre();
+  const redeem = () => api("POST", `/v1/claims/${claim.id}/redeem`, { token: w.token, body: { method: "COLLECTION", stockistId, pin: w.pin } });
   fails(await redeem(), 403, "LIVENESS_REQUIRED");
   ok(await api("POST", "/v1/me/liveness", { token: w.token }));
   ok(await redeem());

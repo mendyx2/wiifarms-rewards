@@ -7,6 +7,7 @@ import { one, withTx, type Db } from "../db.ts";
 import { AppError, badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
 import { DEFAULT_MAJOR_PRIZE_KOBO, livenessRequired, onExclusionRegister, type User } from "./identity.ts";
+import { accrueHandoverFee, ID_TYPES, moveUnit, newVoucherRef, storeProof } from "./stockists.ts";
 
 const VIEW: Parameters<typeof requireRole>[1][] = ["FULFILMENT", "CYCLE_MANAGER", "FINANCE", "COMPLIANCE", "AUDITOR"];
 const HANDOVER_MAX_ATTEMPTS = 5;
@@ -162,9 +163,10 @@ export async function inventoryOverview(ctx: Ctx, admin: Admin): Promise<unknown
 const CLAIM_SELECT = `
   SELECT pc.id, pc.status, pc.stage, pc.expires_at, pc.claimed_by_next_of_kin, pc.created_at, pc.hold_reason, pt.title, pt.kind, pt.cash_kobo, c.name AS cycle, t.serial AS ticket,
          sh.method, sh.status AS shipment_status, sh.carrier, sh.tracking_ref, sh.address, sh.handed_over_at, sh.handover_otp_enc, sh.id AS shipment_id,
+         sh.voucher_ref, st.name AS centre_name, st.address AS centre_address, st.area AS centre_area, st.opening_hours AS centre_hours,
          u.serial_number, s.warranty_months
   FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id JOIN cycles c ON c.id = pt.cycle_id JOIN tickets t ON t.id = pc.ticket_id
-  LEFT JOIN shipments sh ON sh.prize_claim_id = pc.id LEFT JOIN stock_units u ON u.id = pc.stock_unit_id LEFT JOIN skus s ON s.id = pt.sku_id`;
+  LEFT JOIN shipments sh ON sh.prize_claim_id = pc.id LEFT JOIN stockists st ON st.id = sh.stockist_id LEFT JOIN stock_units u ON u.id = pc.stock_unit_id LEFT JOIN skus s ON s.id = pt.sku_id`;
 
 export async function listClaims(ctx: Ctx, userId: string): Promise<unknown[]> {
   const r = await ctx.pool.query(`${CLAIM_SELECT} WHERE pc.user_id = $1 AND pt.kind = 'MERCHANDISE' ORDER BY pc.created_at DESC`, [userId]);
@@ -182,9 +184,13 @@ export async function listClaims(ctx: Ctx, userId: string): Promise<unknown[]> {
  * Requires verified identity and a next of kin on file; a match on the staff
  * register puts the claim on hold for Compliance instead of proceeding.
  */
-export async function redeemClaim(ctx: Ctx, actor: Actor, user: User, claimId: string, input: { method: "DELIVERY" | "COLLECTION"; address?: string }): Promise<{ status: string }> {
+export async function redeemClaim(ctx: Ctx, actor: Actor, user: User, claimId: string, input: { method: "DELIVERY" | "COLLECTION"; address?: string; stockistId?: string }): Promise<{ status: string }> {
   if (input.method === "DELIVERY" && !input.address?.trim()) throw badRequest("ADDRESS_REQUIRED", "Enter the delivery address.");
+  if (input.method === "COLLECTION" && !input.stockistId) throw badRequest("CENTRE_REQUIRED", "Choose the collection centre.");
   return withTx(ctx.pool, async (db) => {
+    if (input.method === "COLLECTION" && !(await one(db, "SELECT 1 FROM stockists WHERE id = $1 AND status = 'ACTIVE' AND tier <> 'SPECIALIST'", [input.stockistId]))) {
+      throw badRequest("CENTRE_REQUIRED", "Choose one of the listed collection centres.");
+    }
     const claim = await one<{ id: string; status: string; expires_at: Date; cycle_id: string; sku_id: string | null; kind: string; value_kobo: number | null }>(
       db,
       `SELECT pc.id, pc.status, pc.expires_at, pt.cycle_id, pt.sku_id, pt.kind, s.advertised_value_kobo AS value_kobo
@@ -212,7 +218,8 @@ export async function redeemClaim(ctx: Ctx, actor: Actor, user: User, claimId: s
     if (!unit) throw new AppError(500, "STOCK_MISSING", "We could not allocate your prize automatically. Our team has been alerted and will contact you.");
     await db.query("UPDATE stock_units SET status = 'ALLOCATED' WHERE id = $1", [unit.id]);
     await db.query("UPDATE prize_claims SET status = 'VERIFIED', stock_unit_id = $2 WHERE id = $1", [claim.id, unit.id]);
-    await db.query("INSERT INTO shipments (prize_claim_id, method, address) VALUES ($1, $2, $3)", [claim.id, input.method, input.method === "DELIVERY" ? input.address!.trim() : null]);
+    await db.query("INSERT INTO shipments (prize_claim_id, method, address, stockist_id) VALUES ($1, $2, $3, $4)",
+      [claim.id, input.method, input.method === "DELIVERY" ? input.address!.trim() : null, input.method === "COLLECTION" ? input.stockistId : null]);
     await audit(db, actor, "claim.redeemed", "prize_claim", claim.id, { method: input.method, stockUnitId: unit.id });
     return { status: "VERIFIED" };
   });
@@ -233,19 +240,28 @@ export async function fulfilmentQueue(ctx: Ctx, admin: Admin): Promise<unknown[]
 export async function dispatchClaim(ctx: Ctx, admin: Admin, claimId: string, input: { carrier?: string; trackingRef?: string }): Promise<{ status: string }> {
   requireRole(admin, "FULFILMENT");
   return withTx(ctx.pool, async (db) => {
-    const row = await one<{ status: string; stock_unit_id: string; shipment_id: string; method: string }>(
-      db, `SELECT pc.status, pc.stock_unit_id, sh.id AS shipment_id, sh.method FROM prize_claims pc JOIN shipments sh ON sh.prize_claim_id = pc.id
-           WHERE pc.id = $1 FOR NO KEY UPDATE OF pc`, [claimId]);
+    const row = await one<{ status: string; stock_unit_id: string; shipment_id: string; method: string; stockist_id: string | null; centre: string | null }>(
+      db, `SELECT pc.status, pc.stock_unit_id, sh.id AS shipment_id, sh.method, sh.stockist_id, st.name AS centre FROM prize_claims pc JOIN shipments sh ON sh.prize_claim_id = pc.id
+           LEFT JOIN stockists st ON st.id = sh.stockist_id WHERE pc.id = $1 FOR NO KEY UPDATE OF pc`, [claimId]);
     if (!row) throw notFound("Claim not found.");
     if (row.status !== "VERIFIED") throw conflict("NOT_READY", "Only a claimed, verified prize can be dispatched.");
     if (row.method === "DELIVERY" && !input.carrier?.trim()) throw badRequest("CARRIER_REQUIRED", "Enter the carrier for a delivery.");
+    // Collection at a centre: the unit goes to the centre (a recorded move) and a voucher is issued.
+    let voucherRef: string | null = null;
+    if (row.method === "COLLECTION" && row.stockist_id) {
+      await moveUnit(db, admin, row.stock_unit_id, row.stockist_id, `Collection of claim ${claimId}`);
+      voucherRef = newVoucherRef();
+      if (row.centre) input = { ...input, carrier: row.centre };
+    } else if (await one(db, "SELECT 1 FROM stock_incidents WHERE stock_unit_id = $1 AND status = 'OPEN'", [row.stock_unit_id])) {
+      throw conflict("INCIDENT_OPEN", "This unit has an open damage or loss report.");
+    }
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     await db.query(
       `UPDATE shipments SET status = 'IN_TRANSIT', carrier = $2, tracking_ref = $3, handover_otp_hash = $4, handover_otp_enc = $5,
-                            handover_attempts = 0, dispatched_at = now(), dispatched_by = $6 WHERE id = $1`,
+                            handover_attempts = 0, dispatched_at = now(), dispatched_by = $6, voucher_ref = coalesce(voucher_ref, $7) WHERE id = $1`,
       [row.shipment_id, input.carrier ?? null, input.trackingRef ?? null,
         keyedHash(ctx.config.hashKey, "handover", `${row.shipment_id}:${code}`).toString("hex"),
-        await ctx.keys.wrap(Buffer.from(code), `handover:${row.shipment_id}`), admin.id]);
+        await ctx.keys.wrap(Buffer.from(code), `handover:${row.shipment_id}`), admin.id, voucherRef]);
     await db.query("UPDATE stock_units SET status = 'DISPATCHED' WHERE id = $1", [row.stock_unit_id]).catch(dbRule);
     await db.query("UPDATE prize_claims SET status = 'DISPATCHED' WHERE id = $1", [claimId]);
     await audit(db, adminActor(admin), "claim.dispatched", "prize_claim", claimId, { carrier: input.carrier ?? null, method: row.method });
@@ -269,11 +285,21 @@ export async function dispatchClaim(ctx: Ctx, admin: Admin, claimId: string, inp
  * only the winner was given, and attach a photo; after five wrong codes the
  * handover is locked for Compliance to review.
  */
-export async function confirmHandover(ctx: Ctx, admin: Admin, claimId: string, input: { code: string; photoRef: string; warrantyDocumentRef?: string }): Promise<{ status: string }> {
-  requireRole(admin, "FULFILMENT");
-  const row = await one<{ shipment_id: string; handover_otp_hash: string | null; handover_attempts: number; shipment_status: string }>(
-    ctx.pool, "SELECT id AS shipment_id, handover_otp_hash, handover_attempts, status AS shipment_status FROM shipments WHERE prize_claim_id = $1", [claimId]);
-  if (!row) throw notFound("Claim not found.");
+export interface Handover { code: string; photoRef?: string; photoBase64?: string; idChecked?: typeof ID_TYPES[number]; warrantyDocumentRef?: string }
+
+export async function confirmHandover(ctx: Ctx, admin: Admin, claimId: string, input: Handover): Promise<{ status: string }> {
+  requireRole(admin, "FULFILMENT", "STOCKIST");
+  const row = await one<{ shipment_id: string; handover_otp_hash: string | null; handover_attempts: number; shipment_status: string; stockist_id: string | null; incident: boolean }>(
+    ctx.pool, `SELECT sh.id AS shipment_id, sh.handover_otp_hash, sh.handover_attempts, sh.status AS shipment_status, sh.stockist_id,
+                      EXISTS (SELECT 1 FROM prize_claims pc JOIN stock_incidents i ON i.stock_unit_id = pc.stock_unit_id AND i.status = 'OPEN' WHERE pc.id = sh.prize_claim_id) AS incident
+               FROM shipments sh WHERE sh.prize_claim_id = $1`, [claimId]);
+  // A centre can only hand over prizes sent to it, and only with an ID check and a photo.
+  const atCentre = admin.roles.includes("STOCKIST");
+  if (!row || (atCentre && row.stockist_id !== admin.stockistId)) throw notFound("Claim not found.");
+  if (row.stockist_id && !input.idChecked) throw badRequest("ID_CHECK_REQUIRED", "Record which photo ID you checked.");
+  if (!input.photoBase64 && !input.photoRef) throw badRequest("PHOTO_REQUIRED", "Take a photo of the handover.");
+  if (atCentre && !input.photoBase64) throw badRequest("PHOTO_REQUIRED", "Take a photo of the handover.");
+  if (row.incident) throw conflict("INCIDENT_OPEN", "This unit has an open damage or loss report: do not hand it over until Fulfilment resolves it.");
   if (row.shipment_status !== "IN_TRANSIT" || !row.handover_otp_hash) throw conflict("NOT_IN_TRANSIT", "This prize is not out for delivery or collection.");
   // Count the attempt first, committed on its own, so guesses are limited.
   const counted = await one<{ handover_attempts: number }>(
@@ -292,13 +318,15 @@ export async function confirmHandover(ctx: Ctx, admin: Admin, claimId: string, i
   return withTx(ctx.pool, async (db) => {
     const claim = await one<{ status: string; stock_unit_id: string }>(db, "SELECT status, stock_unit_id FROM prize_claims WHERE id = $1 FOR NO KEY UPDATE", [claimId]);
     if (!claim || claim.status !== "DISPATCHED") throw conflict("NOT_IN_TRANSIT", "This prize is not out for delivery or collection.");
+    const photoRef = input.photoBase64 ? await storeProof(db, admin, row.shipment_id, input.photoBase64) : input.photoRef!;
     await db.query(
       `UPDATE shipments SET status = 'HANDED_OVER', handed_over_at = now(), handover_photo_ref = $2, warranty_document_ref = $3,
-                            handed_over_by = $4, handover_otp_enc = NULL WHERE id = $1`,
-      [row.shipment_id, input.photoRef, input.warrantyDocumentRef ?? null, admin.id]).catch(dbRule);
+                            handed_over_by = $4, handover_otp_enc = NULL, id_checked = $5 WHERE id = $1`,
+      [row.shipment_id, photoRef, input.warrantyDocumentRef ?? null, admin.id, input.idChecked ?? null]).catch(dbRule);
+    await accrueHandoverFee(db, row.shipment_id);
     await db.query("UPDATE stock_units SET status = 'DELIVERED' WHERE id = $1", [claim.stock_unit_id]).catch(dbRule);
     await db.query("UPDATE prize_claims SET status = 'DELIVERED' WHERE id = $1", [claimId]);
-    await audit(db, adminActor(admin), "claim.handed_over", "prize_claim", claimId, { photoRef: input.photoRef });
+    await audit(db, adminActor(admin), "claim.handed_over", "prize_claim", claimId, { photoRef, idChecked: input.idChecked ?? null, stockistId: row.stockist_id });
     const who = (await one<{ user_id: string; title: string }>(db, "SELECT pc.user_id, pt.title FROM prize_claims pc JOIN prize_tiers pt ON pt.id = pc.prize_tier_id WHERE pc.id = $1", [claimId]))!;
     await notify(db, { userId: who.user_id, kind: "PRIZE_DELIVERED", link: "#/wallet", dedupeKey: `claim:${claimId}:delivered`,
       title: `${who.title} received`, body: "Your prize has been handed over and recorded. Enjoy it!",

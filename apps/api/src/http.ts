@@ -5,7 +5,7 @@ import Fastify, { type FastifyHttpOptions, type FastifyInstance, type FastifyRep
 import type { Actor } from "./audit.ts";
 import type { Ctx } from "./context.ts";
 import { withTx } from "./db.ts";
-import { AppError, badRequest, notFound } from "./errors.ts";
+import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import * as admin from "./modules/admin.ts";
 import * as cycles from "./modules/cycles.ts";
 import * as draw from "./modules/draw.ts";
@@ -26,6 +26,7 @@ import * as wallet from "./modules/wallet.ts";
 import * as affiliates from "./modules/affiliates.ts";
 import * as deductions from "./modules/deductions.ts";
 import * as portal from "./modules/portal.ts";
+import * as stockists from "./modules/stockists.ts";
 
 // --- Small JSON-schema helpers; unknown fields are always rejected ----------------------
 const str = (max = 200) => ({ type: "string", minLength: 1, maxLength: max });
@@ -152,7 +153,14 @@ export function buildServer(ctx: Ctx): FastifyInstance {
       ? `${SESSION_COOKIE}=; ${attrs}; Max-Age=0`
       : `${SESSION_COOKIE}=${token}; ${attrs}; Max-Age=${ctx.config.sessionDays * 86400}`);
   };
-  const staff = (req: FastifyRequest) => admin.authenticateAdmin(ctx, adminToken(req));
+  const staff = async (req: FastifyRequest) => {
+    const a = await admin.authenticateAdmin(ctx, adminToken(req));
+    // Collection-centre staff reach only their own portal (and who they are).
+    if (a.roles.includes("STOCKIST") && !/^\/v1\/admin\/(stockist-portal(\/|\?|$)|me(\?|$))/.test(req.url)) {
+      throw forbidden("ROLE_REQUIRED", "Collection-centre accounts can only use the stockist portal.");
+    }
+    return a;
+  };
   const actorOf = (userId: string, req: FastifyRequest): Actor => ({ type: "PLAYER", id: userId, ip: req.ip });
 
   app.get("/health", async () => ({ ok: true, mode: "SIMULATED" }));
@@ -251,6 +259,10 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     if (req.headers["if-none-match"] === img.etag) return reply.status(304).send();
     return reply.header("Content-Type", img.contentType).header("Cache-Control", "public, max-age=300").header("ETag", img.etag).send(img.bytes);
   });
+  // The stockist locator: approved collection centres.
+  app.get<{ Querystring: { state?: string } }>("/v1/stockists", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { state: { type: "string", pattern: "^NG-[A-Z]{2}$" } } } },
+  }, async (req, reply) => { reply.header("Cache-Control", "public, max-age=60"); return stockists.publicStockists(ctx, req.query.state); });
   // Pictures of approved marketing materials (anyone may see them: affiliates share them publicly).
   app.get<{ Params: { id: string } }>("/v1/material-images/:id", { schema: idParam }, async (req, reply) => {
     const staffView = Boolean(adminToken(req)) && Boolean(await staff(req).catch(() => null));
@@ -352,8 +364,8 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     async (req) => notifications.markRead(ctx, (await player(req)).id, req.body.ids));
   app.get("/v1/orders", async (req) => ({ orders: await refunds.listMyOrders(ctx, (await player(req)).id) }));
   app.get("/v1/claims", async (req) => ({ claims: await inventory.listClaims(ctx, (await player(req)).id) }));
-  app.post<{ Params: { id: string }; Body: { method: "DELIVERY" | "COLLECTION"; address?: string; pin: string } }>("/v1/claims/:id/redeem", {
-    schema: { ...idParam, ...body({ method: { enum: ["DELIVERY", "COLLECTION"] }, address: str(400), pin: str(6) }, ["address"]) },
+  app.post<{ Params: { id: string }; Body: { method: "DELIVERY" | "COLLECTION"; address?: string; stockistId?: string; pin: string } }>("/v1/claims/:id/redeem", {
+    schema: { ...idParam, ...body({ method: { enum: ["DELIVERY", "COLLECTION"] }, address: str(400), stockistId: uuid, pin: str(6) }, ["address", "stockistId"]) },
   }, async (req) => {
     authLimit(req.ip);
     const u = await player(req);
@@ -383,7 +395,7 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     reply.header("Set-Cookie", `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict${ctx.config.cookieSecure ? "; Secure" : ""}; Max-Age=0`);
     return { ok: true };
   });
-  app.get("/v1/admin/me", async (req) => { const a = await staff(req); return { id: a.id, fullName: a.fullName, email: a.email, roles: a.roles }; });
+  app.get("/v1/admin/me", async (req) => { const a = await staff(req); return { id: a.id, fullName: a.fullName, email: a.email, roles: a.roles, stockistId: a.stockistId ?? null }; });
   app.get("/v1/admin/auditors", async (req) => ({ auditors: await admin.listAuditors(ctx, await staff(req)) }));
   app.get("/v1/admin/skus", async (req) => ({ skus: await admin.listSkus(ctx, await staff(req)) }));
   app.post<{ Body: inventory.NewItem }>("/v1/admin/skus", {
@@ -449,12 +461,62 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   app.post<{ Params: { id: string }; Body: { carrier?: string; trackingRef?: string } }>("/v1/admin/fulfilment/:id/dispatch", {
     schema: { ...idParam, ...body({ carrier: str(80), trackingRef: str(80) }, ["carrier", "trackingRef"]) },
   }, async (req) => inventory.dispatchClaim(ctx, await staff(req), req.params.id, req.body));
-  app.post<{ Params: { id: string }; Body: { code: string; photoRef: string; warrantyDocumentRef?: string } }>("/v1/admin/fulfilment/:id/handover", {
-    schema: { ...idParam, ...body({ code: str(6), photoRef: str(200), warrantyDocumentRef: str(200) }, ["warrantyDocumentRef"]) },
+  const handoverBody = { code: str(6), photoRef: str(200), photoBase64: str(1_500_000), idChecked: { enum: [...stockists.ID_TYPES] }, warrantyDocumentRef: str(200) };
+  const handoverOptional = ["photoRef", "photoBase64", "idChecked", "warrantyDocumentRef"];
+  app.post<{ Params: { id: string }; Body: inventory.Handover }>("/v1/admin/fulfilment/:id/handover", {
+    bodyLimit: 1536 * 1024, schema: { ...idParam, ...body(handoverBody, handoverOptional) },
   }, async (req) => { authLimit(req.ip); return inventory.confirmHandover(ctx, await staff(req), req.params.id, req.body); });
+
+  // ---- Collection centres (SRS section 14) ----
+  app.get("/v1/admin/stockists", async (req) => stockists.listStockists(ctx, await staff(req)));
+  app.post<{ Body: stockists.NewStockist }>("/v1/admin/stockists", {
+    schema: body({ name: str(120), tier: { enum: ["MEGA", "SUB", "SPECIALIST"] }, parentId: uuid, stateCode: str(10), area: str(120), address: str(300), phone: str(20),
+      coverage: { type: "array", minItems: 1, maxItems: 50, items: str(80) }, openingHours: str(120), feeKobo: int(0, 100_000_000) }, ["parentId", "openingHours"]),
+  }, async (req) => stockists.registerStockist(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { decision: "APPROVE" | "REJECT" | "SUSPEND" | "REINSTATE"; reason?: string } }>("/v1/admin/stockists/:id/decision", {
+    schema: { ...idParam, ...body({ decision: { enum: ["APPROVE", "REJECT", "SUSPEND", "REINSTATE"] }, reason: str(500) }, ["reason"]) },
+  }, async (req) => stockists.decideStockist(ctx, await staff(req), req.params.id, req.body.decision, req.body.reason));
+  app.post<{ Params: { id: string }; Body: { feeKobo: number } }>("/v1/admin/stockists/:id/fee", { schema: { ...idParam, ...body({ feeKobo: int(0, 100_000_000) }) } },
+    async (req) => stockists.requestFeeChange(ctx, await staff(req), req.params.id, req.body.feeKobo));
+  app.post<{ Params: { id: string }; Body: { approve: boolean } }>("/v1/admin/stockists/:id/fee/decision", { schema: { ...idParam, ...body({ approve: { type: "boolean" } }) } },
+    async (req) => stockists.decideFeeChange(ctx, await staff(req), req.params.id, req.body.approve));
+  app.get("/v1/admin/stock/movable", async (req) => stockists.movableUnits(ctx, await staff(req)));
+  app.post<{ Body: { unitIds: string[]; toStockistId: string | null; reason: string } }>("/v1/admin/stock/allocate", {
+    schema: body({ unitIds: { type: "array", minItems: 1, maxItems: 500, items: uuid }, toStockistId: { anyOf: [uuid, { type: "null" }] }, reason: str(300) }),
+  }, async (req) => stockists.allocateUnits(ctx, await staff(req), req.body));
+  app.get("/v1/admin/stock/incidents", async (req) => stockists.listIncidents(ctx, await staff(req)));
+  app.post<{ Body: { unitId: string; kind: "DAMAGED" | "MISSING" | "WRONG_ITEM" | "OTHER"; description: string } }>("/v1/admin/stock/incidents", {
+    schema: body({ unitId: uuid, kind: { enum: ["DAMAGED", "MISSING", "WRONG_ITEM", "OTHER"] }, description: str(2000) }),
+  }, async (req) => stockists.reportIncident(ctx, await staff(req), req.body));
+  app.post<{ Params: { id: string }; Body: { resolution: string } }>("/v1/admin/stock/incidents/:id/resolve", { schema: { ...idParam, ...body({ resolution: str(2000) }) } },
+    async (req) => stockists.resolveIncident(ctx, await staff(req), req.params.id, req.body.resolution));
+  app.get("/v1/admin/stockist-invoices", async (req) => stockists.listInvoices(ctx, await staff(req)));
+  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/stockist-invoices/:id/decision", {
+    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
+  }, async (req) => stockists.decideInvoice(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+  app.get("/v1/admin/reports/stockist-reconciliation", async (req) => stockists.reconciliation(ctx, await staff(req)));
+  app.get("/v1/admin/reports/outstanding-prizes", async (req) => stockists.outstandingObligations(ctx, await staff(req)));
+  app.get<{ Params: { id: string } }>("/v1/admin/fulfilment/:id/proof", { schema: idParam }, async (req, reply) => {
+    const p = await stockists.handoverProof(ctx, await staff(req), req.params.id);
+    return reply.header("Content-Type", p.type).header("Cache-Control", "no-store").send(p.bytes);
+  });
+  // The stockist portal: collection-centre staff only.
+  app.get("/v1/admin/stockist-portal", async (req) => stockists.portalDashboard(ctx, await staff(req)));
+  app.post<{ Body: { voucherRef: string } }>("/v1/admin/stockist-portal/verify", { schema: body({ voucherRef: str(20) }) }, async (req) => {
+    authLimit(req.ip);
+    return stockists.verifyVoucher(ctx, await staff(req), req.body.voucherRef);
+  });
+  app.post<{ Params: { id: string }; Body: inventory.Handover }>("/v1/admin/stockist-portal/handover/:id", {
+    bodyLimit: 1536 * 1024, schema: { ...idParam, ...body(handoverBody, handoverOptional) },
+  }, async (req) => { authLimit(req.ip); return inventory.confirmHandover(ctx, await staff(req), req.params.id, req.body); });
+  app.post<{ Body: { unitId: string; kind: "DAMAGED" | "MISSING" | "WRONG_ITEM" | "OTHER"; description: string } }>("/v1/admin/stockist-portal/incidents", {
+    schema: body({ unitId: uuid, kind: { enum: ["DAMAGED", "MISSING", "WRONG_ITEM", "OTHER"] }, description: str(2000) }),
+  }, async (req) => stockists.reportIncident(ctx, await staff(req), req.body));
+  app.post<{ Body: { theirReference?: string } }>("/v1/admin/stockist-portal/invoices", { schema: body({ theirReference: str(60) }, ["theirReference"]) },
+    async (req) => stockists.submitInvoice(ctx, await staff(req), req.body.theirReference));
   // ---- Staff access (two security administrators) ----
   app.get("/v1/admin/staff", async (req) => governance.listStaff(ctx, await staff(req)));
-  app.post<{ Body: { email: string; fullName: string } }>("/v1/admin/staff", { schema: body({ email: str(200), fullName: str(120) }) },
+  app.post<{ Body: { email: string; fullName: string; stockistId?: string } }>("/v1/admin/staff", { schema: body({ email: str(200), fullName: str(120), stockistId: uuid }, ["stockistId"]) },
     async (req) => governance.createStaff(ctx, await staff(req), req.body));
   app.post<{ Body: { adminUserId: string; action: "GRANT_ROLE" | "REVOKE_ROLE" | "ENABLE"; role?: admin.Role; reason: string } }>("/v1/admin/staff/requests", {
     schema: body({ adminUserId: uuid, action: { enum: ["GRANT_ROLE", "REVOKE_ROLE", "ENABLE"] }, role: { enum: governance.ROLES }, reason: str(500) }, ["role"]),

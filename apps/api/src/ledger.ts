@@ -25,6 +25,10 @@ export const accounts = {
   affiliateExpense: (cycleId: string): AccountRef => ({ code: `AFFILIATE_EXPENSE:${cycleId}`, kind: "EXPENSE", cycleId }),
   /** Fees owed to one affiliate, until settled. Not a player wallet: affiliates are paid by settlement to their bank account. */
   affiliatePayable: (affiliateId: string): AccountRef => ({ code: `AFFILIATE_PAYABLE:${affiliateId}`, kind: "LIABILITY" }),
+  /** Fees for handing over merchandise prizes at collection centres: an operating cost of the cycle. */
+  fulfilmentExpense: (cycleId: string): AccountRef => ({ code: `FULFILMENT_EXPENSE:${cycleId}`, kind: "EXPENSE", cycleId }),
+  /** Fees owed to one collection centre, until its invoice is paid. */
+  stockistPayable: (stockistId: string): AccountRef => ({ code: `STOCKIST_PAYABLE:${stockistId}`, kind: "LIABILITY" }),
   /** A player's wallet: winnings (net of deductions), and referral earnings from before the affiliate model. Withdrawable to their own bank account, or spendable on cards. */
   playerWinnings: (userId: string): AccountRef => ({ code: `PLAYER_WINNINGS:${userId}`, kind: "LIABILITY", userId }),
 };
@@ -45,7 +49,7 @@ async function accountId(db: Db, a: AccountRef): Promise<string> {
 
 export interface Posting {
   kind: "TICKET_SALE" | "INSTANT_PRIZE" | "DRAW_PRIZE" | "PAYOUT" | "PAYOUT_REVERSAL" | "REFUND" | "ADJUSTMENT" | "EXPENSE" | "EXPENSE_REVERSAL"
-    | "REFERRAL_COMMISSION" | "REFERRAL_REVERSAL" | "TAX" | "TAX_REVERSAL" | "AFFILIATE_FEE" | "AFFILIATE_FEE_REVERSAL" | "AFFILIATE_SETTLEMENT";
+    | "REFERRAL_COMMISSION" | "REFERRAL_REVERSAL" | "TAX" | "TAX_REVERSAL" | "AFFILIATE_FEE" | "AFFILIATE_FEE_REVERSAL" | "AFFILIATE_SETTLEMENT" | "STOCKIST_FEE" | "STOCKIST_SETTLEMENT";
   /** Unique name of the business event. Posting the same reference twice is rejected by the database. */
   reference: string;
   cycleId?: string | undefined;

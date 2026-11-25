@@ -5,22 +5,24 @@ import { one, withTx } from "../db.ts";
 import { badRequest, forbidden, notFound, unauthorized } from "../errors.ts";
 import { normalisePhone } from "./identity.ts";
 
-export type Role = "CYCLE_MANAGER" | "FINANCE" | "PAYOUT_APPROVER" | "FULFILMENT" | "SUPPORT" | "COMPLIANCE" | "AUDITOR" | "SECURITY_ADMIN";
+export type Role = "CYCLE_MANAGER" | "FINANCE" | "PAYOUT_APPROVER" | "FULFILMENT" | "SUPPORT" | "COMPLIANCE" | "AUDITOR" | "SECURITY_ADMIN" | "STOCKIST";
 
 export interface Admin {
   id: string;
   email: string;
   fullName: string;
   roles: Role[];
+  /** For STOCKIST accounts: the collection centre they work for. */
+  stockistId?: string | null;
 }
 
 export const adminActor = (a: Admin, ip?: string): Actor => ({ type: "ADMIN", id: a.id, ip });
 
 export async function authenticateAdmin(ctx: Ctx, token: string | undefined): Promise<Admin> {
   if (!token) throw unauthorized();
-  const row = await one<{ id: string; email: string; full_name: string; roles: Role[] }>(
+  const row = await one<{ id: string; email: string; full_name: string; roles: Role[]; stockist_id: string | null }>(
     ctx.pool,
-    `SELECT a.id, a.email, a.full_name,
+    `SELECT a.id, a.email, a.full_name, a.stockist_id,
             coalesce(array_agg(r.role) FILTER (WHERE r.role IS NOT NULL), '{}')::text[] AS roles
      FROM admin_sessions s JOIN admin_users a ON a.id = s.admin_user_id
      LEFT JOIN admin_roles r ON r.admin_user_id = a.id
@@ -28,7 +30,7 @@ export async function authenticateAdmin(ctx: Ctx, token: string | undefined): Pr
      GROUP BY a.id`,
     [sha256(token)]);
   if (!row) throw unauthorized();
-  return { id: row.id, email: row.email, fullName: row.full_name, roles: row.roles };
+  return { id: row.id, email: row.email, fullName: row.full_name, roles: row.roles, stockistId: row.stockist_id };
 }
 
 export function requireRole(admin: Admin, ...roles: Role[]): void {

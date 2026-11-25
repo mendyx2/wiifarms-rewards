@@ -22,7 +22,7 @@ import { GAME_CORE_VERSION } from "./cycles.ts";
  * the database enforces.
  */
 
-export const ROLES: Role[] = ["CYCLE_MANAGER", "FINANCE", "PAYOUT_APPROVER", "FULFILMENT", "SUPPORT", "COMPLIANCE", "AUDITOR", "SECURITY_ADMIN"];
+export const ROLES: Role[] = ["CYCLE_MANAGER", "FINANCE", "PAYOUT_APPROVER", "FULFILMENT", "SUPPORT", "COMPLIANCE", "AUDITOR", "SECURITY_ADMIN", "STOCKIST"];
 const MIN_SECURITY_ADMINS = 2;
 
 /** Mirrors the separation-of-duties rule in the database, so a request can be refused with a clear reason before anyone approves it. */
@@ -31,13 +31,14 @@ function conflictsWith(role: Role, held: Role[]): Role | undefined {
     if ((role === "FINANCE" && h === "PAYOUT_APPROVER") || (role === "PAYOUT_APPROVER" && h === "FINANCE")) return h;
     if ((role === "AUDITOR") !== (h === "AUDITOR")) return h;
     if ((role === "SECURITY_ADMIN") !== (h === "SECURITY_ADMIN")) return h;
+    if ((role === "STOCKIST") !== (h === "STOCKIST")) return h;
   }
   return undefined;
 }
 
 const ROLE_TEXT: Record<Role, string> = {
   CYCLE_MANAGER: "cycle manager", FINANCE: "finance", PAYOUT_APPROVER: "payout approver", FULFILMENT: "fulfilment", SUPPORT: "support",
-  COMPLIANCE: "compliance", AUDITOR: "auditor", SECURITY_ADMIN: "security administrator",
+  COMPLIANCE: "compliance", AUDITOR: "auditor", SECURITY_ADMIN: "security administrator", STOCKIST: "stockist (collection centre staff)",
 };
 
 function dbRule(err: unknown): never {
@@ -59,7 +60,8 @@ async function activeSecurityAdmins(db: Db): Promise<number> {
 export async function listStaff(ctx: Ctx, admin: Admin): Promise<unknown> {
   requireRole(admin, "SECURITY_ADMIN", "COMPLIANCE", "AUDITOR");
   const staff = (await ctx.pool.query(
-    `SELECT a.id, a.email, a.full_name, a.status, a.created_at, a.disabled_at,
+    `SELECT a.id, a.email, a.full_name, a.status, a.created_at, a.disabled_at, a.stockist_id,
+            (SELECT st.name FROM stockists st WHERE st.id = a.stockist_id) AS stockist_name,
             coalesce(array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL), '{}')::text[] AS roles,
             (SELECT max(s.created_at) FROM admin_sessions s WHERE s.admin_user_id = a.id) AS last_sign_in
      FROM admin_users a LEFT JOIN admin_roles r ON r.admin_user_id = a.id GROUP BY a.id ORDER BY a.status, a.full_name`)).rows;
@@ -71,14 +73,19 @@ export async function listStaff(ctx: Ctx, admin: Admin): Promise<unknown> {
   return { staff, requests, roles: ROLES };
 }
 
-export async function createStaff(ctx: Ctx, admin: Admin, input: { email: string; fullName: string }): Promise<{ id: string }> {
+export async function createStaff(ctx: Ctx, admin: Admin, input: { email: string; fullName: string; stockistId?: string }): Promise<{ id: string }> {
   requireRole(admin, "SECURITY_ADMIN");
   const email = input.email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw badRequest("INVALID_EMAIL", "Enter a valid work email.");
   return withTx(ctx.pool, async (db) => {
     // A new account has no roles: it can sign in but do nothing until a role is granted by two people.
-    const r = await db.query<{ id: string }>("INSERT INTO admin_users (email, full_name) VALUES ($1, $2) RETURNING id", [email, input.fullName.trim()]).catch(dbRule);
-    await audit(db, adminActor(admin), "access.staff_created", "admin_user", r.rows[0]!.id, { email });
+    // Staff of a collection centre are linked to it when the account is created; only they can later be given the stockist role.
+    if (input.stockistId && !(await one(db, "SELECT 1 FROM stockists WHERE id = $1 AND status = 'ACTIVE'", [input.stockistId]))) {
+      throw badRequest("INVALID_STOCKIST", "Choose an approved collection centre.");
+    }
+    const r = await db.query<{ id: string }>("INSERT INTO admin_users (email, full_name, stockist_id) VALUES ($1, $2, $3) RETURNING id",
+      [email, input.fullName.trim(), input.stockistId ?? null]).catch(dbRule);
+    await audit(db, adminActor(admin), "access.staff_created", "admin_user", r.rows[0]!.id, { email, stockistId: input.stockistId ?? null });
     return { id: r.rows[0]!.id };
   });
 }
