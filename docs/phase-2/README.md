@@ -453,6 +453,27 @@ After the draw, a cycle manager, Compliance or the auditor **generates the repor
 - **Only the auditor appointed to the campaign** can attest it, and only by quoting that exact fingerprint; the attestation (name, time, statement) is published with it and cannot be changed.
 - Players read it from the Draw centre (*Independent draw report*), and can download it as JSON. The admin cycle page shows each check, the fingerprint, and the attest button for the auditor.
 
+## Management reports and the central dashboard (SRS section 15)
+
+**Admin app → Reports** lists every report the SRS requires, with its frequency, for the roles allowed to see it. Each opens on screen (with a date range, or a campaign for the campaign audit) and downloads as a spreadsheet (amounts in naira). Every figure comes from records and the ledger, and **no report identifies a player**.
+
+| Report | Frequency | What it shows |
+|---|---|---|
+| Payment reconciliation | Daily | Each day's money through the provider from records and from the ledger, the result and the sign-off |
+| Merchandise liabilities | Daily | Per campaign and item: won but not yet handed over, still to be drawn, published value owed, landed cost of the reserved units |
+| Supplier invoices | Daily | Prize stock received by purchase order: supplier, units, acquisition and landed cost, invoice document |
+| Stockist fulfilment | Daily | Per centre: handed over in the period, awaiting collection, on the shelf, open problem reports, fees, mismatches |
+| Campaign profitability | Daily | Per campaign: net revenue, cash prizes, deductions, merchandise, affiliate fees, operating costs, contribution, payout ratio |
+| Statutory deductions | Daily | Withheld per day and campaign, and the amount held for the authority |
+| Ticket reconciliation | Real time / daily | Every card accounted for (unsold, held, sold, cancelled), cards in paid purchases, sold × price against the ledger — any difference flagged |
+| Cash prize liability | Real time | Wallet winnings, withdrawals in progress, unaccepted instant wins, instant cash still in unscratched or unsold cards, undrawn final-draw cash, deductions held — and the total |
+| Affiliate remuneration | As applicable | Per affiliate: attributed sales, fees, reversals, settlements paid, owed now; whether the fee programme is on |
+| Regulatory returns | Prescribed frequency | Per licensed state: campaigns, cards and sales, refunds, prizes, deductions, new and active players, breaks and self-exclusions, complaints (the authority's format is to be confirmed) |
+| Security incidents | Immediate | The security alerts raised in the period (each raised the moment it happens): locked staff accounts, handover code guessing, shared bank accounts, payment mismatches, sign-up surges, failed draw checks |
+| Campaign audit | End of cycle | One campaign end to end: approvals, sealed results, sales, reconciliation, the draw and its attested report, prizes and fulfilment, money, close-out |
+
+**Dashboard — campaign position** for the live campaign, as in the SRS example: cards sold and remaining, realised revenue against the maximum at full sales, prize commitments, operating costs at an **illustrative** 20% of realised revenue (`WR_ILLUSTRATIVE_COST_BP`) shown beside the costs actually recorded, and the indicative operating balance (realised revenue − commitments − illustrative costs).
+
 ## Liveness and fraud rules
 - **Liveness check before anything large.** Claiming a prize worth ₦100,000 or more (merchandise at its advertised value: the car, motorcycles) and withdrawing ₦100,000 or more need a liveness check: a short live selfie matched to the photo held for the player's identity number (simulated here; the identity provider does it in the live service). It is done once and raises the player to tier 2. A stolen phone and PIN are then not enough to take a major prize. The app takes the player to the check and back to what they were doing. Threshold: `WR_MAJOR_PRIZE_KOBO`.
 - **Fraud rules (alerts to Compliance):**
