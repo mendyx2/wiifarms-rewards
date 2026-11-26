@@ -75,7 +75,7 @@ test("pop-ups need a second person, show once in the player's language, and priz
   await a.click("#nav a[data-nav=popups]");
   await a.fill("input[name=titleEn]", "Car draw date confirmed");
   await a.fill("input[name=titleHa]", "An tabbatar da ranar zaɓen mota");
-  await a.fill("textarea[name=bodyEn]", "The final draw, with the car, is on the date shown on the home screen.");
+  await a.fill("textarea[name=bodyEn]", "The Mega Draw, with the car, is on the date shown on the home screen.");
   await a.selectOption("select[name=link]", "#/draw");
   await a.click('button:has-text("Submit for approval")');
   await toast(a, /must approve/);

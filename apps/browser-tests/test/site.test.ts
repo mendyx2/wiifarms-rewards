@@ -24,7 +24,7 @@ test("a visitor can reach every public page from the site map, and each prize ha
 
   // The catalogue and a prize page.
   await visit(p, s.base + "/#/prizes");
-  await p.waitForSelector("h2:has-text('Final-draw prizes')");
+  await p.waitForSelector("h2:has-text('Mega Draw prizes')");
   await p.locator(".prize-link").first().click();
   await p.waitForSelector("h2:has-text('Redemption conditions')");
   for (const label of ["Value", "Quantity", "How it is won"]) await p.waitForSelector(`.row:has-text('${label}')`);

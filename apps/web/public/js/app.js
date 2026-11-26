@@ -175,7 +175,7 @@ function scratchCard(theme, { priceKobo = 50_000, serial = null, isDemo = false 
     strip,
     el("div", { class: "scard-tag" }, "One ticket. All prize categories."),
     el("div", { class: "scard-foot" }, isDemo ? el("span", { class: "scard-badge" }, "Demo card") : el("code", { class: "scard-serial" }, serial)),
-    el("small", { class: "scard-note" }, "Pictures show prizes you could win, not what is under this card. Most cards do not win an instant prize; every card is in the final draw."));
+    el("small", { class: "scard-note" }, "Pictures show prizes you could win, not what is under this card. Most cards do not win an instant prize; every card is in the Mega Draw."));
 }
 
 /**
@@ -287,8 +287,8 @@ async function home() {
         el("div", {}, el("b", {}, odds), "cards win instant cash"),
         el("div", {}, el("b", {}, instant.length ? `${naira(Math.min(...instant))} – ${naira(Math.max(...instant))}` : "—"), "instant prizes"),
         el("div", {}, el("b", {}, when(c.sales_close_at)), "or when sold out"),
-        el("div", {}, el("b", {}, "Final draw"), when(c.draw_at))),
-      c.status === "OPEN" ? countdown("Sales close in", c.sales_close_at) : c.status === "CLOSED" ? countdown("Final draw in", c.draw_at) : null),
+        el("div", {}, el("b", {}, "Mega Draw"), when(c.draw_at))),
+      c.status === "OPEN" ? countdown("Sales close in", c.sales_close_at) : c.status === "CLOSED" ? countdown("Mega Draw in", c.draw_at) : null),
     activity && (activity.soldLastHour || activity.recentWins.length) ? el("div", { class: "card live" },
       activity.soldLastHour ? el("div", { class: "row" }, el("b", {}, `🔥 ${activity.soldLastHour.toLocaleString("en-NG")} cards sold in the last hour`)) : null,
       activity.recentWins.slice(0, 5).map((w) => el("div", { class: "row" }, el("span", {}, `🎉 ${naira(w.cashKobo)} won`), el("small", { class: "muted" }, ago(w.at))))) : null,
@@ -299,8 +299,8 @@ async function home() {
         : el("a", { class: "btn gold", href: "#/draw" }, c.status === "CLOSED" ? "Sales closed — see the draw" : "See the draw"),
       el("a", { class: "btn ghost", href: "#/demo" }, "Try a free demo card")),
     inv ? el("a", { class: "card invite-card", href: "#/invite" }, el("b", {}, "🤝 Invite friends"),
-      el("small", {}, "Share WiiFarm Rewards with friends who are 18 or over: every card goes into the final draw.")) : null,
-    el("h2", {}, "Final-draw prizes"),
+      el("small", {}, "Share WiiFarm Rewards with friends who are 18 or over: every card goes into the Mega Draw.")) : null,
+    el("h2", {}, "Mega Draw prizes"),
     el("p", { class: "muted" }, "Every card you buy is entered automatically, win or lose."),
     el("div", { class: "prizes" }, c.prizes.filter((p) => p.stage === "FINAL_DRAW").map((p) =>
       el("a", { class: "prize prize-link", href: `#/prize/${p.id}` }, el("div", { class: "pic" }, p.has_image ? el("img", { src: `/v1/prize-images/${p.id}`, alt: p.title, loading: "lazy" }) : PRIZE_ICON(p.title)),
@@ -484,7 +484,7 @@ async function buy() {
       el("div", { class: "qty" }, el("button", { "aria-label": "Fewer", onclick: () => set(qty - 1) }, "−"), out, el("button", { "aria-label": "More", onclick: () => set(qty + 1) }, "+")),
       el("div", { class: "chips" }, [1, 3, 5, 10].filter((n) => n <= today.max).map((n) => el("button", { onclick: () => set(n) }, n))),
       el("div", { class: "row" }, el("span", {}, "Total"), total),
-      el("p", { class: "muted" }, "More cards, more chances: each card is one entry in the final draw.")),
+      el("p", { class: "muted" }, "More cards, more chances: each card is one entry in the Mega Draw.")),
     el("p", { class: "muted" }, "All sales are final. When you start paying, your cards are held for you for 15 minutes, so your payment always gets them."),
     el("div", { class: "card" },
       el("div", { class: "row" }, el("span", {}, "Cards today"), el("b", {}, `${today.cards} of ${today.max}`)),
@@ -574,7 +574,7 @@ async function cards() {
         el("code", {}, t.serial),
         el("b", {}, t.result ? (cash ? "Won " + naira(cash) : "No instant win") : "Tap to scratch"),
         cash && !t.result.acceptedAt ? el("span", { class: "to-accept" }, "Tap to accept") : null,
-        el("span", {}, "In final draw ✓"));
+        el("span", {}, "In Mega Draw ✓"));
     })));
   }
   // No "buy more" prompt here: after scratching, players are not nudged to buy again (SRS section 10).
@@ -591,7 +591,7 @@ function resultNodes(cashKobo, demo, accepted = false, taxBp = 0) {
     ? [el("div", { class: "muted" }, "You won"), el("div", { class: "big" }, naira(cashKobo)),
        ...(!demo && net < cashKobo ? [el("div", { class: "muted deduction" }, `${naira(cashKobo - net)} statutory deduction (${taxBp / 100}%) · ${naira(net)} to your wallet`)] : []),
        el("div", { class: "muted" }, demo ? "Demo only — nothing is paid" : accepted ? "Added to your wallet" : "Tap Accept to add it to your wallet")]
-    : [el("div", { class: "big none" }, "No instant win"), el("div", { class: "muted" }, demo ? "Demo card" : "You still qualify for the final prize draw at the end of the season")];
+    : [el("div", { class: "big none" }, "No instant win"), el("div", { class: "muted" }, demo ? "Demo card" : "You still qualify for the Mega Draw at the end of the season")];
 }
 
 async function card(id) {
@@ -601,7 +601,7 @@ async function card(id) {
   if (ticket.status === "CANCELLED") {
     const why = (await api.get("/v1/cycles/" + ticket.cycleId)).status === "VOID" ? "CYCLE_VOID" : null;
     return [el("a", { href: "#/cards" }, "← My cards"), el("h1", {}, "Cancelled card"), el("p", { class: "muted" }, "Card ", el("code", {}, ticket.serial)),
-      el("div", { class: "note warn" }, why === "CYCLE_VOID" ? VOID_TEXT : "This card was cancelled and its price refunded to the payment it came from. A cancelled card is not in the final draw."),
+      el("div", { class: "note warn" }, why === "CYCLE_VOID" ? VOID_TEXT : "This card was cancelled and its price refunded to the payment it came from. A cancelled card is not in the Mega Draw."),
       ticket.result ? el("p", { class: "muted" }, ticket.result.cashKobo ? `It had revealed an instant prize of ${naira(ticket.result.cashKobo)}.` : "It had been scratched: no instant win.") : null,
       el("a", { class: "btn ghost", href: "#/me" }, "See my purchases")];
   }
@@ -636,7 +636,7 @@ async function card(id) {
     after.replaceChildren(
       accept,
       el("div", { class: "entered" }, el("span", { class: "tick" }, "✓"),
-        el("div", {}, el("b", {}, "Entered in the final draw"), el("br"), el("span", { class: "muted" }, when(cycle.draw_at) + " · this card is in, win or lose"))),
+        el("div", {}, el("b", {}, "Entered in the Mega Draw"), el("br"), el("span", { class: "muted" }, when(cycle.draw_at) + " · this card is in, win or lose"))),
       el("div", { class: "entered" }, el("span", { class: "tick" + (verified ? "" : " no") }, verified ? "✓" : "!"),
         el("div", {}, el("b", {}, verified ? "Checked on your phone" : "This result could not be verified"), el("br"),
           el("span", { class: "muted" }, verified ? "It matches the fingerprint published before sales opened." : "Please contact support and quote the card number."))),
@@ -680,7 +680,7 @@ function demo() {
 }
 
 const BANKS = { "044": "Access Bank", "011": "First Bank", "058": "GTBank", "033": "UBA", "057": "Zenith Bank" };
-const HISTORY_TEXT = { INSTANT_PRIZE: "Instant win", DRAW_PRIZE: "Final-draw prize", PAYOUT: "Withdrawal", PAYOUT_REVERSAL: "Withdrawal returned",
+const HISTORY_TEXT = { INSTANT_PRIZE: "Instant win", DRAW_PRIZE: "Mega Draw prize", PAYOUT: "Withdrawal", PAYOUT_REVERSAL: "Withdrawal returned",
   REFERRAL_COMMISSION: "Referral earnings", REFERRAL_REVERSAL: "Referral earnings taken back", TICKET_SALE: "Cards bought", REFUND: "Refund", ADJUSTMENT: "Adjustment" };
 const PAYOUT_TEXT = { CONFIRMED: "Sent to your bank", PENDING_APPROVAL: "Being checked", REJECTED: "Not sent — money returned", REQUESTED: "Processing", APPROVED: "Processing", SENT: "On its way", FAILED: "Failed" };
 
@@ -817,14 +817,14 @@ async function draw() {
   const all = state.me ? (await api.get("/v1/tickets")).tickets : [];
   const drawCycleId = state.drawCycleId ?? all[0]?.cycleId ?? state.cycleId;
   const c = drawCycleId ? await api.get("/v1/cycles/" + drawCycleId) : null;
-  if (!c) return [el("h1", {}, "Final draw"), el("p", { class: "muted" }, "No prize cycle yet.")];
+  if (!c) return [el("h1", {}, "Mega Draw"), el("p", { class: "muted" }, "No prize cycle yet.")];
   const mine = all.filter((t) => t.cycleId === c.id);
   const drawn = ["DRAWN", "SETTLING", "ARCHIVED"].includes(c.status);
-  const nodes = [el("h1", {}, "Final draw")];
+  const nodes = [el("h1", {}, "Mega Draw")];
   if (c.status === "VOID") {
     if (state.cycles.length > 1) nodes.push(el("div", { class: "chips" }, state.cycles.map((x) =>
       el("button", { class: x.id === c.id ? "on" : "", onclick: () => { state.drawCycleId = x.id; render(); } }, x.name))));
-    nodes.push(el("div", { class: "card" }, el("span", { class: "pill grey" }, "Cancelled"), el("p"), el("p", {}, c.name), el("p", { class: "muted" }, VOID_TEXT + " There is no final draw.")));
+    nodes.push(el("div", { class: "card" }, el("span", { class: "pill grey" }, "Cancelled"), el("p"), el("p", {}, c.name), el("p", { class: "muted" }, VOID_TEXT + " There is no Mega Draw.")));
     return nodes;
   }
   if (state.cycles.length > 1) {
@@ -957,7 +957,7 @@ async function me() {
       el("div", { class: "tile" }, el("b", {}, naira(sum.spentKobo)), el("span", {}, "spent on cards")),
       el("div", { class: "tile" }, el("b", {}, naira(sum.cashWonKobo)), el("span", {}, "won in cash")),
       el("div", { class: "tile" + (sum.netKobo < 0 ? " neg" : "") }, el("b", {}, (sum.netKobo < 0 ? "−" : "") + naira(Math.abs(sum.netKobo))), el("span", {}, "net position")),
-      el("div", { class: "tile" }, el("b", {}, `${sum.cards} / ${sum.finalDrawEntries}`), el("span", {}, "cards / final-draw entries"))),
+      el("div", { class: "tile" }, el("b", {}, `${sum.cards} / ${sum.finalDrawEntries}`), el("span", {}, "cards / Mega Draw entries"))),
     el("div", { class: "card" },
       el("div", { class: "row" }, el("div", {}, el("b", {}, m.fullName ?? "Phone ending " + m.phoneLast4), el("small", {}, m.kycTier >= 1 ? "Verified · 18+ · " + (m.stateCode === "NG-NI" ? "Niger State" : m.stateCode) : "Not verified yet")),
         m.kycTier >= 1 ? el("span", { class: "pill" }, "Verified") : el("a", { class: "btn small", href: "#/verify" }, "Verify")),
@@ -1015,9 +1015,9 @@ async function rulesScreen(cycleId) {
       r.instant.map((t) => el("div", { class: "row" }, el("span", {}, `${naira(t.cashKobo)} (${t.winners.toLocaleString("en-NG")} prizes)`), el("span", {}, `1 in ${t.oneIn.toLocaleString("en-NG")}`))),
       el("p", { class: "muted" }, `Chances are per card, over all ${r.totalCards.toLocaleString("en-NG")} cards. Winning is not guaranteed.`)),
     el("div", { class: "card" },
-      el("div", { class: "row" }, el("b", {}, "Final draw"), el("span", {}, `${r.finalDrawPrizes.toLocaleString("en-NG")} prizes`)),
+      el("div", { class: "row" }, el("b", {}, "Mega Draw"), el("span", {}, `${r.finalDrawPrizes.toLocaleString("en-NG")} prizes`)),
       r.finalDraw.map((t) => el("div", { class: "row" }, el("span", {}, t.title), el("span", {}, t.quantity.toLocaleString("en-NG")))),
-      el("p", { class: "muted" }, `Every card is entered, win or lose, and can win at most one final-draw prize. If every card is sold, each card has about a ${r.finalDrawPercentAtFullSales}% chance; with fewer cards sold, the chance is higher. Draw: ${when(r.drawAt)}.`)),
+      el("p", { class: "muted" }, `Every card is entered, win or lose, and can win at most one Mega Draw prize. If every card is sold, each card has about a ${r.finalDrawPercentAtFullSales}% chance; with fewer cards sold, the chance is higher. Draw: ${when(r.drawAt)}.`)),
     el("div", { class: "card" }, el("div", { class: "row" }, el("b", {}, "Deduction from cash prizes"), el("span", {}, `${r.winningsTaxPercent}%`)),
       el("p", { class: "muted" }, r.winningsTaxPercent ? `By law, ${r.winningsTaxPercent}% of every cash prize is withheld and paid to the tax authority; the rest goes to your wallet.` : "No deduction is currently withheld from cash prizes.")),
     el("h2", {}, "Rules"),
@@ -1112,7 +1112,7 @@ function shareBlock(text, url) {
     } }, "Copy link"));
 }
 
-const inviteText = (code) => tr(`Join me on WiiFarm Rewards: ₦500 scratch cards with instant cash prizes, and every card goes into the final draw. Use my invite code ${code}. 18+ only. Play responsibly.`);
+const inviteText = (code) => tr(`Join me on WiiFarm Rewards: ₦500 scratch cards with instant cash prizes, and every card goes into the Mega Draw. Use my invite code ${code}. 18+ only. Play responsibly.`);
 
 async function invite() {
   const inv = await myInvite();
@@ -1172,7 +1172,7 @@ const CHANNEL_TEXT = { WHATSAPP: "WhatsApp", SMS: "Text message", SOCIAL: "Socia
 const SITE_PAGES = [
   ["#/home", "🏠", "Current campaign", "Prices, prizes, what is left and when it closes"],
   ["#/prizes", "🎁", "Prize catalogue", "Every prize, its value, supplier and warranty"],
-  ["#/how", "🧭", "How it works", "Buying, scratching, the final draw and claiming"],
+  ["#/how", "🧭", "How it works", "Buying, scratching, the Mega Draw and claiming"],
   ["#/cards", "🎟️", "My cards", "Your cards and results"],
   ["#/draw", "🎯", "Draw centre", "The draw date and verified results"],
   ["#/wallet", "🏆", "Claim your prize", "Cash winnings and merchandise prizes"],
@@ -1200,8 +1200,8 @@ async function prizesScreen() {
   const cat = await api.get(`/v1/cycles/${state.cycleId}/catalogue`);
   state.catalogue = cat;
   const draw = cat.prizes.filter((p) => p.stage === "FINAL_DRAW"), instant = cat.prizes.filter((p) => p.stage === "INSTANT");
-  return [el("h1", {}, "Prize catalogue"), el("p", { class: "muted" }, `${cat.campaign.name} · final draw ${when(cat.campaign.drawAt)}`),
-    el("h2", {}, "Final-draw prizes"),
+  return [el("h1", {}, "Prize catalogue"), el("p", { class: "muted" }, `${cat.campaign.name} · Mega Draw ${when(cat.campaign.drawAt)}`),
+    el("h2", {}, "Mega Draw prizes"),
     el("div", { class: "prizes" }, draw.map((p) => el("a", { class: "prize prize-link", href: `#/prize/${p.id}` },
       el("div", { class: "pic" }, p.has_image ? el("img", { src: `/v1/prize-images/${p.id}`, alt: p.title, loading: "lazy" }) : PRIZE_ICON(p.title)),
       el("b", {}, p.title), el("span", {}, `${plural(p.quantity, "winner")} · ${naira(p.value_kobo)}`)))),
@@ -1223,7 +1223,7 @@ async function prizeScreen(id) {
     el("div", { class: "card" },
       el("div", { class: "row" }, el("span", {}, "Value"), el("b", {}, naira(p.value_kobo))),
       el("div", { class: "row" }, el("span", {}, "Quantity"), el("b", {}, plural(p.quantity, "winner"))),
-      el("div", { class: "row" }, el("span", {}, "How it is won"), el("span", {}, p.stage === "FINAL_DRAW" ? "Final draw: every card is entered" : "Instant win when you scratch")),
+      el("div", { class: "row" }, el("span", {}, "How it is won"), el("span", {}, p.stage === "FINAL_DRAW" ? "Mega Draw: every card is entered" : "Instant win when you scratch")),
       goods ? el("div", { class: "row" }, el("span", {}, "Supplier"), el("span", {}, p.suppliers.length ? p.suppliers.join(", ") : "To be confirmed")) : null,
       goods ? el("div", { class: "row" }, el("span", {}, "Warranty"), el("span", {}, p.warranty_months ? `${p.warranty_months} months` : "None")) : null),
     el("h2", {}, "Redemption conditions"),
@@ -1246,7 +1246,7 @@ function howScreen() {
     step(2, "Buy scratch cards", "Each card costs ₦500; you can buy up to 10 a day, within the spending limits you choose. Read and accept the game rules first. All sales are final, and every payment gets its cards."),
     step(3, "Scratch", "Swipe across the card to scratch it. The result was fixed before sales opened and your phone checks it against the published fingerprint."),
     step(4, "Instant cash", "If you win instant cash, tap Accept and it goes into your wallet. Withdraw it (from ₦500) to a bank account in your own name, or use it to buy cards."),
-    step(5, "The final draw", "Every card — win or lose — is entered in the final draw at the end of the season. The draw is public, overseen by an independent auditor, and anyone can check it."),
+    step(5, "The Mega Draw", "Every card — win or lose — is entered in the Mega Draw at the end of the season. The draw is public, overseen by an independent auditor, and anyone can check it."),
     step(6, "Claim your prize", "If you win a prize in the draw, claim it in the app within the claim period: choose delivery, or collection at an approved centre with your voucher and photo ID."),
     el("a", { class: "btn gold", href: "#/home" }, "See the current campaign"),
     el("p"), el("a", { class: "btn ghost", href: "#/demo" }, "Try a free demo card")];
@@ -1257,7 +1257,7 @@ function helpScreen() {
   const qa = (q, a) => el("details", { class: "card faq" }, el("summary", {}, q), el("p", { class: "muted" }, a));
   return [el("h1", {}, "Help centre"),
     qa("Who can play?", "Anyone aged 18 or over, in the area where the campaign is licensed (Niger State), with a verified account. Staff and their close family cannot play."),
-    qa("Are the results fair?", "Every card's result is fixed and sealed before sales open, and its fingerprint is published. Your phone checks each card you scratch, and the final draw uses a public random source with an independent auditor."),
+    qa("Are the results fair?", "Every card's result is fixed and sealed before sales open, and its fingerprint is published. Your phone checks each card you scratch, and the Mega Draw uses a public random source with an independent auditor."),
     qa("How many cards can I buy?", "Up to 10 a day, and never more than your own spending limits. You can lower your limits or take a break at any time on the Me page."),
     qa("Can I get a refund?", "All sales are final. If a payment goes through but no card can be given (for example the last cards sold at the same moment), the full amount goes into your wallet."),
     qa("How do I get my winnings?", "Accept instant cash into your wallet, then withdraw it from ₦500 to a bank account in your own verified name. Large amounts need a short liveness check."),
@@ -1296,7 +1296,7 @@ function responsibleScreen() {
 async function aboutScreen() {
   const a = await api.get("/v1/site/about");
   return [el("h1", {}, "About us"),
-    el("p", {}, `${a.company.name} runs reward campaigns with scratch cards and a final prize draw, alongside WiiFarm's farm products. Prizes include NaijaSweetRice and other products, cash and a vehicle.`),
+    el("p", {}, `${a.company.name} runs reward campaigns with scratch cards and the Mega Draw, alongside WiiFarm's farm products. Prizes include NaijaSweetRice and other products, cash and a vehicle.`),
     el("div", { class: "card" },
       el("div", { class: "row" }, el("span", {}, "Company"), el("b", {}, a.company.name)),
       a.company.registration ? el("div", { class: "row" }, el("span", {}, "Registration"), el("span", {}, a.company.registration)) : null,
@@ -1313,7 +1313,7 @@ async function aboutScreen() {
     el("p", { class: "muted" }, "Game engine fingerprint: ", el("code", { class: "mono-sm" }, a.engineFingerprint)),
     a.simulated ? el("div", { class: "note warn" }, "This is a simulation: no real money is taken or paid.") : null];
 }
-const CERT_TEXT = { GAME_CORE: "Game engine", DRAW: "Final draw", PLATFORM_SECURITY: "Platform security" };
+const CERT_TEXT = { GAME_CORE: "Game engine", DRAW: "Mega Draw", PLATFORM_SECURITY: "Platform security" };
 
 /** WEB-015: finished campaigns, their results and how their prizes were delivered. */
 async function pastScreen() {
@@ -1324,7 +1324,7 @@ async function pastScreen() {
       c.status === "VOID" ? el("p", { class: "muted" }, "This campaign was cancelled and every payment refunded.") : [
         el("div", { class: "row" }, el("span", {}, "Cards sold"), el("b", {}, `${c.cards_sold.toLocaleString("en-NG")} of ${c.total_tickets.toLocaleString("en-NG")}`)),
         el("div", { class: "row" }, el("span", {}, "Instant cash won"), el("b", {}, `${naira(c.instant_cash_kobo)} (${c.instant_wins.toLocaleString("en-NG")} prizes)`)),
-        el("div", { class: "row" }, el("span", {}, "Final draw"), el("b", {}, `${when(c.drawn_at ?? c.draw_at)} · ${plural(c.draw_winners, "winner")}`)),
+        el("div", { class: "row" }, el("span", {}, "Mega Draw"), el("b", {}, `${when(c.drawn_at ?? c.draw_at)} · ${plural(c.draw_winners, "winner")}`)),
         c.goods_won ? el("div", { class: "row" }, el("span", {}, "Merchandise prizes"), el("b", {}, `${c.goods_delivered} delivered · ${c.goods_outstanding} in progress · ${c.goods_unclaimed} unclaimed`)) : null,
         el("button", { class: "btn small ghost", onclick: () => { state.drawCycleId = c.id; location.hash = "#/draw"; } }, "See and verify the draw")]))
       : el("p", { class: "muted" }, "No campaign has finished yet.")];
@@ -1501,7 +1501,7 @@ async function popups(c) {
   if (milestone && !seen(`milestone:${c.id}:${milestone}`)) {
     for (const m of [25, 50, 75, 90]) if (m <= milestone) markSeen(`milestone:${c.id}:${m}`);
     modal({ title: tr(`${milestone}% of the cards are sold`),
-      body: tr(`${c.tickets_remaining.toLocaleString("en-NG")} cards are left. The final draw is on ${when(c.draw_at)}.`), href: "#/buy", label: "Buy scratch cards" });
+      body: tr(`${c.tickets_remaining.toLocaleString("en-NG")} cards are left. The Mega Draw is on ${when(c.draw_at)}.`), href: "#/buy", label: "Buy scratch cards" });
   }
 }
 

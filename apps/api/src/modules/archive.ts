@@ -56,7 +56,7 @@ async function checks(db: Db, cycleId: string): Promise<Check[]> {
   const parts = [claims.waiting && `${claims.waiting} waiting for the winner${claims.next_expiry ? ` (window ends ${claims.next_expiry.toISOString().slice(0, 10)})` : ""}`,
     claims.held && `${claims.held} on hold`, claims.delivering && `${claims.delivering} being delivered`].filter(Boolean);
   return [
-    { key: "drawn", ok: drawn, label: "Final draw completed", detail: drawn ? "Winners published." : "The draw has not taken place." },
+    { key: "drawn", ok: drawn, label: "Mega Draw completed", detail: drawn ? "Winners published." : "The draw has not taken place." },
     { key: "claims", ok: openClaims === 0, label: "Every prize claimed, delivered or expired",
       detail: (openClaims === 0 ? "No prize claims are open." : parts.join(", ") + ".") +
         (claims.lapsed ? ` ${claims.lapsed} unclaimed past the window will be closed as expired.` : "") },

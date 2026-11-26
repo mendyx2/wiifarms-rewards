@@ -13,7 +13,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 | A. Customer management | Phone + one-time code sign-up, 6-digit PIN, sign-in with lockout, sessions, age/identity/location check, one account per identity, next of kin, spending limits (lower now, raise after 24h), cool-off and self-exclusion, staff exclusion register, bank account with name match and cooling-off | Identity provider, SMS, bank name enquiry |
 | B. Scratch-card engine | Fixed inventory generated at commit, outcomes encrypted per ticket, fingerprint published, random outcome-blind assignment at purchase, once-only reveal with proof | Cloud key service (local key used instead) |
 | C. Prize cycle management | Draft → submit → two approvals → commit → open → close; evidence and escrow check; locked after approval; closes on sell-out or closing time | — |
-| D. Final draw | Entries frozen, two operators + appointed auditor, committed secret + beacon, runs once, public data to re-run it | Public randomness beacon |
+| D. Mega Draw | Entries frozen, two operators + appointed auditor, committed secret + beacon, runs once, public data to re-run it | Public randomness beacon |
 | E. Payments and cash prizes | Orders with idempotency, payment confirmation, automatic refund when no card can be issued, double-entry ledger, winnings balance, withdrawals with PIN, second approver above a threshold, reject returns the money | Payment gateway and bank transfers |
 | F. Merchandise | Items, suppliers, warehouses, purchase orders; stock received with purchase and landed cost and serial numbers; stock reserved to a cycle before approval; winner's claim (delivery or collection); dispatch; handover against a one-time code with photo; warranty reference; expiry of unclaimed prizes | Carrier integration (tracking is typed in); photos and documents are file references, not uploads |
 | G. Dashboard | Figures per cycle and totals from the ledger; audit trail with integrity check; role-based admin screens | Operating expenses and financial reports not built yet |
@@ -53,7 +53,7 @@ Nothing in this phase can take real money. There is no payment-gateway integrati
 | Verify | Identity number, age and location check, optional next of kin |
 | Buy | Choose 1–20 cards, see spending against the limit, simulated payment, automatic refund message if cards sell out mid-payment |
 | My cards | All cards in all cycles; scratch with a finger or "Reveal now"; "Reveal all" |
-| Card | Result, "entered in the final draw", and a check **done on the player's own phone** that the result matches the fingerprint published before sales |
+| Card | Result, "entered in the Mega Draw", and a check **done on the player's own phone** that the result matches the fingerprint published before sales |
 | Winnings | Balance, history, add bank account, withdraw with PIN, withdrawal status |
 | Draw | Schedule and fairness steps before; winners (own cards highlighted) after; **re-run the whole draw on the phone** and see each check pass |
 | Me | Profile, next of kin, spending limit, 7-day break, self-exclusion, sign out |
@@ -125,7 +125,7 @@ Checked in real browsers with a player and several administrators: stock receive
 
 Both need two different people, and the database itself refuses anything else.
 
-**Refunding one purchase** (buyer turned out to be ineligible, or the payment is disputed): Compliance finds the purchase by phone number and requests the refund with a reason and note; Finance approves or rejects it. On approval, in one transaction: the purchase's cards are cancelled and leave the final draw, any prize they won is forfeited (cash taken back out of the player's winnings), the price goes back to the original payment, and the order is marked refunded. If the prize had already been withdrawn, the player's account shows the amount owed, further withdrawals are blocked, and Compliance gets an alert to recover it. A refund cannot be approved while merchandise from that purchase is already being delivered. An order can only be refunded once.
+**Refunding one purchase** (buyer turned out to be ineligible, or the payment is disputed): Compliance finds the purchase by phone number and requests the refund with a reason and note; Finance approves or rejects it. On approval, in one transaction: the purchase's cards are cancelled and leave the Mega Draw, any prize they won is forfeited (cash taken back out of the player's winnings), the price goes back to the original payment, and the order is marked refunded. If the prize had already been withdrawn, the player's account shows the amount owed, further withdrawals are blocked, and Compliance gets an alert to recover it. A refund cannot be approved while merchandise from that purchase is already being delivered. An order can only be refunded once.
 
 **Cancelling a cycle** (regulator instruction, prize cannot be delivered, integrity problem): a cycle manager or Compliance requests it with a reason; someone else in Finance or Compliance approves or rejects it. Possible from approval up to the closing of sales — never after the draw. On approval, in one transaction: every paid purchase is refunded in full to its original payment, every card is cancelled, instant prizes already revealed stay with their winners (as the refund policy says), open refund requests are superseded, reserved merchandise returns to stock, and a Compliance alert is raised for reporting to the regulator. A payment that arrives after cancellation is refunded automatically.
 
@@ -157,7 +157,7 @@ New **Finance** page in the admin app (Finance can act; auditors and Compliance 
 
 After the draw, a cycle is closed out once four checks pass, shown on the cycle page:
 
-1. the final draw has taken place;
+1. the Mega Draw has taken place;
 2. every prize is claimed, delivered or expired (claims past their 90-day window are closed as expired at this point);
 3. every day on which the cycle's money moved is reconciled and signed off;
 4. no Compliance alert about the cycle or its prize claims is open.
@@ -174,7 +174,7 @@ Messages are written into an outbox **in the same database transaction as the ev
 
 | Event | In the app | Text message |
 |-------|-----------|--------------|
-| Final-draw win | ✓ | ✓ |
+| Mega Draw win | ✓ | ✓ |
 | Draw has happened (did not win) | ✓ | — (no texts to people who did not win) |
 | Withdrawal sent / held for checking / rejected | ✓ | sent and rejected |
 | Prize on its way or ready to collect | ✓ | ✓ (the handover code stays in the app) |
@@ -287,8 +287,8 @@ Built from management's instructions of 23 November 2026.
 ### Seasons and the prize budget
 - **Rewards are seasonal** (each season is a cycle, as built). **The lottery ("loto") is a separate, continuous product and is not part of this system**: it would need its own licence, rules and certification, and nothing here mixes the two.
 - **First wave: 400,000 cards at ₦500**, ₦200,000,000 at sell-out. `pnpm --filter @wiifarm/api seed:demo --first-wave` creates it in the simulation; the everyday demo uses a scaled-down copy.
-- **A season runs 90 days**, with the final draw at its end.
-- **Prize money is 50% of full sell-out sales (₦100,000,000), and 5% of that (₦5,000,000) is instant cash**; the rest (₦95,000,000) is for the final draw. This is company policy, set in configuration (`WR_PRIZE_SHARE_BP`, `WR_INSTANT_SHARE_BP`) and fixed on each season when it is drafted. Approval is refused if the instant prizes or the final-draw prizes exceed their share; merchandise counts at its advertised value. The admin cycle page shows the budget as it is filled.
+- **A season runs 90 days**, with the Mega Draw at its end.
+- **Prize money is 50% of full sell-out sales (₦100,000,000), and 5% of that (₦5,000,000) is instant cash**; the rest (₦95,000,000) is for the Mega Draw. This is company policy, set in configuration (`WR_PRIZE_SHARE_BP`, `WR_INSTANT_SHARE_BP`) and fixed on each season when it is drafted. Approval is refused if the instant prizes or the Mega Draw prizes exceed their share; merchandise counts at its advertised value. The admin cycle page shows the budget as it is filled.
 - **The ₦5,000,000 of instant cash (recommended split):**
 
 | Prize | Share of the ₦5,000,000 | Winning cards | Chance per card |
@@ -301,9 +301,9 @@ Built from management's instructions of 23 November 2026.
 | **All** | **100%** | **5,820** | **about 1 in 69** |
 
   Most of the money goes to ₦500 and ₦1,000 prizes so that wins are as frequent as the budget allows (₦500 gives the player their card's price back), while 140 prizes of ₦5,000–₦10,000 give people something to talk about.
-- **Instant cash is released in levels as cards sell.** The first wave is sold in 4 levels of 100,000 cards, one after another; each level holds exactly a quarter of every instant prize (₦1,250,000: 10 × ₦10,000, 25 × ₦5,000, 70 × ₦2,500, 350 × ₦1,000 and 1,000 × ₦500), shuffled within the level. Level 2 goes on sale when level 1 has sold out, and so on. **Players are not shown the levels**: they see their result and that every card, win or lose, qualifies for the final prize draw at the end of the season. Staff see the level on sale on the admin cycle page. If sales stop early, the prizes in unsold levels are never paid, so the instant-cash cost follows sales exactly. The levels are fixed at approval and are part of the published prize-table fingerprint; the certified engine generates each level separately.
-- **Final draw placeholder:** **the single car**, then an electric motorcycle, cash, freezers and rice — about ₦33,000,000 of the ₦95,000,000 final-draw budget. **The car's value (₦30,000,000 in the demo) and the rest of the list are placeholders for management's real list and pictures.** Every card enters the final draw, win or lose — instant cash winners included.
-- **If not every card sells, the advertised final-draw prizes are still given**, so prizes become a larger share of actual sales. This is the operator's risk and is stated on the admin page.
+- **Instant cash is released in levels as cards sell.** The first wave is sold in 4 levels of 100,000 cards, one after another; each level holds exactly a quarter of every instant prize (₦1,250,000: 10 × ₦10,000, 25 × ₦5,000, 70 × ₦2,500, 350 × ₦1,000 and 1,000 × ₦500), shuffled within the level. Level 2 goes on sale when level 1 has sold out, and so on. **Players are not shown the levels**: they see their result and that every card, win or lose, qualifies for the Mega Draw at the end of the season. Staff see the level on sale on the admin cycle page. If sales stop early, the prizes in unsold levels are never paid, so the instant-cash cost follows sales exactly. The levels are fixed at approval and are part of the published prize-table fingerprint; the certified engine generates each level separately.
+- **Mega Draw placeholder:** **the single car**, then an electric motorcycle, cash, freezers and rice — about ₦33,000,000 of the ₦95,000,000 Mega Draw budget. **The car's value (₦30,000,000 in the demo) and the rest of the list are placeholders for management's real list and pictures.** Every card enters the Mega Draw, win or lose — instant cash winners included.
+- **If not every card sells, the advertised Mega Draw prizes are still given**, so prizes become a larger share of actual sales. This is the operator's risk and is stated on the admin page.
 
 ### Every payment gets its cards: no refunds for "sold out"
 - **When a player starts paying, their cards are held for them for 15 minutes** (the payment provider's own payment window must be shorter). Held cards are not on sale to anyone else, so a completed payment always gets exactly the cards it was for. If too few cards are left, the player is told before paying anything.
@@ -312,8 +312,8 @@ Built from management's instructions of 23 November 2026.
 - **All sales are final**, as the buy screen says. The only other ways money can go back are the two legal cases, each needing two staff: a purchase by someone who was not allowed to play (a minor, an excluded person, staff, fraud), and a whole season cancelled.
 
 ### Buying: up to 10 cards a day
-- Each person can buy **at most 10 cards per Nigerian calendar day** (`WR_CARDS_PER_DAY`), in any number of purchases. At ₦500 that is exactly the default ₦5,000 daily spending limit. The buy screen shows "cards today", offers 1, 3, 5 or 10, and explains that each card is one entry in the final draw.
-- **Speed at scale (measured):** 400,000 cards generated and committed in about 20 seconds; about 73 purchases of 10 cards per second (a full sell-out at maximum rush in about 9 minutes); the final draw over 400,000 entries in about 13 seconds. If nobody scratched their cards, revealing all 400,000 takes about 5 minutes, so it now runs in the background as soon as sales close rather than when the draw is started.
+- Each person can buy **at most 10 cards per Nigerian calendar day** (`WR_CARDS_PER_DAY`), in any number of purchases. At ₦500 that is exactly the default ₦5,000 daily spending limit. The buy screen shows "cards today", offers 1, 3, 5 or 10, and explains that each card is one entry in the Mega Draw.
+- **Speed at scale (measured):** 400,000 cards generated and committed in about 20 seconds; about 73 purchases of 10 cards per second (a full sell-out at maximum rush in about 9 minutes); the Mega Draw over 400,000 entries in about 13 seconds. If nobody scratched their cards, revealing all 400,000 takes about 5 minutes, so it now runs in the background as soon as sales close rather than when the draw is started.
 
 ### Invite codes (no earnings — replaced by the SRS affiliate model)
 - **Every player still has an invite code from sign-up** to share (`/r/ABC2345` links fill it in at sign-up). Inviting is counted (friends joined, friends who played) but **earns nothing**: the board adopted the SRS affiliate model, so marketing fees are for authorised affiliates only (below).
@@ -341,10 +341,10 @@ Built in the style of shopping apps such as Temu — invites, sharing, live acti
 - **Flash pop-ups** (admin *Pop-ups* page): written by a cycle manager or Compliance, in English and optionally Hausa, with a start and end time and an optional button to a screen. **They appear only after a Compliance officer who did not write them approves them**; approved text cannot be edited, only withdrawn at once.
 
 ### Prize pictures
-- Final-draw prizes can have a picture (PNG, JPEG or WebP, up to 1 MB), uploaded on the admin cycle page **until sales open; after that the database refuses changes**, because the pictures are part of what players were shown. Files are checked by their contents, not their names; SVG is refused because it can carry script. Players see the picture on the home screen, and the emoji stands in until one is uploaded.
+- Mega Draw prizes can have a picture (PNG, JPEG or WebP, up to 1 MB), uploaded on the admin cycle page **until sales open; after that the database refuses changes**, because the pictures are part of what players were shown. Files are checked by their contents, not their names; SVG is refused because it can carry script. Players see the picture on the home screen, and the emoji stands in until one is uploaded.
 
 ### For management to confirm
-1. The real final-draw prize list, the car's model and value, and pictures.
+1. The real Mega Draw prize list, the car's model and value, and pictures.
 2. The instant prize split (the recommendation above, or another that fits the ₦5,000,000).
 3. That 2.5% referral commission has no time limit (built: it lasts as long as the friend plays), and whether there should be a ceiling per referrer.
 4. Advertising and promotion rules from the Niger State regulator, which may restrict social-media promotion of gambling and require age-gating; the share messages already say "18+ only".
@@ -352,15 +352,15 @@ Built in the style of shopping apps such as Temu — invites, sharing, live acti
 ## SRS (WRL/SRS/2026/001): inaugural campaign and compliance basics
 
 ### Item 1 — the inaugural campaign template and scale
-- **Template:** `pnpm --filter @wiifarm/api seed:demo --inaugural` creates *WRL-2027-001 Inaugural Rewards Campaign* exactly as SRS section 2 sets it out: 2,686,000 cards at ₦500 (₦1,343,000,000 at sell-out), 90 days, ₦20,000,000 of instant cash (10,000 × ₦500, 5,000 × ₦1,000, 2,500 × ₦2,000, 800 × ₦5,000, 100 × ₦10,000 — 18,400 winning cards, 1 in 146), and the final-draw list (Chinese SUV, household appliances, NaijaSweetRice 50/25/5/1 kg, VitaActive, VitaForce — 29,541 prizes). Released in 4 levels of 671,500 cards. The admin form's defaults are the same.
+- **Template:** `pnpm --filter @wiifarm/api seed:demo --inaugural` creates *WRL-2027-001 Inaugural Rewards Campaign* exactly as SRS section 2 sets it out: 2,686,000 cards at ₦500 (₦1,343,000,000 at sell-out), 90 days, ₦20,000,000 of instant cash (10,000 × ₦500, 5,000 × ₦1,000, 2,500 × ₦2,000, 800 × ₦5,000, 100 × ₦10,000 — 18,400 winning cards, 1 in 146), and the Mega Draw list (Chinese SUV, household appliances, NaijaSweetRice 50/25/5/1 kg, VitaActive, VitaForce — 29,541 prizes). Released in 4 levels of 671,500 cards. The admin form's defaults are the same.
 - **Open for the board:** the listed prizes total **₦591.5m, not the ₦671.5m stated** (the appliances are ₦20m "TBD"); and the appliance quantities and vehicle specification. The template uses 40 appliances of ₦500,000 as a placeholder.
-- **Prize budget rule:** instant cash is capped at its share (5% of the prize money by policy; the SRS uses about 3%), and all prizes together at the prize money (50% of full sell-out sales). Whatever instant cash does not use is available to the final draw.
+- **Prize budget rule:** instant cash is capped at its share (5% of the prize money by policy; the SRS uses about 3%), and all prizes together at the prize money (50% of full sell-out sales). Whatever instant cash does not use is available to the Mega Draw.
 - **Scale (measured):** the inaugural campaign is generated and committed in about 2 minutes 40 seconds with a peak of 419 MB of memory (it was 4.3 GB before this change, and failed outright before the fix of 25 November). Cards are made and stored a chunk at a time; serial numbers are unique by construction; the card commitment tree is held in one contiguous buffer (a new engine class, `PackedMerkleTree`, proven to give exactly the same roots and proofs). "Cards left" is a lookup kept by the database itself (2 ms instead of 0.8 s), and a test checks it always matches the cards. **SRS capacity target met:** a campaign of 10,000,000 cards was generated and committed in 13 minutes (on a shared test machine) with a peak of 921 MB of memory; it takes 3.9 GB of database.
 
 ### Item 2 — compliance basics
 - **Privacy and consent (REG-008):** opening an account requires accepting the privacy policy (its version is recorded); news and offers by text are optional and can be switched on or off on the Me page. Every choice is kept permanently. The privacy policy page is a draft summary for legal to replace.
-- **Versioned game rules (REG-007, WEB-012):** a campaign's approved rules text is stored and published (it cannot change after approval, and must match its published fingerprint). Before their first purchase in a campaign, players tick that they have read and accept the rules; the exact version is recorded. The *Game rules and odds* page shows the rules and the chances: each instant prize's chance per card, the chance of any instant prize, the final-draw prizes, and the final-draw chance at full sales (each card can win at most one final-draw prize).
-- **Play summary (SRS section 7):** the Me page shows what the player has spent, won in cash, their net position, and their cards and final-draw entries.
+- **Versioned game rules (REG-007, WEB-012):** a campaign's approved rules text is stored and published (it cannot change after approval, and must match its published fingerprint). Before their first purchase in a campaign, players tick that they have read and accept the rules; the exact version is recorded. The *Game rules and odds* page shows the rules and the chances: each instant prize's chance per card, the chance of any instant prize, the Mega Draw prizes, and the Mega Draw chance at full sales (each card can win at most one Mega Draw prize).
+- **Play summary (SRS section 7):** the Me page shows what the player has spent, won in cash, their net position, and their cards and Mega Draw entries.
 - **No repeat-purchase prompts (SRS section 10):** the "Buy more cards" button no longer appears after scratching.
 
 ## SRS affiliates and statutory deductions on winnings
@@ -381,7 +381,7 @@ Built in the style of shopping apps such as Temu — invites, sharing, live acti
 ### Statutory deductions on winnings (SRS PAY-009)
 - **A configurable rate** (`WR_WINNINGS_TAX_BP`, basis points, up to 50%) is **fixed on each campaign when it is created**, cannot change once approved (the database refuses), and is **published** on the campaign's *Game rules and odds* page.
 - **The rate is 0% until legal and finance confirm it.** The admin dashboard shows a warning for a live campaign at 0%, and so does the deductions report.
-- **Every cash award** (instant and final-draw cash) records its gross amount, rate, deduction and net in a permanent table. The winner's wallet receives the net; the deduction is held for the tax authority (`STATUTORY_DEDUCTIONS_PAYABLE`). The prize cost of the campaign is the full prize. A forfeited prize gives back both parts.
+- **Every cash award** (instant and Mega Draw cash) records its gross amount, rate, deduction and net in a permanent table. The winner's wallet receives the net; the deduction is held for the tax authority (`STATUTORY_DEDUCTIONS_PAYABLE`). The prize cost of the campaign is the full prize. A forfeited prize gives back both parts.
 - The winner sees it when they scratch: "₦50 statutory deduction (10%) · ₦450 to your wallet". Accepting adds the net.
 - **Reports**: Finance → *Statutory deductions on winnings* (per day and campaign: awards, gross, withheld, net, and the amount held now), `GET /v1/admin/reports/deductions`; campaign results and the spreadsheet show the deductions and affiliate fees as their own columns.
 - *Not yet:* recording remittances to the authority, and deductions on merchandise prizes (whether they apply is for legal to confirm).
@@ -444,7 +444,7 @@ After the draw, a cycle manager, Compliance or the auditor **generates the repor
 | DRW-003 | Every entry is a card paid for with a confirmed payment, and every sold card was entered |
 | DRW-004 | No unsold, cancelled or held card is an entry |
 | DRW-005 | The secret revealed at the draw matches the commitment published before sales; the seed recomputed from the secret, the public randomness and the register matches; **re-running the draw procedure gives exactly the recorded winners**; and whether the engine version holds a verified certification (reported as open, not failed, in a simulation) |
-| DRW-006 | Each card won at most one final-draw prize and every prize went to an entry |
+| DRW-006 | Each card won at most one Mega Draw prize and every prize went to an entry |
 | DRW-007 | Two different operators and the appointed auditor signed off before the draw; every authorised step is listed with its time |
 | DRW-008 | Each winning card against its prize (card references only — nobody is named) |
 | DRW-009 | Where the results, entries and report are published, and how anyone can verify them |
@@ -466,7 +466,7 @@ After the draw, a cycle manager, Compliance or the auditor **generates the repor
 | Campaign profitability | Daily | Per campaign: net revenue, cash prizes, deductions, merchandise, affiliate fees, operating costs, contribution, payout ratio |
 | Statutory deductions | Daily | Withheld per day and campaign, and the amount held for the authority |
 | Ticket reconciliation | Real time / daily | Every card accounted for (unsold, held, sold, cancelled), cards in paid purchases, sold × price against the ledger — any difference flagged |
-| Cash prize liability | Real time | Wallet winnings, withdrawals in progress, unaccepted instant wins, instant cash still in unscratched or unsold cards, undrawn final-draw cash, deductions held — and the total |
+| Cash prize liability | Real time | Wallet winnings, withdrawals in progress, unaccepted instant wins, instant cash still in unscratched or unsold cards, undrawn Mega Draw cash, deductions held — and the total |
 | Affiliate remuneration | As applicable | Per affiliate: attributed sales, fees, reversals, settlements paid, owed now; whether the fee programme is on |
 | Regulatory returns | Prescribed frequency | Per licensed state: campaigns, cards and sales, refunds, prizes, deductions, new and active players, breaks and self-exclusions, complaints (the authority's format is to be confirmed) |
 | Security incidents | Immediate | The security alerts raised in the period (each raised the moment it happens): locked staff accounts, handover code guessing, shared bank accounts, payment mismatches, sign-up surges, failed draw checks |
@@ -475,6 +475,8 @@ After the draw, a cycle manager, Compliance or the auditor **generates the repor
 **Dashboard — campaign position** for the live campaign, as in the SRS example: cards sold and remaining, realised revenue against the maximum at full sales, prize commitments, operating costs at an **illustrative** 20% of realised revenue (`WR_ILLUSTRATIVE_COST_BP`) shown beside the costs actually recorded, and the indicative operating balance (realised revenue − commitments − illustrative costs).
 
 ## Scratch card design
+
+*The prize draw at the end of each season is called the **Mega Draw** (Hausa: *Babban Zaɓe*) everywhere players and staff see it.*
 
 Each digital card follows the WiiFarm Rewards card designs: **artwork** on top (the logo, "Scratch. Reveal. Discover extraordinary possibilities." and pictures of prizes a card could win — instant cash, NaijaSweetRice, the vehicle, VitaActive, appliances), then a red **"₦500 — Digital raffle ticket"** ribbon, the silver **scratch area**, **"One ticket. All prize categories."** and the card number (or **DEMO CARD** on practice cards). Card tiles in *My cards* show a slice of the same artwork.
 

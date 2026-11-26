@@ -18,7 +18,7 @@ export const FIRST_WAVE_TICKETS = 400_000;
 /**
  * The inaugural campaign as set out in the SRS (WRL/SRS/2026/001, section 2):
  * 2,686,000 cards at ₦500 (₦1,343,000,000 at sell-out), ₦20,000,000 of instant
- * cash in 18,400 prizes (about 1 in 146), and the final-draw list. Household
+ * cash in 18,400 prizes (about 1 in 146), and the Mega Draw list. Household
  * appliances are a placeholder (₦20m, quantities to be decided). As listed the
  * prizes total ₦591.5m; the SRS states ₦671.5m — to be reconciled by the board.
  */
@@ -47,9 +47,9 @@ const DEMO_TICKETS = 20_000;
  * cash: by value 8% in ₦10,000 prizes, 10% in ₦5,000, 14% in ₦2,500, 28% in
  * ₦1,000 and 40% in ₦500 — 5,820 winning cards, about one in 69. Smaller demo
  * seasons get the same table scaled down (rounded down, so it never exceeds the
- * budget). Final-draw prizes are a placeholder until the
+ * budget). Mega Draw prizes are a placeholder until the
  * real list (with images) is supplied: one car, then other prizes while they
- * fit the final-draw budget.
+ * fit the Mega Draw budget.
  */
 export function firstWavePlan(total: number): {
   instant: [number, number][];
@@ -121,7 +121,7 @@ export async function seedDemo(ctx: Ctx, opts: { name?: string; tickets?: number
     return id;
   };
 
-  // A season runs 90 days; the final draw is at its end.
+  // A season runs 90 days; the Mega Draw is at its end.
   const now = Date.now(), close = new Date(now + (opts.closeInMinutes ?? SEASON_DAYS * 24 * 60) * 60_000).toISOString();
   const m = admins.manager!;
   const total = opts.inaugural ? INAUGURAL.tickets : opts.tickets ?? DEMO_TICKETS;

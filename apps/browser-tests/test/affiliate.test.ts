@@ -74,7 +74,7 @@ test("a player applies to be an affiliate, Compliance approves, and the affiliat
   await m.click("#nav a[data-nav=affiliates]");
   await m.waitForSelector("text=Approved marketing materials");
   await m.fill("input[name=name]", "WhatsApp invite");
-  await m.fill("textarea[name=bodyEn]", "Scratch, win, and every card goes into the final draw! {link} 18+ only. Play responsibly.");
+  await m.fill("textarea[name=bodyEn]", "Scratch, win, and every card goes into the Mega Draw! {link} 18+ only. Play responsibly.");
   await m.click('button:has-text("Submit for approval")');
   await toast(m, /Another Compliance officer must approve/);
   await a.reload();

@@ -61,7 +61,7 @@ test("a new player signs up, verifies, buys, scratches, checks each card and see
   // Scratching with a finger reveals the pre-set result, and the phone checks it against the published fingerprint.
   await p.locator(".ticket").first().click();
   await scratch(p);
-  await p.waitForSelector("text=Entered in the final draw");
+  await p.waitForSelector("text=Entered in the Mega Draw");
   assert.equal(await p.locator(".entered b").nth(1).innerText(), "Checked on your phone");
   const first = await p.innerText(".result");
 

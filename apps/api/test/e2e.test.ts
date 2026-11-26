@@ -86,7 +86,7 @@ async function centre(): Promise<string> {
 /**
  * Standard test season: ₦200 cards and a prize table that fits the real budget
  * (prizes from 50% of full sell-out sales, 10% of that as instant cash).
- * 60 cards: one ₦500 instant win; final draw ₦2,000 cash and two freezers.
+ * 60 cards: one ₦500 instant win; Mega Draw ₦2,000 cash and two freezers.
  * Under 100 cards there is no room for an instant win; the draw cash is ₦1,000.
  */
 async function openCycle(o: { total: number; closeInMs: number; cap: number; name: string; priceKobo?: number;
@@ -282,7 +282,7 @@ test("season economics: the prize budget is enforced at approval, and each playe
     await tier(over, { stage: "FINAL_DRAW", kind: "CASH", title: "₦95,000", cashKobo: 9_500_000, quantity: 1, drawOrder: 1 });
     const b = ok(await api("GET", `/v1/admin/cycles/${over}`, { token: mt })).budget;
     assert.deepEqual([b.fullSalesKobo, b.poolKobo, b.instantBudgetKobo, b.drawBudgetKobo, b.instantKobo], [20_000_000, 10_000_000, 500_000, 9_500_000, 550_000]);
-    // Instant cash is capped at its share; what it leaves unused is available to the final draw.
+    // Instant cash is capped at its share; what it leaves unused is available to the Mega Draw.
     const refused = await approveAll(over, 10_050_000);
     fails(refused, 409, "PRIZE_BUDGET");
     assert.match(refused.body.error.message, /Instant cash prizes total ₦5,500, above the ₦5,000 allowed \(5% of the ₦100,000 prize money\)/);
@@ -436,7 +436,7 @@ test("scratch: every result verifies against the published fingerprint; reveal p
   fails(await api("POST", `/v1/tickets/${randomUUID()}/reveal`, { token: p.token }), 404, "NOT_FOUND");
 });
 
-test("final draw: sign-offs, timing, reproducibility, runs once", async () => {
+test("Mega Draw: sign-offs, timing, reproducibility, runs once", async () => {
   const url = `/v1/admin/cycles/${cycleA.id}/draw`;
   fails(await api("POST", `${url}/execute`, { token: admins.auditor!.token }), 403, "ROLE_REQUIRED");
   fails(await api("POST", `${url}/sign`, { token: admins.auditor2!.token }), 403, "NOT_APPOINTED");
@@ -1117,7 +1117,7 @@ test("notifications: every event tells the right person once, texts respect dayt
   assert.equal(nextSendTime(at("2026-11-18T01:00:00Z"), true).toISOString(), "2026-11-18T01:00:00.000Z"); // urgent: at once
 
   const rows = async (where: string, params: unknown[] = []) => (await pool.query(`SELECT * FROM notifications WHERE ${where}`, params)).rows;
-  // The final draw told each winner (in the app and by text) and everyone else in the app only.
+  // The Mega Draw told each winner (in the app and by text) and everyone else in the app only.
   const winners = (await pool.query("SELECT t.id, t.owner_id FROM draw_winners w JOIN tickets t ON t.id = w.ticket_id WHERE w.cycle_id = $1", [cycleA.id])).rows;
   for (const w of winners) {
     const n = await rows("dedupe_key = $1", [`draw:${cycleA.id}:win:${w.id}`]);
@@ -1736,12 +1736,12 @@ test("affiliate portal: approved materials with versions (two people, never edit
   const { code } = ok(await api("POST", `/v1/admin/affiliates/${aff.id}/decision`, { token: ct, body: { decision: "APPROVE" } }));
 
   // Materials: must say 18+; written by one person, approved by another Compliance officer.
-  const text = "Scratch, win, and every card goes into the final draw! {link} 18+ only. Play responsibly.";
+  const text = "Scratch, win, and every card goes into the Mega Draw! {link} 18+ only. Play responsibly.";
   fails(await api("POST", "/v1/admin/materials", { token: mt, body: { name: "WhatsApp invite", channel: "WHATSAPP", bodyEn: "Win big today, guaranteed! {link}" } }), 400, "RESPONSIBLE_PLAY_LINE");
   fails(await api("POST", "/v1/admin/materials", { token: admins.finance!.token, body: { name: "x", channel: "SMS", bodyEn: text } }), 403, "ROLE_REQUIRED");
   fails(await api("POST", "/v1/admin/materials", { token: mt, body: { name: "x", channel: "SMS", bodyEn: text, imageBase64: Buffer.from("<svg/>").toString("base64") } }), 400, "INVALID_IMAGE");
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(100)]);
-  const m = ok(await api("POST", "/v1/admin/materials", { token: mt, body: { name: "WhatsApp invite", channel: "WHATSAPP", bodyEn: text, bodyHa: "Karce, ci, kuma kowane kati yana shiga zaɓen ƙarshe! {link} 18+ kawai.", imageBase64: png.toString("base64") } }));
+  const m = ok(await api("POST", "/v1/admin/materials", { token: mt, body: { name: "WhatsApp invite", channel: "WHATSAPP", bodyEn: text, bodyHa: "Karce, ci, kuma kowane kati yana shiga Babban Zaɓe! {link} 18+ kawai.", imageBase64: png.toString("base64") } }));
   assert.deepEqual(ok(await api("GET", "/v1/me/affiliate/materials", { token: a.token })).materials, [], "nothing until approved");
   assert.equal((await app.inject({ method: "GET", url: `/v1/material-images/${m.versionId}` })).statusCode, 404, "an unapproved picture is not public");
   fails(await api("POST", `/v1/admin/material-versions/${m.versionId}/decision`, { token: mt, body: { approve: true } }), 403, "ROLE_REQUIRED");
@@ -1756,7 +1756,7 @@ test("affiliate portal: approved materials with versions (two people, never edit
   await assert.rejects(pool.query("DELETE FROM marketing_material_versions WHERE id = $1", [m.versionId]), /append-only/);
 
   // A correction is a new version: the old one stays in use until it is approved, then it is retired.
-  const v2 = ok(await api("POST", `/v1/admin/materials/${m.id}/versions`, { token: mt, body: { bodyEn: "Every card goes into the final draw. {link} 18+ only. Play responsibly." } }));
+  const v2 = ok(await api("POST", `/v1/admin/materials/${m.id}/versions`, { token: mt, body: { bodyEn: "Every card goes into the Mega Draw. {link} 18+ only. Play responsibly." } }));
   assert.equal(v2.version, 2);
   fails(await api("POST", `/v1/admin/materials/${m.id}/versions`, { token: mt, body: { bodyEn: "Another one. 18+ only." } }), 409, "VERSION_PENDING");
   assert.equal(ok(await api("GET", "/v1/me/affiliate/materials", { token: a.token })).materials[0].version, 1);
@@ -2437,7 +2437,7 @@ test("compliance basics: privacy consent at sign-up, game rules accepted before 
   await assert.rejects(pool.query("UPDATE cycles SET rules_text = 'Changed rules' WHERE id = $1", [cyc.id]), /cannot be changed after approval/);
   await assert.rejects(pool.query("DELETE FROM rule_acceptances WHERE user_id = $1", [p.id]), /append-only/);
 
-  // The play summary: spent, cash won, the difference, cards and final-draw entries.
+  // The play summary: spent, cash won, the difference, cards and Mega Draw entries.
   const sum = ok(await api("GET", "/v1/me/summary", { token: p.token }));
   assert.equal(sum.spentKobo, 4 * N200); assert.equal(sum.cards, 4); assert.equal(sum.finalDrawEntries, 4);
   assert.equal(sum.netKobo, sum.cashWonKobo - sum.spentKobo);

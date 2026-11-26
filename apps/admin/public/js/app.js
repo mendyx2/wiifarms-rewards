@@ -379,7 +379,7 @@ async function access() {
         if (v(cf, "to")) b.validTo = v(cf, "to");
         await post("/v1/admin/certifications", b); return "Certification recorded. Someone else must verify it.";
       }) }, el("b", {}, "Record a certification"), el("div", { class: "form" },
-        select("Component", "component", [["GAME_CORE", "Game engine"], ["DRAW", "Final draw"], ["PLATFORM_SECURITY", "Platform security"]]),
+        select("Component", "component", [["GAME_CORE", "Game engine"], ["DRAW", "Mega Draw"], ["PLATFORM_SECURITY", "Platform security"]]),
         input("Exact version certified", { name: "version", required: true, value: L.currentEngineVersion }), input("Test lab", { name: "lab", required: true }),
         input("Certificate reference", { name: "ref", required: true }), input("Valid from", { name: "from", type: "date", required: true }), input("Valid to (if any)", { name: "to", type: "date" }),
         el("button", { class: "btn ghost", type: "submit" }, "Record certification")));
@@ -569,7 +569,7 @@ async function dashboard() {
       el("div", { class: "tile" }, el("span", {}, "Gross ticket revenue"), el("b", {}, naira(live.revenue_kobo)), el("small", {}, Math.round((live.sold / live.total_tickets) * 100) + "% of maximum")),
       el("div", { class: "tile" }, el("span", {}, "Prizes awarded (cash)"), el("b", {}, naira(live.prizes_awarded_kobo)), el("small", {}, `${naira(live.instant_revealed_kobo)} instant, revealed so far`)),
       el("div", { class: "tile" }, el("span", {}, "Instant prizes still in unsold or unscratched cards"), el("b", {}, naira(live.outstanding_instant_liability_kobo))),
-      el("div", { class: "tile" }, el("span", {}, "Final-draw cash commitment"), el("b", {}, naira(live.final_draw_cash_commitment_kobo))),
+      el("div", { class: "tile" }, el("span", {}, "Mega Draw cash commitment"), el("b", {}, naira(live.final_draw_cash_commitment_kobo))),
       el("div", { class: "tile " + (cover >= liability ? "ok" : "bad") }, el("span", {}, "Outstanding prize liability"), el("b", {}, naira(liability)), el("small", {}, `escrow cover ${naira(cover)}`)),
       el("div", { class: "tile" }, el("span", {}, "Merchandise prizes to fulfil"), el("b", {}, num(live.merchandise_outstanding)))));
   }
@@ -611,7 +611,7 @@ async function cycles() {
         input("Levels (instant cash released level by level)", { name: "levels", type: "number", min: 1, max: 20, value: 4, required: true }),
         input("Sales open", { name: "open", type: "datetime-local", value: localInput(new Date(now)), required: true }),
         input("Sales close (or sell-out)", { name: "close", type: "datetime-local", value: localInput(new Date(now + 90 * 864e5)), required: true }),
-        input("Final draw", { name: "draw", type: "datetime-local", value: localInput(new Date(now + 90 * 864e5)), required: true })),
+        input("Mega Draw", { name: "draw", type: "datetime-local", value: localInput(new Date(now + 90 * 864e5)), required: true })),
       el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Create draft")));
     nodes.push(form);
   }
@@ -641,7 +641,7 @@ async function cycle(id) {
   nodes.push(el("div", { class: "tiles" },
     el("div", { class: "tile" }, el("span", {}, "Sold"), el("b", {}, `${num(c.counts.sold)} / ${num(c.total_tickets)}`), el("small", {}, `${num(c.counts.revealed)} scratched`)),
     el("div", { class: "tile" }, el("span", {}, "Sales window"), el("b", {}, when(c.sales_close_at)), el("small", {}, "opens " + when(c.sales_open_at) + " · closes then or at sell-out")),
-    el("div", { class: "tile" }, el("span", {}, "Final draw"), el("b", {}, when(c.draw_at)), el("small", {}, `claims open ${c.claim_window_days} days`)),
+    el("div", { class: "tile" }, el("span", {}, "Mega Draw"), el("b", {}, when(c.draw_at)), el("small", {}, `claims open ${c.claim_window_days} days`)),
     c.level && c.level.levels > 1 ? el("div", { class: "tile" }, el("span", {}, "Level on sale (staff only)"), el("b", {}, `${c.level.current} of ${c.level.levels}`),
       el("small", {}, `${num(c.level.leftInLevel)} of ${num(c.level.size)} cards left · ${naira(c.level.instantCashInLevelKobo)} instant cash in this level`)) : null,
     el("div", { class: "tile " + ((c.escrow_funded_kobo ?? 0) >= c.cashCoverRequiredKobo ? "ok" : "warn") }, el("span", {}, "Cash prizes to cover"), el("b", {}, naira(c.cashCoverRequiredKobo)), el("small", {}, c.escrow_reference ? `escrow ${c.escrow_reference}: ${naira(c.escrow_funded_kobo)}` : "escrow not recorded yet"))));
@@ -653,7 +653,7 @@ async function cycle(id) {
   nodes.push(el("h2", {}, "Prize budget"), el("div", { class: "tiles" },
     el("div", { class: "tile" }, el("span", {}, "Prize money"), el("b", {}, naira(b.poolKobo)), el("small", {}, `${b.prizeShareBp / 100}% of ${naira(b.fullSalesKobo)} full sell-out sales`)),
     meter("Instant cash", b.instantKobo, b.instantBudgetKobo, `${b.instantShareBp / 100}% of prize money`),
-    meter("Final draw (merchandise at advertised value)", b.drawKobo, b.drawBudgetKobo, "the rest of the prize money")),
+    meter("Mega Draw (merchandise at advertised value)", b.drawKobo, b.drawBudgetKobo, "the rest of the prize money")),
     el("p", { class: "sub" }, `If not every card sells, the advertised prizes are still given, so prizes become a larger share of actual sales. Each player can buy at most ${num(c.max_tickets_per_day)} cards a day.`));
 
   // Prize schedule
@@ -661,10 +661,10 @@ async function cycle(id) {
   const picturesOpen = ["DRAFT", "SUBMITTED", "APPROVED", "COMMITTED"].includes(c.status) && can("CYCLE_MANAGER");
   const picture = (t) => [t.has_image ? el("img", { class: "thumb", src: `/v1/prize-images/${t.id}?v=${Date.now()}`, alt: t.title }) : el("span", { class: "sub" }, "none"),
     picturesOpen && t.stage === "FINAL_DRAW" ? imageUpload(t.id) : null];
-  const tierRows = c.tiers.map((t) => el("tr", {}, td(t.stage === "INSTANT" ? "Instant" : "Final draw #" + t.draw_order), td(t.title + (t.sku_name && t.sku_name !== t.title ? ` (${t.sku_name})` : "")),
+  const tierRows = c.tiers.map((t) => el("tr", {}, td(t.stage === "INSTANT" ? "Instant" : "Mega Draw #" + t.draw_order), td(t.title + (t.sku_name && t.sku_name !== t.title ? ` (${t.sku_name})` : "")),
     td(t.kind === "CASH" ? naira(t.cash_kobo) : "Merchandise", true), td(num(t.quantity), true), td(num(t.awarded), true), td(t.stage === "FINAL_DRAW" ? picture(t) : "")));
   nodes.push(el("h2", {}, "Prize schedule"), el("div", { class: "card" }, c.tiers.length ? table(["Stage", "Prize", "#Value", "#Quantity", "#Awarded", "Picture"], tierRows) : el("p", { class: "sub" }, "No prizes yet."),
-    el("p", { class: "sub" }, picturesOpen ? "Final-draw prizes can have a picture (PNG, JPEG or WebP, up to 1 MB) until sales open." : "Prize pictures are fixed once sales open."),
+    el("p", { class: "sub" }, picturesOpen ? "Mega Draw prizes can have a picture (PNG, JPEG or WebP, up to 1 MB) until sales open." : "Prize pictures are fixed once sales open."),
     el("p", { class: "sub" }, "Nobody — including staff and engineers — can see which unsold or unscratched tickets hold instant prizes.")));
 
   if (c.status === "DRAFT" && can("CYCLE_MANAGER")) {
@@ -677,15 +677,15 @@ async function cycle(id) {
       await post(`/v1/admin/cycles/${id}/prize-tiers`, body);
       return "Prize added.";
     }) },
-      el("b", {}, "Add a prize"), el("p", { class: "sub" }, "Instant prizes are cash, ₦500–₦10,000. Final-draw prizes are drawn in the order given, major prizes first."),
+      el("b", {}, "Add a prize"), el("p", { class: "sub" }, "Instant prizes are cash, ₦500–₦10,000. Mega Draw prizes are drawn in the order given, major prizes first."),
       el("div", { class: "form" },
-        select("Stage", "stage", [["INSTANT", "Instant (scratch)"], ["FINAL_DRAW", "Final draw"]]),
+        select("Stage", "stage", [["INSTANT", "Instant (scratch)"], ["FINAL_DRAW", "Mega Draw"]]),
         select("Type", "kind", [["CASH", "Cash"], ["MERCHANDISE", "Merchandise"]]),
         input("Title shown to players", { name: "title", required: true, maxlength: 120 }),
         input("Cash amount (₦)", { name: "cash", type: "number", min: 1, step: 1 }),
         select("Merchandise item", "sku", skus.length ? skus.map((s) => [s.id, `${s.name} (${naira(s.advertised_value_kobo)})`]) : [["", "No items yet"]]),
         input("Quantity", { name: "quantity", type: "number", min: 1, value: 1, required: true }),
-        input("Draw order (final draw only)", { name: "order", type: "number", min: 1, value: c.tiers.filter((t) => t.stage === "FINAL_DRAW").length + 1 })),
+        input("Draw order (Mega Draw only)", { name: "order", type: "number", min: 1, value: c.tiers.filter((t) => t.stage === "FINAL_DRAW").length + 1 })),
       el("div", { class: "actions" }, el("button", { class: "btn ghost", type: "submit" }, "Add prize")));
     const sku = el("form", { class: "card", onsubmit: action(async () => { await post("/v1/admin/skus", { name: v(sku, "name"), advertisedValueKobo: toKobo(v(sku, "value")) }); return "Merchandise item added."; }) },
       el("b", {}, "New merchandise item"),
@@ -789,7 +789,7 @@ async function cycle(id) {
     const check = (ok, label, detail) => el("div", { class: "check" + (ok ? " yes" : "") }, el("i", {}, ok ? "✓" : "·"), el("div", {}, label, el("small", {}, detail)));
     const ready = closed && c.drawTimeReached && ops.length >= 2 && aud && !drawn;
     const signed = c.signoffs.some((s) => s.admin_user_id === me.id);
-    nodes.push(el("h2", {}, "Final draw"), el("div", { class: "card" },
+    nodes.push(el("h2", {}, "Mega Draw"), el("div", { class: "card" },
       check(closed, "Sales closed", closed ? `${num(c.counts.sold)} tickets entered · ${num(c.counts.unsold)} unsold tickets take no part` : "Closes at sell-out or the closing time, whichever is first"),
       check(c.drawTimeReached, "Published draw time reached", when(c.draw_at)),
       check(ops.length >= 1, "First operator signed", ops[0] ? `${ops[0].full_name} · ${when(ops[0].signed_at)}` : "Cycle manager, finance or compliance"),
@@ -799,7 +799,7 @@ async function cycle(id) {
       el("div", { class: "actions" },
         closed && !drawn && !signed && can("CYCLE_MANAGER", "FINANCE", "COMPLIANCE", "AUDITOR") ? step("draw/sign", can("AUDITOR") ? "Countersign as auditor" : "Sign off as operator", "Sign-off recorded.") : null,
         closed && !drawn && can("CYCLE_MANAGER", "FINANCE", "COMPLIANCE") ? el("button", { class: "btn", disabled: !ready, onclick: action(async () => {
-          if (!confirm("Execute the final draw now? It runs once and cannot be repeated.")) return;
+          if (!confirm("Execute the Mega Draw now? It runs once and cannot be repeated.")) return;
           const r = await post(`/v1/admin/cycles/${id}/draw/execute`);
           return `Draw complete: ${r.winners} winners from ${r.entries} entries.`;
         }) }, "Execute draw") : null)));
@@ -1293,7 +1293,7 @@ async function materialsSection() {
       el("div", { class: "form" },
         input("Name", { name: "name", required: true, maxlength: 80 }),
         select("Channel", "channel", CHANNELS),
-        input("Text (English)", { name: "bodyEn", required: true, maxlength: 1000, rows: 3, placeholder: "Scratch, win, and every card goes into the final draw! {link} 18+ only. Play responsibly." }, true),
+        input("Text (English)", { name: "bodyEn", required: true, maxlength: 1000, rows: 3, placeholder: "Scratch, win, and every card goes into the Mega Draw! {link} 18+ only. Play responsibly." }, true),
         input("Text (Hausa, optional)", { name: "bodyHa", maxlength: 1000, rows: 3 }, true),
         el("label", {}, "Picture (optional)", el("input", { type: "file", accept: "image/png,image/jpeg,image/webp" }))),
       el("div", { class: "actions" }, el("button", { class: "btn", type: "submit" }, "Submit for approval")));

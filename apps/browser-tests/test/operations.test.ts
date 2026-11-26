@@ -183,7 +183,7 @@ test("next-of-kin claim: Compliance opens the case, the winner is told, someone 
   const claimant = await apiPlayer(s, "08037770032", "Aisha Bello");
   await call(s, "PUT", "/v1/me/next-of-kin", { token: winner.token, body: { fullName: "Aisha Bello", relationship: "Daughter", phone: claimant.phone } });
   await apiBuy(s, winner.token, cycleId, 1);
-  // The winner's card won a freezer in the final draw (set up directly: the draw itself is covered by the lifecycle test).
+  // The winner's card won a freezer in the Mega Draw (set up directly: the draw itself is covered by the lifecycle test).
   await s.pool.query(`INSERT INTO prize_claims (ticket_id, stage, prize_tier_id, user_id, status, expires_at)
     SELECT t.id, 'FINAL_DRAW', pt.id, t.owner_id, 'ENTITLED', now() + interval '20 days' FROM tickets t
     JOIN prize_tiers pt ON pt.cycle_id = t.cycle_id AND pt.title = 'Solar freezer 200L' WHERE t.cycle_id = $1 AND t.owner_id IS NOT NULL LIMIT 1`, [cycleId]);

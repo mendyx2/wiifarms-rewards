@@ -32,7 +32,7 @@ export async function getWallet(ctx: Ctx, userId: string): Promise<unknown> {
 
 /**
  * The player's own picture of their play (SRS section 7): what they have spent,
- * what they have won in cash, the difference, and their cards and final-draw
+ * what they have won in cash, the difference, and their cards and Mega Draw
  * entries. Refunded purchases are not counted as spent; forfeited prizes are
  * not counted as won.
  */

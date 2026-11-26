@@ -91,7 +91,7 @@ export async function addPrizeTier(ctx: Ctx, admin: Admin, cycleId: string, t: N
   requireRole(admin, "CYCLE_MANAGER");
   if (t.kind === "CASH" && !t.cashKobo) throw badRequest("INVALID_PRIZE", "Enter the cash amount.");
   if (t.kind === "MERCHANDISE" && !t.skuId) throw badRequest("INVALID_PRIZE", "Choose the merchandise item.");
-  if (t.stage === "FINAL_DRAW" && !t.drawOrder) throw badRequest("INVALID_PRIZE", "Give the draw order for a final-draw prize.");
+  if (t.stage === "FINAL_DRAW" && !t.drawOrder) throw badRequest("INVALID_PRIZE", "Give the draw order for a Mega Draw prize.");
   if (t.stage === "INSTANT" && (t.kind !== "CASH" || t.cashKobo! < 50_000 || t.cashKobo! > 1_000_000)) {
     throw badRequest("INVALID_PRIZE", "Instant prizes must be cash between ₦500 and ₦10,000.");
   }
@@ -146,7 +146,7 @@ export async function prizeBudget(db: Db | Ctx["pool"], cycleId: string): Promis
   const poolKobo = share(fullSalesKobo, c.prize_share_bp);
   const instantBudgetKobo = share(poolKobo, c.instant_share_bp);
   // The instant share is a ceiling on instant cash; whatever of the prize money instant cash does not use is
-  // available to the final draw (the SRS campaign: ₦20m instant, ₦651.5m final draw, ₦671.5m in all).
+  // available to the Mega Draw (the SRS campaign: ₦20m instant, ₦651.5m Mega Draw, ₦671.5m in all).
   return { fullSalesKobo, poolKobo, instantBudgetKobo, drawBudgetKobo: poolKobo - Math.min(Number(t!.instant), instantBudgetKobo),
     instantKobo: Number(t!.instant), drawKobo: Number(t!.draw), prizeShareBp: c.prize_share_bp, instantShareBp: c.instant_share_bp };
 }
@@ -408,9 +408,9 @@ export async function getPublicCycle(ctx: Ctx, cycleId: string): Promise<unknown
 
 /**
  * A campaign's approved game rules, with the probabilities players must be
- * shown: each instant prize's chance per card, and the final draw's prizes and
+ * shown: each instant prize's chance per card, and the Mega Draw's prizes and
  * the chance of a card winning one at full sales (each card can win at most one
- * final-draw prize; a player with several cards can win more than one).
+ * Mega Draw prize; a player with several cards can win more than one).
  */
 export async function gameRules(ctx: Ctx, cycleId: string): Promise<unknown> {
   const c = await one<{ name: string; total_tickets: number; ticket_price_kobo: number; rules_text: string | null; rules_sha256: Buffer | null; status: string; draw_at: Date; claim_window_days: number; winnings_tax_bp: number }>(ctx.pool,

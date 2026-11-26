@@ -36,7 +36,7 @@ export async function signDraw(ctx: Ctx, admin: Admin, cycleId: string): Promise
 }
 
 /**
- * Runs the final draw. Requirements, all checked here and again by the
+ * Runs the Mega Draw. Requirements, all checked here and again by the
  * database: the cycle is closed; two different operators and the appointed
  * auditor have signed; the pre-announced beacon round has happened. The draw
  * runs over the cards actually sold — unsold inventory never takes part — and
@@ -126,16 +126,16 @@ export async function executeDraw(ctx: Ctx, admin: Admin, cycleId: string): Prom
         userId: ticket.owner_id, kind: "DRAW_WIN", link: tier.kind === "CASH" ? "#/wallet" : "#/wallet", dedupeKey: `draw:${cycleId}:win:${ticket.id}`,
         title: `You won ${title}!`,
         body: tier.kind === "CASH"
-          ? `Your card ${w.serial} won ${title} in the ${cycle.name} final draw. It has been added to your winnings.`
-          : `Your card ${w.serial} won ${title} in the ${cycle.name} final draw. Claim it in the app within ${cycle.claim_window_days} days.`,
+          ? `Your card ${w.serial} won ${title} in the ${cycle.name} Mega Draw. It has been added to your winnings.`
+          : `Your card ${w.serial} won ${title} in the ${cycle.name} Mega Draw. Claim it in the app within ${cycle.claim_window_days} days.`,
         sms: tier.kind === "CASH"
           ? `Congratulations! Card ${w.serial} won ${title} in the ${cycle.name} draw. It is in your winnings in the app.`
           : `Congratulations! Card ${w.serial} won ${title} in the ${cycle.name} draw. Claim it in the app within ${cycle.claim_window_days} days.`,
         ha: {
           title: `Ka ci ${title}!`,
           body: tier.kind === "CASH"
-            ? `Katinka ${w.serial} ya ci ${title} a zaɓen ƙarshe na ${cycle.name}. An ƙara shi a kuɗin nasararka.`
-            : `Katinka ${w.serial} ya ci ${title} a zaɓen ƙarshe na ${cycle.name}. Ka karɓa a manhajar cikin kwana ${cycle.claim_window_days}.`,
+            ? `Katinka ${w.serial} ya ci ${title} a Babban Zaɓe na ${cycle.name}. An ƙara shi a kuɗin nasararka.`
+            : `Katinka ${w.serial} ya ci ${title} a Babban Zaɓe na ${cycle.name}. Ka karɓa a manhajar cikin kwana ${cycle.claim_window_days}.`,
           sms: tier.kind === "CASH"
             ? `Murna! Kati ${w.serial} ya ci ${title} a zaɓen ${cycle.name}. Yana cikin kuɗin nasararka a manhajar.`
             : `Murna! Kati ${w.serial} ya ci ${title} a zaɓen ${cycle.name}. Ka karɓa a manhajar cikin kwana ${cycle.claim_window_days}.`,
@@ -145,8 +145,8 @@ export async function executeDraw(ctx: Ctx, admin: Admin, cycleId: string): Prom
     for (const owner of new Set(entries.rows.map((e) => e.owner_id))) {
       if (winnerOwners.has(owner)) continue;
       await notify(db, { userId: owner, kind: "DRAW_RESULT", link: "#/draw", dedupeKey: `draw:${cycleId}:result:${owner}`,
-        title: `${cycle.name}: the draw has taken place`, body: "Your cards did not win in the final draw this time. You can see the winners and check the draw yourself.",
-        ha: { title: `${cycle.name}: an yi zaɓe`, body: "Katunanka ba su ci a zaɓen ƙarshe a wannan karon ba. Za ka iya ganin masu nasara ka kuma duba zaɓen da kanka." } });
+        title: `${cycle.name}: the draw has taken place`, body: "Your cards did not win in the Mega Draw this time. You can see the winners and check the draw yourself.",
+        ha: { title: `${cycle.name}: an yi zaɓe`, body: "Katunanka ba su ci a Babban Zaɓe a wannan karon ba. Za ka iya ganin masu nasara ka kuma duba zaɓen da kanka." } });
     }
 
     await db.query("UPDATE cycles SET status = 'DRAWN' WHERE id = $1", [cycleId]);

@@ -1,5 +1,5 @@
 // A whole prize cycle through both web apps: drafting and two-person approval,
-// sales, the final draw with its sign-offs, the player checking the draw on
+// sales, the Mega Draw with its sign-offs, the player checking the draw on
 // their phone, claiming and receiving a prize, close-out, and the player
 // checking the whole cycle.
 import { after, before, test } from "node:test";
@@ -95,7 +95,7 @@ test("from draft to archive: approvals, draw, claim, handover, close-out, and th
   for (let i = 0; i < 40; i++) {
     await visit(a, s.base + "/admin#/cycle/" + cycleId);
     await a.reload(); // same address: force a fresh load
-    await a.waitForSelector("h2:has-text('Final draw')");
+    await a.waitForSelector("h2:has-text('Mega Draw')");
     if (await a.locator('button:has-text("Sign off as operator")').count()) break;
     await sleep(2000);
   }

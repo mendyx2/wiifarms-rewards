@@ -62,7 +62,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   assert.match(await p.innerText("main p.muted"), /^kati 10 · 10 ba a karce ba/);
   await p.locator(".ticket").first().click();
   await scratch(p);
-  await p.waitForSelector("text=An saka a zaɓen ƙarshe");
+  await p.waitForSelector("text=An saka a Babban Zaɓe");
   await p.waitForSelector("text=An duba a wayarka");
   await p.click("summary");
   await p.click("a:has-text('Katuna na')");

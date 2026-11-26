@@ -109,7 +109,7 @@ export async function dashboard(ctx: Ctx, admin: Admin): Promise<unknown> {
     cycles: cycles.rows.map((c) => ({
       ...c,
       remaining: c.total_tickets - c.sold,
-      // What is still owed on this cycle: unrevealed instant prizes plus undrawn final-draw cash.
+      // What is still owed on this cycle: unrevealed instant prizes plus undrawn Mega Draw cash.
       // A cancelled cycle's unrevealed cards are cancelled too, so nothing more is owed on them.
       outstanding_instant_liability_kobo: c.status === "VOID" ? 0 : c.instant_total_kobo - c.instant_revealed_kobo,
       final_draw_cash_commitment_kobo: ["DRAWN", "SETTLING", "ARCHIVED", "VOID"].includes(c.status) ? 0 : c.draw_cash_total_kobo,

@@ -95,7 +95,7 @@ async function buildReport(db: Db, cycleId: string): Promise<{ report: Record<st
     { id: "DRW-005c", description: "Re-running the certified draw procedure gives exactly the recorded winners", pass: sameWinners },
     { id: "DRW-005d", description: "The game engine that ran the draw holds a verified certification", pass: Boolean(certification),
       detail: certification ? `${certification.lab}, ${certification.certificate_ref}` : "No certification is recorded for this engine version (required before real money)." },
-    { id: "DRW-006", description: "Each card won at most one final-draw prize, and every prize went to an entry", pass: new Set(winnerSerials).size === winnerSerials.length
+    { id: "DRW-006", description: "Each card won at most one Mega Draw prize, and every prize went to an entry", pass: new Set(winnerSerials).size === winnerSerials.length
         && winnerSerials.every((s) => frozen.includes(s)) && recorded.length === Math.min(frozen.length, prizes.reduce((n, p) => n + p.quantity, 0)) },
     { id: "DRW-007", description: "Two different operators and the appointed auditor signed off before the draw", pass:
         signoffs.filter((s) => s.capacity === "OPERATOR").length >= 2 && signoffs.some((s) => s.capacity === "AUDITOR") && signoffs.every((s) => s.signed_at.getTime() <= d.executed_at.getTime()) },
@@ -113,7 +113,7 @@ async function buildReport(db: Db, cycleId: string): Promise<{ report: Record<st
       secretCommitment: commit.draw_secret_commitment.toString("hex"), revealedSecret: d.revealed_secret.toString("hex"),
       beacon: { source: d.beacon_source, round: String(d.beacon_round), value: d.beacon_value.toString("hex") }, seed: d.seed.toString("hex"),
       cardMerkleRoot: commit.ticket_merkle_root.toString("hex"), prizeTableSha256: commit.prize_table_sha256.toString("hex"),
-      multipleWinRule: "Every sold card is entered once, win or lose at the instant stage; each card can win at most one final-draw prize." },
+      multipleWinRule: "Every sold card is entered once, win or lose at the instant stage; each card can win at most one Mega Draw prize." },
     operations: [
       ...signoffs.map((s) => ({ at: s.signed_at.toISOString(), action: s.capacity === "AUDITOR" ? "Independent auditor countersigned the draw" : "Operator signed off the draw" })),
       { at: d.executed_at.toISOString(), action: "Draw executed" },

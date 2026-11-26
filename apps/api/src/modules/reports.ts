@@ -148,7 +148,7 @@ const REPORTS: ReportDef[] = [
   },
   {
     id: "cash-prize-liability", title: "Cash prize liability", frequency: "Real time", roles: FIN, needs: "none",
-    description: "Cash still owed: winnings in players' wallets, withdrawals in progress, instant wins revealed but not yet accepted, instant cash still in unscratched or unsold cards, and final-draw cash not yet drawn.",
+    description: "Cash still owed: winnings in players' wallets, withdrawals in progress, instant wins revealed but not yet accepted, instant cash still in unscratched or unsold cards, and Mega Draw cash not yet drawn.",
     columns: [c("item", "Liability"), c("amount", "Amount", "kobo")],
     async run(ctx) {
       const t = (await one<Record<string, string>>(ctx.pool,
@@ -170,7 +170,7 @@ const REPORTS: ReportDef[] = [
         { item: "Withdrawals in progress", amount: k(t.transit) },
         { item: "Instant wins revealed, not yet accepted", amount: k(t.unaccepted) },
         { item: "Instant cash in unscratched or unsold cards (live campaigns)", amount: Math.max(0, k(t.unscratched)) },
-        { item: "Final-draw cash not yet drawn", amount: k(t.undrawn) },
+        { item: "Mega Draw cash not yet drawn", amount: k(t.undrawn) },
         { item: "Statutory deductions held for the authority", amount: k(t.deductions) },
       ];
       return { rows: [...rows, { item: "Total", amount: rows.reduce((s, r) => s + r.amount, 0) }] };

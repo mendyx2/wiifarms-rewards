@@ -27,7 +27,7 @@ test("swipe to scratch a winning card, then Accept moves the prize into the wall
   // Scratch a card with a finger: the prize shows, and is not in the wallet until accepted.
   await p.locator(".ticket").first().click();
   await scratch(p);
-  await p.waitForSelector("text=Entered in the final draw");
+  await p.waitForSelector("text=Entered in the Mega Draw");
   const amount = (await p.innerText(".result .big")).trim();
   assert.equal(amount, "₦500");
   assert.match(await p.innerText(".result"), /Tap Accept to add it to your wallet/);
