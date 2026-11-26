@@ -159,6 +159,26 @@ const nextStep = () => (!state.me ? "signup" : state.me.kycTier < 1 ? "verify" :
 // --- Scratch surface (presentation only) ------------------------------------------------
 
 /**
+ * The digital scratch card. Its artwork shows prizes a card could win; it is
+ * advertising only. Which artwork a card gets comes from its serial number,
+ * never from its outcome, so the picture can never hint at the result.
+ */
+const CARD_THEMES = ["cash", "rice", "car", "vita", "appliances"];
+const CARD_ART_HEIGHT = { cash: 698, rice: 683, car: 691, vita: 754, appliances: 685 }; // at 720 wide
+const themeOf = (serial) => { let h = 0; for (const ch of serial) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0; return CARD_THEMES[h % CARD_THEMES.length]; };
+
+function scratchCard(theme, { priceKobo = 50_000, serial = null, isDemo = false }, strip) {
+  return el("div", { class: `scard t-${theme}` },
+    el("img", { class: "scard-art", src: `/cards/${theme}.jpg`, width: 720, height: CARD_ART_HEIGHT[theme],
+      alt: "WiiFarm Rewards. Scratch. Reveal. Discover extraordinary possibilities." }),
+    el("div", { class: "scard-ribbon" }, el("b", {}, naira(priceKobo)), " — ", "Digital raffle ticket"),
+    strip,
+    el("div", { class: "scard-tag" }, "One ticket. All prize categories."),
+    el("div", { class: "scard-foot" }, isDemo ? el("span", { class: "scard-badge" }, "Demo card") : el("code", { class: "scard-serial" }, serial)),
+    el("small", { class: "scard-note" }, "Pictures show prizes you could win, not what is under this card. Most cards do not win an instant prize; every card is in the final draw."));
+}
+
+/**
  * A scratch-off surface over `resultNode`. It only controls what is visible:
  * the outcome is decided by the server long before, and `onStart` merely asks
  * the server to disclose it. The surface clears once the player has scratched
@@ -166,7 +186,7 @@ const nextStep = () => (!state.me ? "signup" : state.me.kycTier < 1 ? "verify" :
  */
 function scratchSurface(resultNode, { onStart, onDone }) {
   const canvas = el("canvas", { "aria-label": "Scratch surface. Use the Reveal now button if you prefer." });
-  const wrap = el("div", { class: "scratchwrap" }, el("div", { class: "result" }, resultNode), canvas);
+  const wrap = el("div", { class: "scratchwrap scard-strip" }, el("div", { class: "result" }, resultNode), canvas);
   const ctx = canvas.getContext("2d");
   let down = false, moves = 0, started = false, ready = false, enough = false, done = false;
 
@@ -186,11 +206,11 @@ function scratchSurface(resultNode, { onStart, onDone }) {
     const sheen = ctx.createLinearGradient(0, 0, r.width, r.height);
     sheen.addColorStop(0.35, "rgba(255,255,255,0)"); sheen.addColorStop(0.5, "rgba(255,255,255,.45)"); sheen.addColorStop(0.65, "rgba(255,255,255,0)");
     ctx.fillStyle = sheen; ctx.fillRect(0, 0, r.width, r.height);
-    const label = tr("Scratch here"), cx = r.width / 2, cy = r.height / 2 + 8;
-    ctx.font = "800 24px system-ui"; ctx.textAlign = "center";
+    const label = tr("Scratch area").toUpperCase(), cx = r.width / 2, cy = r.height / 2 + 9;
+    ctx.font = `900 ${Math.round(Math.min(26, r.width / 12))}px system-ui`; ctx.textAlign = "center";
     ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.fillText(label, cx, cy + 1.5);
-    ctx.fillStyle = "rgba(55,62,66,.75)"; ctx.fillText(label, cx, cy);
-    ctx.font = "22px system-ui"; ctx.fillStyle = "rgba(55,62,66,.55)"; ctx.fillText("✦  ✦  ✦", cx, cy - 34); ctx.fillText("✦  ✦  ✦", cx, cy + 34);
+    ctx.fillStyle = "rgba(40,48,52,.8)"; ctx.fillText(label, cx, cy);
+    ctx.font = "18px system-ui"; ctx.fillStyle = "rgba(55,62,66,.5)"; ctx.fillText("✦", 22, cy - 2); ctx.fillText("✦", r.width - 22, cy - 2);
   }
   function finish() {
     if (done || !ready) return;
@@ -547,10 +567,10 @@ async function cards() {
     nodes.push(el("h2", {}, names.get(cycleId) ?? "Earlier cycle"), el("div", { class: "tickets" }, tickets.filter((t) => t.cycleId === cycleId).map((t) => {
       const cash = t.result?.cashKobo ?? 0;
       if (t.status === "CANCELLED") {
-        return el("a", { class: "ticket done", href: "#/card/" + t.id }, el("code", {}, t.serial),
+        return el("a", { class: `ticket done t-${themeOf(t.serial)}`, href: "#/card/" + t.id }, el("code", {}, t.serial),
           el("b", {}, "Cancelled"), el("span", {}, "Price refunded" + (cash ? ` · ${naira(cash)} prize` : "")));
       }
-      return el("a", { class: "ticket" + (t.result ? (cash ? " win" : " done") : ""), href: "#/card/" + t.id },
+      return el("a", { class: "ticket" + (t.result ? (cash ? " win" : " done") : "") + ` t-${themeOf(t.serial)}`, href: "#/card/" + t.id },
         el("code", {}, t.serial),
         el("b", {}, t.result ? (cash ? "Won " + naira(cash) : "No instant win") : "Tap to scratch"),
         cash && !t.result.acceptedAt ? el("span", { class: "to-accept" }, "Tap to accept") : null,
@@ -635,12 +655,13 @@ async function card(id) {
   const nodes = [el("a", { href: "#/cards" }, "← My cards"), el("h1", {}, ticket.result ? "Your result" : "Scratch to reveal"), el("p", { class: "muted" }, "Card ", el("code", {}, ticket.serial))];
   if (ticket.result) {
     await disclose();
-    nodes.push(el("div", { class: "scratchwrap" }, el("div", { class: "result" }, result)), after);
+    nodes.push(scratchCard(themeOf(ticket.serial), { priceKobo: cycle.ticket_price_kobo, serial: ticket.serial },
+      el("div", { class: "scratchwrap scard-strip" }, el("div", { class: "result" }, result))), after);
     await showAfter();
   } else {
     const surface = scratchSurface(result, { onStart: () => disclose().catch((err) => { toast(err.message); throw err; }), onDone: showAfter });
     revealBtn.addEventListener("click", () => surface.revealNow());
-    nodes.push(surface.wrap, el("p"), revealBtn, after);
+    nodes.push(scratchCard(themeOf(ticket.serial), { priceKobo: cycle.ticket_price_kobo, serial: ticket.serial }, surface.wrap), revealBtn, after);
   }
   return nodes;
 }
@@ -654,7 +675,8 @@ function demo() {
   after.append(el("p"), accept, el("div", { class: "note" }, "That is how it works. On a real card the result is fixed before you buy, and your phone checks it against the published fingerprint."),
     el("div", { class: "stack" }, el("a", { class: "btn gold", href: "#/" + nextStep() }, "Buy scratch cards"), el("button", { class: "btn ghost", onclick: () => render() }, "Try another demo card")));
   return [el("h1", {}, "Demo card"), el("div", { class: "note warn" }, "Practice only. Demo cards are free, are not entered in the draw and cannot win anything."),
-    surface.wrap, el("p"), el("button", { class: "btn ghost", onclick: () => surface.revealNow() }, "Reveal now"), after];
+    scratchCard(CARD_THEMES[Math.floor(Math.random() * CARD_THEMES.length)], { isDemo: true }, surface.wrap),
+    el("button", { class: "btn ghost", onclick: () => surface.revealNow() }, "Reveal now"), after];
 }
 
 const BANKS = { "044": "Access Bank", "011": "First Bank", "058": "GTBank", "033": "UBA", "057": "Zenith Bank" };

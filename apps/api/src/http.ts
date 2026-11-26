@@ -90,7 +90,7 @@ const adminToken = (req: FastifyRequest) => sessionToken(req, ADMIN_COOKIE);
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".ico": "image/x-icon",
+  ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".jpg": "image/jpeg", ".ico": "image/x-icon",
 };
 
 /** Loads the web app's files once at start. Only these exact files can ever be served. */

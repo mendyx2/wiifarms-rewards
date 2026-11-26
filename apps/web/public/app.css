@@ -328,3 +328,42 @@ nav.tabs a:active { box-shadow: inset 0 2px 4px rgba(70,50,20,.3); }
 .hexrow { display: grid; gap: 2px; padding: 9px 0; border-bottom: 1px solid rgba(120,95,50,.16); min-width: 0; }
 .hexrow:last-child { border-bottom: 0; }
 .check > div { min-width: 0; overflow-wrap: anywhere; }
+
+/*
+ * The digital scratch card, after the WiiFarm Rewards card designs: themed
+ * artwork on top (advertising the prizes a card could win), then the price
+ * ribbon, the silver scratch strip, "One ticket. All prize categories." and
+ * the card number (or DEMO CARD). One colour set per artwork.
+ */
+.t-cash { --sc-bg: radial-gradient(120% 70% at 50% 15%, #e0322a, #b3141a 45%, #6f0a0e); --sc-tag: linear-gradient(#1f8a45, #0f5d2b); --sc-note: #ffe8d6; --art: url(/cards/cash.jpg); }
+.t-rice { --sc-bg: radial-gradient(120% 70% at 50% 15%, #3fae4a, #1f7a32 45%, #0d4a1d); --sc-tag: linear-gradient(#f3cf61, #c9921b); --sc-tag-ink: #0f4a1f; --sc-note: #e5f7e3; --art: url(/cards/rice.jpg); }
+.t-car { --sc-bg: radial-gradient(120% 70% at 50% 15%, #8a3fd1, #5b1fa0 45%, #2e0c5e); --sc-tag: linear-gradient(#e43b3b, #a4121a); --sc-note: #efe2ff; --art: url(/cards/car.jpg); }
+.t-vita { --sc-bg: radial-gradient(120% 70% at 50% 15%, #fff4d6, #f5d98d 50%, #d9a53b); --sc-tag: linear-gradient(#1f8a45, #0f5d2b); --sc-note: #4a3203; --art: url(/cards/vita.jpg); }
+.t-appliances { --sc-bg: radial-gradient(120% 70% at 50% 15%, #2f7fe6, #1747a6 45%, #0b2462); --sc-tag: linear-gradient(#e43b3b, #a4121a); --sc-note: #e2ecff; --art: url(/cards/appliances.jpg); }
+
+.scard { position: relative; border-radius: 22px; padding: 8px 8px 12px; margin: 10px 0 14px; text-align: center; background: var(--sc-bg);
+  box-shadow: 0 0 0 3px #f0c75a, 0 0 0 5px #a56f0b, inset 0 0 0 2px rgba(255,240,190,.55), 0 16px 30px rgba(40,20,0,.38); }
+.scard-art { display: block; width: 100%; height: auto; border-radius: 16px 16px 8px 8px; }
+.scard-ribbon { position: relative; z-index: 1; margin: -4px 4px 10px; padding: 9px 12px; border-radius: 999px; font-weight: 900; font-style: italic; font-size: 17px; letter-spacing: .01em;
+  color: #fff; text-transform: uppercase; background: linear-gradient(#ea2b2b, #a50f12); text-shadow: 0 1px 0 rgba(0,0,0,.45);
+  box-shadow: inset 0 0 0 2px #f6cf6b, inset 0 3px 0 rgba(255,255,255,.25), 0 3px 0 #6a0a0c, 0 7px 12px rgba(0,0,0,.3); }
+.scard-ribbon b { font-style: normal; font-size: 20px; color: #ffe27a; text-shadow: 0 1px 0 #7a4b00, 0 0 8px rgba(255,210,90,.5); }
+.scard .scard-strip { aspect-ratio: 5 / 2; margin: 0 4px; border-radius: 14px; box-shadow: 0 0 0 3px #f0c75a, 0 0 0 4px #a56f0b, inset 0 2px 6px rgba(70,50,20,.25), 0 6px 14px rgba(0,0,0,.3); }
+.scard .scard-strip .result { padding: 8px 10px; }
+.scard .scard-strip .result .big { font-size: 34px; }
+.scard .scard-strip .result .big.none { font-size: 21px; }
+.scard .scard-strip .result .muted { font-size: 13px; }
+.scard-tag { margin: 12px 4px 8px; padding: 8px 10px; border-radius: 10px; font-weight: 900; font-size: 14px; text-transform: uppercase; letter-spacing: .02em;
+  color: var(--sc-tag-ink, #fff); background: var(--sc-tag); box-shadow: inset 0 0 0 1.5px #f0c75a, 0 3px 6px rgba(0,0,0,.25); text-shadow: 0 1px 0 rgba(0,0,0,.25); }
+.t-rice .scard-tag { text-shadow: 0 1px 0 rgba(255,255,255,.5); }
+.scard-foot { margin: 4px 0 2px; }
+.scard-badge { display: inline-block; padding: 6px 22px; border-radius: 999px; font-weight: 900; font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: #3b2500;
+  background: linear-gradient(#ffe9a6, #f6cf6b 40%, #d99a1c); box-shadow: inset 0 1px 0 #fff6d8, 0 3px 0 #8a5a05, 0 5px 10px rgba(0,0,0,.3); }
+.scard-serial { display: inline-block; padding: 4px 12px; border-radius: 8px; font-size: 13px; color: #3b2500; background: linear-gradient(#ffe9a6, #e9b949); box-shadow: 0 2px 0 #8a5a05; }
+.scard-note { display: block; margin: 8px 8px 0; font-size: 11px; line-height: 1.35; color: var(--sc-note); opacity: .9; }
+
+/* My cards: each tile carries a slice of its card's artwork above the foil. */
+.ticket[class*=" t-"] { padding-top: 96px; }
+.ticket[class*=" t-"]::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 86px; background: var(--art) center 66% / cover no-repeat;
+  border-bottom: 3px solid #f0c75a; box-shadow: 0 2px 0 #a56f0b; }
+.ticket[class*=" t-"]::before { top: 96px; }

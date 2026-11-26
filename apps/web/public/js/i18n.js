@@ -274,6 +274,12 @@ const HA = {
   "Operator signed off the draw": "Mai aiki ya sanya hannu kan zaɓe",
   "Independent auditor countersigned the draw": "Mai binciken kuɗi mai zaman kansa ya ƙara sa hannu kan zaɓe",
   "Draw executed": "An gudanar da zaɓe",
+  // --- Scratch card design ---
+  "Digital raffle ticket": "Tikitin raffle na zamani",
+  "One ticket. All prize categories.": "Tikiti ɗaya. Duk nau'ikan kyaututtuka.",
+  "Scratch area": "Wurin karcewa",
+  "Pictures show prizes you could win, not what is under this card. Most cards do not win an instant prize; every card is in the final draw.": "Hotunan suna nuna kyaututtukan da za ka iya ci, ba abin da ke ƙarƙashin wannan katin ba. Yawancin katuna ba sa cin kyautar nan take; kowane kati yana cikin zaɓen ƙarshe.",
+  "WiiFarm Rewards. Scratch. Reveal. Discover extraordinary possibilities.": "WiiFarm Rewards. Karce. Bayyana. Gano damammaki na musamman.",
   // --- Deductions on winnings ---
   "{0} statutory deduction ({1}%) · {2} to your wallet": "{0} ragin doka ({1}%) · {2} zuwa jakar kuɗinka",
   "Deduction from cash prizes": "Ragi daga kyautar kuɗi",

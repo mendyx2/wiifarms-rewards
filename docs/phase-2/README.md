@@ -474,6 +474,13 @@ After the draw, a cycle manager, Compliance or the auditor **generates the repor
 
 **Dashboard — campaign position** for the live campaign, as in the SRS example: cards sold and remaining, realised revenue against the maximum at full sales, prize commitments, operating costs at an **illustrative** 20% of realised revenue (`WR_ILLUSTRATIVE_COST_BP`) shown beside the costs actually recorded, and the indicative operating balance (realised revenue − commitments − illustrative costs).
 
+## Scratch card design
+
+Each digital card follows the WiiFarm Rewards card designs: **artwork** on top (the logo, "Scratch. Reveal. Discover extraordinary possibilities." and pictures of prizes a card could win — instant cash, NaijaSweetRice, the vehicle, VitaActive, appliances), then a red **"₦500 — Digital raffle ticket"** ribbon, the silver **scratch area**, **"One ticket. All prize categories."** and the card number (or **DEMO CARD** on practice cards). Card tiles in *My cards* show a slice of the same artwork.
+
+- The artwork is **advertising only**. Which design a card gets comes from its **serial number, never its result**, so the picture cannot hint at what is under the foil. A line on every card says so, and that most cards do not win an instant prize.
+- Artwork files are `apps/web/public/cards/*.jpg` (cropped from the supplied designs); replacing a file changes that design. *To review:* the instant-cash design shows real naira banknotes — the reproduction of currency images in advertising should be cleared with the Central Bank of Nigeria or replaced with an illustration; the artwork's own text is in English.
+
 ## Liveness and fraud rules
 - **Liveness check before anything large.** Claiming a prize worth ₦100,000 or more (merchandise at its advertised value: the car, motorcycles) and withdrawing ₦100,000 or more need a liveness check: a short live selfie matched to the photo held for the player's identity number (simulated here; the identity provider does it in the live service). It is done once and raises the player to tier 2. A stolen phone and PIN are then not enough to take a major prize. The app takes the player to the check and back to what they were doing. Threshold: `WR_MAJOR_PRIZE_KOBO`.
 - **Fraud rules (alerts to Compliance):**
