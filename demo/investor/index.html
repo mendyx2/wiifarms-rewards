@@ -1,0 +1,341 @@
+<title>WiiFarm Rewards Investor Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE occasion: an investor launch page with a working product inside
+   IDEA the WiiFarm Rewards scratch card itself: green and gold, ribbons, foil
+   PICTURE a fanned hand of the five real card designs; later the live demo phone
+   COLOUR deep farm green ground, cream paper, gold, one sharp red for price and calls to act
+   TYPE Baloo 2 (the cards' rounded display lettering) + Nunito Sans
+   LAYOUT laptop: title and figures left, fan of cards right; phone: title, fan, buttons */
+:root{color-scheme:light dark;--bg:light-dark(#fbf7ec,#0d1510);--paper:light-dark(#ffffff,#152019);--ink:light-dark(#14231a,#eef4ec);--muted:light-dark(#4d5e53,#a9bcaf);--line:light-dark(#e4dcc6,#29392e);--green:#0f6b34;--green2:#0a4a24;--gold:#f0b429;--gold2:#b9810b;--red:#d62828}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 "Nunito Sans",system-ui,sans-serif;overflow-x:clip;margin:0}
+h1,h2,h3,.big{font-family:"Baloo 2","Nunito Sans",sans-serif;line-height:1.05;letter-spacing:-.02em;margin:0}
+h2{font-size:clamp(28px,3.6vw,42px)}
+h3{font-size:21px}
+p{margin:.4em 0 1em}
+a{color:inherit}
+.band{padding-block:clamp(32px,5vw,72px);padding-left:max(5vw,16px,env(safe-area-inset-left,0px));padding-right:max(5vw,16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1240px;margin:0 auto}
+.nav{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding-block:14px;padding-left:max(5vw,16px,env(safe-area-inset-left,0px));padding-right:max(5vw,16px,env(safe-area-inset-right,0px));background:var(--green2);color:#fff;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+.nav b{font-family:"Baloo 2";font-size:20px}
+.nav nav{display:flex;gap:16px;flex-wrap:wrap;font-weight:700;font-size:15px}
+.nav nav a{text-decoration:none;opacity:.9}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:999px;padding:13px 22px;font:800 16px "Nunito Sans";cursor:pointer;text-decoration:none;color:#3b2500;background:linear-gradient(#ffe08a,var(--gold) 55%,#d99a1c);box-shadow:inset 0 1px 0 #fff6d6,0 4px 0 var(--gold2),0 8px 16px rgba(0,0,0,.25);transition:transform .06s}
+.btn:active{transform:translateY(3px);box-shadow:0 1px 0 var(--gold2)}
+.btn.red{color:#fff;background:linear-gradient(#ee3b3b,var(--red) 55%,#a31414);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 4px 0 #6d0b0b,0 8px 16px rgba(0,0,0,.25)}
+.btn.ghost{color:#fff;background:transparent;box-shadow:inset 0 0 0 2px rgba(255,255,255,.6)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn:focus-visible,input:focus-visible{outline:3px solid #7fd3a0;outline-offset:2px}
+.hero{background:radial-gradient(90% 80% at 75% 30%,#1c8a47,var(--green) 45%,var(--green2));color:#fff}
+.hero .wrap{display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(20px,4vw,56px);align-items:center}
+.hero h1{font-size:clamp(40px,5.6vw,68px);margin:6px 0 14px}
+.hero h1 span{color:var(--gold)}
+.lede{font-size:clamp(17px,1.6vw,20px);max-width:36em;color:#e7f4ea}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:22px 0}
+.kpi{background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:12px 14px}
+.kpi b{display:block;font:800 clamp(22px,2.4vw,30px) "Baloo 2";color:#ffe08a;white-space:nowrap}
+.kpi span{font-size:14px;color:#d8ecdc}
+.cta{display:flex;gap:12px;flex-wrap:wrap}
+.fan{position:relative;height:clamp(380px,44vw,560px)}
+.fan img{position:absolute;left:50%;top:50%;width:clamp(150px,18vw,230px);border-radius:16px;box-shadow:0 0 0 3px var(--gold),0 0 0 5px var(--gold2),0 18px 36px rgba(0,0,0,.45);transform-origin:50% 120%;transition:transform .35s}
+.note{font-size:13px;color:var(--muted)}
+.hero .note{color:#cfe6d5}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 6px 16px rgba(40,30,10,.06)}
+.step{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+.num{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font:800 19px "Baloo 2";color:#5a3b00;background:radial-gradient(circle at 35% 30%,#fff3c4,var(--gold) 55%,var(--gold2))}
+.model{display:grid;grid-template-columns:1fr 1.25fr;gap:28px;align-items:start}
+.rows div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.rows div:last-child{border-bottom:0}
+.rows b{white-space:nowrap;font-variant-numeric:tabular-nums}
+.bal{font:800 clamp(30px,4vw,46px) "Baloo 2";white-space:nowrap}
+input[type=range]{width:100%;accent-color:var(--green);height:32px}
+.bars{display:grid;gap:10px;margin-top:6px}
+.bar{display:grid;grid-template-columns:8.5em minmax(0,1fr) 7.5em;gap:10px;align-items:center;font-size:14px}
+.bar i{display:block;height:22px;border-radius:6px}
+.bar em{font-style:normal;text-align:right;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ticks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.tick{display:flex;gap:12px}
+.tick::before{content:"✓";flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:900;background:var(--green)}
+.demo{background:linear-gradient(var(--green2),#06301a);color:#fff}
+.demo .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,430px);gap:clamp(20px,4vw,56px);align-items:start}
+.login{background:#0b0f0c;border:1px solid #2b332d;border-radius:22px;padding:22px;color:#fff}
+.login h3{font-size:30px;margin:4px 0 14px}
+.login .brand{text-align:center;font:800 26px "Baloo 2";color:#22a053}
+.login label{display:block}
+.fld{font-weight:700;color:#cfd8d1;margin:12px 0 6px;font-size:15px}
+.login input[type=text]{width:100%;font:16px "Nunito Sans";padding:13px 18px;border-radius:999px;border:1.5px solid #3a443c;background:#111712;color:#fff}
+.radio{display:flex;gap:12px;align-items:center;padding:8px 0;font-size:17px;cursor:pointer}
+.radio input{width:22px;height:22px;accent-color:#e9f5ec;flex:none}
+.ack{display:flex;gap:12px;align-items:flex-start;margin:12px 0 16px;font-size:16px;cursor:pointer}
+.ack input{width:22px;height:22px;margin-top:2px;accent-color:var(--gold);flex:none}
+.login .btn{width:100%}
+.phone{background:#0b0f0c;border-radius:34px;padding:12px;box-shadow:0 0 0 2px #2b332d,0 24px 48px rgba(0,0,0,.5)}
+.screen{background:var(--bg);color:var(--ink);border-radius:24px;overflow:hidden;min-height:640px}
+.bar1{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--green);color:#fff;font-weight:800}
+.sim{background:repeating-linear-gradient(-45deg,#ffe08a 0 12px,var(--gold) 12px 24px);color:#3b2500;text-align:center;font:800 11px "Nunito Sans";padding:4px}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);background:var(--paper);border-bottom:1px solid var(--line)}
+.tabs button{border:0;background:none;padding:11px 4px;font:800 14px "Nunito Sans";color:var(--muted);cursor:pointer}
+.tabs button[aria-selected=true]{color:var(--green);box-shadow:inset 0 -3px 0 var(--green)}
+.pane{padding:14px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}
+.chips button{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:999px;padding:8px 14px;font:800 14px "Nunito Sans";cursor:pointer}
+.scard{border-radius:18px;padding:7px 7px 10px;text-align:center;box-shadow:0 0 0 3px var(--gold),0 0 0 4px var(--gold2),0 12px 22px rgba(0,0,0,.3);margin:6px 2px 14px}
+.scard img{display:block;width:100%;border-radius:12px 12px 6px 6px}
+.ribbon{margin:-4px 4px 8px;position:relative;padding:7px;border-radius:999px;color:#fff;font:italic 800 15px "Nunito Sans";text-transform:uppercase;background:linear-gradient(#ea2b2b,#a50f12);box-shadow:inset 0 0 0 2px #f6cf6b}
+.ribbon b{color:#ffe27a;font-style:normal}
+.strip{position:relative;aspect-ratio:5/2;margin:0 4px;border-radius:12px;overflow:hidden;background:#fffaf0;box-shadow:0 0 0 3px var(--gold);touch-action:none}
+.strip .res{position:absolute;inset:0;display:grid;place-content:center;color:var(--green2)}
+.strip .res b{font:800 30px "Baloo 2"}
+.strip canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+.tag{margin:9px 4px 2px;padding:6px;border-radius:8px;font:800 12px "Nunito Sans";text-transform:uppercase;color:#fff;background:linear-gradient(#1f8a45,#0f5d2b);box-shadow:inset 0 0 0 1.5px var(--gold)}
+.t-cash{background:radial-gradient(#e0322a,#7a0b0f)}.t-rice{background:radial-gradient(#3fae4a,#0d4a1d)}.t-car{background:radial-gradient(#8a3fd1,#2e0c5e)}.t-vita{background:radial-gradient(#fff4d6,#d9a53b)}.t-appliances{background:radial-gradient(#2f7fe6,#0b2462)}
+.mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.mini div{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:9px;font-size:13px}
+.mini b{display:block;font:800 18px "Baloo 2";color:var(--green)}
+.drum{font:800 26px "Baloo 2";text-align:center;padding:16px;border-radius:14px;background:var(--paper);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+footer{background:#06301a;color:#cfe6d5}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:14px}
+@media(max-width:900px){.hero .wrap,.model,.demo .wrap{grid-template-columns:1fr}.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}.ticks,.grid3{grid-template-columns:1fr}.fan{height:360px}}
+@media(max-width:600px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid4{grid-template-columns:1fr}.nav nav{display:none}.bar{grid-template-columns:6.5em minmax(0,1fr) 6.5em}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header class="nav"><b>WiiFarm Rewards &amp; Lotto</b><nav><a href="#model">The numbers</a><a href="#how">How it works</a><a href="#trust">Controls</a><a href="#demo">Try the demo</a></nav></header>
+
+<section class="hero band"><div class="wrap">
+  <div>
+    <h1>₦500 cards. Instant cash. One <span>Mega Draw</span>.</h1>
+    <p class="lede">WiiFarm Rewards turns every purchase into a digital scratch card: instant cash prizes on the spot, and every card entered in the season's Mega Draw for a vehicle, appliances and NaijaSweetRice. Built for phones, in English and Hausa, launching in Niger State.</p>
+    <div class="kpis">
+      <div class="kpi"><b>2,686,000</b><span>cards in the inaugural season</span></div>
+      <div class="kpi"><b>₦1.343bn</b><span>sales at full sell-out</span></div>
+      <div class="kpi"><b>50%</b><span>of full sales budgeted for prizes</span></div>
+      <div class="kpi"><b>₦20m</b><span>instant cash, 18,400 prizes</span></div>
+      <div class="kpi"><b>90 days</b><span>per season</span></div>
+      <div class="kpi"><b>10%</b><span>fee to authorised affiliates</span></div>
+    </div>
+    <div class="cta"><a class="btn red" href="#demo">Try the live demo</a><a class="btn ghost" href="#model">See the numbers</a></div>
+    <p class="note">Inaugural campaign as set out in the system requirements (WRL/SRS/2026/001). Subject to licensing; this demonstration uses no real money.</p>
+  </div>
+  <div class="fan" id="fan" aria-label="The five WiiFarm Rewards card designs"></div>
+</div></section>
+
+<section class="band" id="model"><div class="wrap model">
+  <div>
+    <h2>The season pays for itself at about 63% sell-through</h2>
+    <p>Prize commitments are fixed when a season is approved, so the result depends on how many cards sell. Move the slider to see the campaign position the operator dashboard shows, using the requirements' own illustrative 20% for operating costs.</p>
+    <label class="fld" for="sell" style="color:inherit">Cards sold: <b id="sellv"></b></label>
+    <input id="sell" type="range" min="5" max="100" step="1" value="40">
+    <p class="note">At 40% (the requirements' worked example) the balance is −₦241.74m; break-even is where sales cover commitments plus costs. Instant cash is released in levels as cards sell, which limits early exposure. Affiliate fees (10% of referred sales) and payment fees come on top.</p>
+  </div>
+  <div class="card">
+    <div class="rows" id="rows"></div>
+    <div class="bars" id="bars"></div>
+    <p style="margin:14px 0 0">Indicative operating balance</p><div class="bal" id="bal"></div>
+  </div>
+</div></section>
+
+<section class="band" id="how" style="background:var(--paper)"><div class="wrap">
+  <h2>How a player takes part</h2>
+  <div class="grid4" style="margin-top:22px">
+    <div class="step"><span class="num">1</span><div><h3>Buy</h3><p>₦500 a card, up to 10 a day, by bank transfer, card or wallet. Age, identity and spending limits are checked first.</p></div></div>
+    <div class="step"><span class="num">2</span><div><h3>Scratch</h3><p>Swipe the silver foil. The result was sealed before sales opened, and the phone checks it against the published fingerprint.</p></div></div>
+    <div class="step"><span class="num">3</span><div><h3>Mega Draw</h3><p>Every card, win or lose, is entered. The draw is public, overseen by an independent auditor, and anyone can re-run it.</p></div></div>
+    <div class="step"><span class="num">4</span><div><h3>Collect</h3><p>Cash goes to the player's wallet; goods are collected at approved stockists with a one-time code and photo ID.</p></div></div>
+  </div>
+</div></section>
+
+<section class="band" id="trust"><div class="wrap">
+  <h2>Controls a regulator and an auditor can check</h2>
+  <div class="ticks" style="margin-top:22px">
+    <div class="tick"><div><b>Results sealed before sale.</b> Every card's outcome is fixed and fingerprinted; nobody can change who wins.</div></div>
+    <div class="tick"><div><b>Independent draw report.</b> The draw is re-checked from the records, fingerprinted and attested by the appointed auditor.</div></div>
+    <div class="tick"><div><b>Two people for anything that matters.</b> Approvals, payouts, fee changes and access changes each need a second person.</div></div>
+    <div class="tick"><div><b>Exact accounting.</b> A double-entry ledger in kobo, daily reconciliation, and twelve management reports.</div></div>
+    <div class="tick"><div><b>Responsible play.</b> 18+ only, verified identity, spending limits, breaks and self-exclusion.</div></div>
+    <div class="tick"><div><b>Security.</b> Two-step sign-in for staff, encrypted secrets and a tamper-evident audit trail.</div></div>
+  </div>
+  <div class="grid3" style="margin-top:28px">
+    <div class="card"><h3>Built and tested</h3><p>Player app (English and Hausa), operations app, affiliate portal, stockist portal, public website, Mega Draw with its report, and management reports. Checked by about 85 automated tests.</p></div>
+    <div class="card"><h3>Sales engine</h3><p>Authorised digital affiliates earn 10% of the sales they bring. Approved marketing only; no downlines; complaints investigated.</p></div>
+    <div class="card"><h3>Next steps</h3><p>State licence, engine certification, live payment provider and bank collections, then the inaugural 90-day season.</p></div>
+  </div>
+</div></section>
+
+<section class="demo band" id="demo"><div class="wrap">
+  <div id="left">
+    <h2>Try it yourself</h2>
+    <p style="color:#d8ecdc">Create a demo account to play the player experience: buy cards with demo credit, scratch them, and watch a Mega Draw run. Your details stay in this browser.</p>
+    <form class="login" id="signup" autocomplete="off">
+      <div class="brand">WiiFarm Rewards &amp; Lotto</div>
+      <p style="text-align:center;color:#c9d2cb;margin:2px 0 8px">Private demonstration platform</p>
+      <h3>Create your demo account</h3>
+      <label class="fld" for="nm">Display name or test name</label>
+      <input id="nm" type="text" maxlength="40" placeholder="Enter a test name" required>
+      <div class="fld">Stakeholder category</div>
+      <label class="radio"><input type="radio" name="cat" value="Team member" checked> Team member</label>
+      <label class="radio"><input type="radio" name="cat" value="Investor"> Investor</label>
+      <label class="radio"><input type="radio" name="cat" value="Cooperative leader"> Cooperative leader</label>
+      <label class="radio"><input type="radio" name="cat" value="Invited stakeholder"> Invited stakeholder</label>
+      <label class="ack"><input id="ack" type="checkbox"> I understand that this is a simulation without real payments, cash winnings or merchandise entitlements.</label>
+      <button class="btn" id="go" type="submit" disabled>Create trial account</button>
+      <p style="color:#c9d2cb;font-size:14px;margin:14px 0 0">This is a local interface prototype. No information is submitted to WiiFarm or stored in an external account.</p>
+    </form>
+  </div>
+  <div class="phone"><div class="screen" id="app"></div></div>
+</div></section>
+
+<footer class="band"><div class="wrap"><span>WiiFarm Rewards &amp; Lotto · investor preview · simulation only, no real money</span><span>Figures: inaugural campaign, WRL/SRS/2026/001 (illustrative)</span></div></footer>
+
+<script>
+{
+const THEMES = ["cash", "rice", "car", "vita", "appliances"];
+const N = (k) => "₦" + Math.round(k).toLocaleString("en-NG");
+const M = (n) => (Math.abs(n) >= 1e9 ? (n < 0 ? "−" : "") + "₦" + (Math.abs(n) / 1e9).toFixed(3) + "bn" : (n < 0 ? "−" : "") + "₦" + (Math.abs(n) / 1e6).toFixed(2) + "m");
+
+// The fan of real card designs.
+const fan = document.getElementById("fan");
+THEMES.forEach((t, i) => {
+  const im = document.createElement("img");
+  im.src = `cards/${t}.jpg`; im.alt = ""; im.loading = "eager";
+  const a = (i - 2) * 11, x = (i - 2) * 22;
+  im.style.transform = `translate(calc(-50% + ${x}%), -50%) rotate(${a}deg)`;
+  im.style.zIndex = 5 - Math.abs(i - 2);
+  fan.append(im);
+});
+
+// The campaign model (SRS inaugural figures).
+const CARDS = 2686000, PRICE = 500, COMMIT = 671.5e6, COST = 0.2;
+const sell = document.getElementById("sell");
+function model() {
+  const p = +sell.value / 100, sold = Math.round(CARDS * p), rev = sold * PRICE, cost = rev * COST, bal = rev - COMMIT - cost;
+  document.getElementById("sellv").textContent = `${sell.value}% · ${sold.toLocaleString("en-NG")} cards`;
+  document.getElementById("rows").innerHTML = [["Realised revenue", M(rev)], ["Maximum revenue", M(CARDS * PRICE)], ["Prize commitments", M(COMMIT)], ["Operating costs (illustrative 20%)", M(cost)]]
+    .map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join("");
+  const max = CARDS * PRICE;
+  document.getElementById("bars").innerHTML = [["Revenue", rev, "#0f6b34"], ["Prizes", COMMIT, "#f0b429"], ["Costs", cost, "#d62828"]]
+    .map(([a, v, c]) => `<div class="bar"><span>${a}</span><i style="width:${(v / max) * 100}%;background:${c}"></i><em>${M(v)}</em></div>`).join("");
+  const b = document.getElementById("bal"); b.textContent = M(bal); b.style.color = bal >= 0 ? "#0f6b34" : "#d62828";
+}
+sell.addEventListener("input", model); model();
+
+// Sign-up form: kept in this browser only.
+const f = document.getElementById("signup"), nm = document.getElementById("nm"), ack = document.getElementById("ack"), go = document.getElementById("go");
+const ok = () => { go.disabled = !(nm.value.trim() && ack.checked); };
+nm.addEventListener("input", ok); ack.addEventListener("change", ok);
+let user = null;
+try { user = JSON.parse(localStorage.getItem("wr-demo-user") || "null"); } catch {}
+f.addEventListener("submit", (e) => {
+  e.preventDefault(); if (go.disabled) return;
+  user = { name: nm.value.trim(), cat: f.querySelector("input[name=cat]:checked").value, credit: 5000, cards: [], won: 0 };
+  try { localStorage.setItem("wr-demo-user", JSON.stringify(user)); } catch {}
+  signedIn(); render("buy");
+});
+
+// The demo app inside the phone.
+const app = document.getElementById("app");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const save = () => { try { localStorage.setItem("wr-demo-user", JSON.stringify(user)); } catch {} };
+// Demo odds are higher than the real game (1 in 146) so a visitor sees a win.
+const PRIZES = [[500, 0.18], [1000, 0.08], [2000, 0.04], [5000, 0.015], [10000, 0.005]];
+const draw1 = () => { let r = Math.random(); for (const [v, p] of PRIZES) { if (r < p) return v; r -= p; } return 0; };
+const serial = () => "WR-" + Math.random().toString(36).slice(2, 7).toUpperCase() + "-" + Math.random().toString(36).slice(2, 7).toUpperCase();
+
+function shell(tab, body) {
+  return `<div class="sim">SIMULATION · NO REAL MONEY</div><div class="bar1"><span>WiiFarm Rewards</span><span>${N(user.credit)}</span></div>
+  <div class="tabs" role="tablist">${[["buy", "Buy"], ["cards", "My cards"], ["draw", "Mega Draw"]].map(([k, l]) => `<button role="tab" data-t="${k}" aria-selected="${k === tab}">${l}</button>`).join("")}</div>
+  <div class="pane">${body}</div>`;
+}
+function render(tab, arg) {
+  if (!user) {
+    app.innerHTML = `<div class="sim">SIMULATION · NO REAL MONEY</div><div class="pane" style="padding:22px">${cardHtml("rice", null)}<p style="text-align:center">Create a demo account to play.</p></div>`;
+    return;
+  }
+  if (tab === "buy") {
+    app.innerHTML = shell(tab, `<h3>Welcome, ${esc(user.name)}</h3><p class="note">${esc(user.cat)} · demo credit ${N(user.credit)}</p>
+      <div class="mini"><div><b>2.69m</b>cards this season</div><div><b>1 in 146</b>real instant odds</div><div><b>${user.cards.length}</b>your cards</div></div>
+      <p style="margin-top:14px"><b>How many cards?</b></p><div class="chips">${[1, 3, 5, 10].map((n) => `<button data-buy="${n}">${n} · ${N(n * PRICE)}</button>`).join("")}</div>
+      <p class="note">Every card is entered in the Mega Draw. Demo instant odds are higher than the real game so you can see a win.</p>`);
+  } else if (tab === "cards") {
+    const c = arg != null ? user.cards[arg] : user.cards.find((x) => !x.done);
+    if (!c) { app.innerHTML = shell(tab, `<p>No cards to scratch. Buy some first.</p>${user.cards.length ? `<p class="note">You have ${user.cards.length} cards in the Mega Draw and won ${N(user.won)} in demo cash.</p>` : ""}`); }
+    else {
+      const i = user.cards.indexOf(c);
+      app.innerHTML = shell(tab, `<p class="note">Card ${i + 1} of ${user.cards.length} · ${c.serial}</p>${cardHtml(c.theme, c)}<div id="after"></div>`);
+      scratch(c);
+    }
+  } else {
+    app.innerHTML = shell(tab, `<h3>Mega Draw</h3><p class="note">Entries: 2,686,000 cards including your ${user.cards.length}. The real draw uses a sealed secret and public randomness, overseen by an auditor.</p>
+      <div class="drum" id="drum">WR-•••••-•••••</div><p></p><button class="btn red" id="run" style="width:100%">Run a demo Mega Draw</button><div id="dres"></div>`);
+    document.getElementById("run").onclick = runDraw;
+  }
+  app.querySelectorAll("[data-t]").forEach((b) => (b.onclick = () => render(b.dataset.t)));
+  app.querySelectorAll("[data-buy]").forEach((b) => (b.onclick = () => {
+    const n = +b.dataset.buy;
+    if (n * PRICE > user.credit) { b.textContent = "Not enough demo credit"; return; }
+    user.credit -= n * PRICE;
+    for (let k = 0; k < n; k++) { const s = serial(); user.cards.push({ serial: s, theme: THEMES[[...s].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 0) % 5], cash: draw1(), done: false }); }
+    save(); render("cards");
+  }));
+}
+function cardHtml(theme, c) {
+  return `<div class="scard t-${theme}"><img src="cards/${theme}.jpg" alt="WiiFarm Rewards card artwork"><div class="ribbon"><b>₦500</b> — Digital raffle ticket</div>
+    <div class="strip"><div class="res">${c && c.cash ? `<span>You won</span><b>${N(c.cash)}</b>` : `<b style="font-size:20px">No instant win</b><span style="font-size:13px">Still in the Mega Draw</span>`}</div>${c && !c.done ? "<canvas></canvas>" : ""}</div>
+    <div class="tag">One ticket. All prize categories.</div></div>`;
+}
+function scratch(c) {
+  const cv = app.querySelector(".strip canvas"); if (!cv) return after(c);
+  const ctx = cv.getContext("2d"), r = cv.getBoundingClientRect(), d = devicePixelRatio || 1;
+  cv.width = r.width * d; cv.height = r.height * d; ctx.scale(d, d);
+  const g = ctx.createLinearGradient(0, 0, r.width, r.height);
+  g.addColorStop(0, "#a3abaf"); g.addColorStop(.4, "#eef1f2"); g.addColorStop(.6, "#b9c0c4"); g.addColorStop(1, "#9aa2a6");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, r.width, r.height);
+  ctx.fillStyle = "rgba(40,48,52,.8)"; ctx.font = "900 22px Nunito Sans, sans-serif"; ctx.textAlign = "center"; ctx.fillText("SCRATCH AREA", r.width / 2, r.height / 2 + 8);
+  let down = false, n = 0;
+  const at = (e) => { const b = cv.getBoundingClientRect(); ctx.globalCompositeOperation = "destination-out"; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(e.clientX - b.left, e.clientY - b.top, 24, 0, 7); ctx.fill(); if (++n % 6 === 0) check(); };
+  const check = () => { const px = ctx.getImageData(0, 0, cv.width, cv.height).data; let clear = 0, t = 0; for (let i = 3; i < px.length; i += 160) { t++; if (!px[i]) clear++; } if (clear / t > .45) { cv.remove(); c.done = true; if (c.cash) { user.credit += c.cash; user.won += c.cash; } save(); after(c); } };
+  cv.onpointerdown = (e) => { down = true; cv.setPointerCapture(e.pointerId); at(e); };
+  cv.onpointermove = (e) => { if (down) at(e); };
+  cv.onpointerup = () => { down = false; check(); };
+}
+function after(c) {
+  const el = document.getElementById("after"); if (!el) return;
+  const next = user.cards.findIndex((x) => !x.done);
+  el.innerHTML = `<p style="text-align:center"><b>${c.cash ? `${N(c.cash)} added to your demo wallet` : "Entered in the Mega Draw"}</b></p>` +
+    (next >= 0 ? `<button class="btn" style="width:100%" id="nx">Next card</button>` : `<button class="btn red" style="width:100%" id="md">Go to the Mega Draw</button>`);
+  document.getElementById("nx")?.addEventListener("click", () => render("cards", next));
+  document.getElementById("md")?.addEventListener("click", () => render("draw"));
+  app.querySelector(".bar1 span:last-child").textContent = N(user.credit);
+}
+function runDraw() {
+  const drum = document.getElementById("drum"), btn = document.getElementById("run"); btn.disabled = true;
+  let t = 0; const iv = setInterval(() => { drum.textContent = serial(); if (++t > 24) { clearInterval(iv); done(); } }, 70);
+  const done = () => {
+    const mine = user.cards.map((c) => c.serial);
+    // In the demo your cards have a visible chance; in the real draw each card has about 1 in 15,000.
+    const winMine = mine.length && Math.random() < Math.min(.5, mine.length * .05);
+    const w = winMine ? mine[Math.floor(Math.random() * mine.length)] : serial();
+    drum.textContent = w;
+    document.getElementById("dres").innerHTML = winMine
+      ? `<p style="text-align:center"><b>Your card ${esc(w)} won 50kg NaijaSweetRice!</b><br><span class="note">In the real app you would claim it at a collection centre with a one-time code.</span></p>`
+      : `<p style="text-align:center">Winning card ${esc(w)}. Not yours this time; every card stays in for the next prize.</p>`;
+    btn.disabled = false; btn.textContent = "Draw the next prize";
+  };
+}
+function signedIn() {
+  document.getElementById("signup").hidden = true;
+  const p = document.createElement("p");
+  p.innerHTML = `Signed in as <b>${esc(user.name)}</b> (${esc(user.cat)}). Play in the phone. <button class="btn ghost" id="reset" type="button">Start again</button>`;
+  document.getElementById("left").append(p);
+  document.getElementById("reset").onclick = () => { try { localStorage.removeItem("wr-demo-user"); } catch {} location.reload(); };
+}
+render(user ? "buy" : null);
+if (user) signedIn();
+}
+</script>
