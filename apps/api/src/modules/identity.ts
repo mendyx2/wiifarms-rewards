@@ -1,7 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { notify, smsText, type Lang } from "./notify.ts";
 import { ensureReferralCode, findReferrer, normaliseCode } from "./referrals.ts";
-import { findAffiliateByCode, isAffiliateCode } from "./affiliates.ts";
 import { SYSTEM, audit, type Actor } from "../audit.ts";
 import type { Ctx } from "../context.ts";
 import { hashPin, keyedHash, newOtp, newToken, sha256, verifyPin } from "../crypto.ts";
@@ -117,11 +116,9 @@ export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string
     // An invite code only counts when a new account is opened; it is checked before the sign-up code is used up.
     const isNew = !(await one(db, "SELECT 1 FROM users WHERE phone_e164 = $1", [phone]));
     if (isNew && !consent?.privacy) throw badRequest("PRIVACY_CONSENT_REQUIRED", "Please read and accept the privacy policy to open an account.");
-    // A code is either a player's invite code (7 characters: counted, never paid) or an approved affiliate's (8 characters: attributed).
+    // The friend whose link or code was used earns 10% of this account's card purchases (referrals.ts).
     const invite = isNew && referralCode?.trim() ? normaliseCode(referralCode) : null;
-    const affiliateId = invite && isAffiliateCode(invite) ? await findAffiliateByCode(db, invite) : null;
-    if (invite && isAffiliateCode(invite) && !affiliateId) throw badRequest("INVALID_REFERRAL", "That invite code is not recognised. Check it, or leave it empty.");
-    const referrerId = invite && !affiliateId ? await findReferrer(db, invite) : null;
+    const referrerId = invite ? await findReferrer(db, invite) : null;
     await consumeOtp(ctx, db, phone, code);
     const existing = await one<{ id: string; status: string }>(db, "SELECT id, status FROM users WHERE phone_e164 = $1 FOR NO KEY UPDATE", [phone]);
     let userId: string;
@@ -138,16 +135,15 @@ export async function registerWithOtp(ctx: Ctx, phoneInput: string, code: string
         ha: { title: "An canja PIN ɗinka", body: "An canja PIN ɗinka kuma an fitar da kai a sauran na'urori. Idan ba kai ba ne, tuntuɓi masu taimako nan take.",
           sms: "An canja PIN ɗinka yanzu. Idan ba kai ba ne, tuntuɓi masu taimako nan take." } });
     } else {
-      const created = await db.query<{ id: string }>("INSERT INTO users (phone_e164, pin_hash, language, referred_by, affiliate_id) VALUES ($1, $2, $3, $4, $5) RETURNING id", [phone, pinHash, lang ?? "en", referrerId, affiliateId]);
+      const created = await db.query<{ id: string }>("INSERT INTO users (phone_e164, pin_hash, language, referred_by) VALUES ($1, $2, $3, $4) RETURNING id", [phone, pinHash, lang ?? "en", referrerId]);
       userId = created.rows[0]!.id;
       await db.query("INSERT INTO rg_limits (user_id) VALUES ($1)", [userId]);
       await ensureReferralCode(db, userId); // every player can invite others from the start
       await db.query("INSERT INTO consents (user_id, kind, granted, version, ip) VALUES ($1, 'PRIVACY_POLICY', true, $2, $3), ($1, 'MARKETING', $4, $2, $3)",
         [userId, PRIVACY_POLICY_VERSION, ip ?? null, Boolean(consent?.marketing)]);
       await audit(db, { type: "PLAYER", id: userId, ip }, "player.registered", "user", userId,
-        { ...(referrerId ? { referredBy: referrerId } : {}), ...(affiliateId ? { affiliateId } : {}) });
+        { ...(referrerId ? { referredBy: referrerId } : {}) });
       if (referrerId) await checkReferralVelocity(db, referrerId);
-      if (affiliateId) await checkAffiliateVelocity(db, affiliateId);
     }
     return { token: await createSession(ctx, db, userId), userId };
   });
@@ -225,17 +221,6 @@ async function checkReferralVelocity(db: Db, referrerId: string): Promise<void> 
     [referrerId, JSON.stringify({ signUpsIn24Hours: n })]);
 }
 
-/** The same rule for an affiliate's attribution code (AFF-008 compliance monitoring). */
-async function checkAffiliateVelocity(db: Db, affiliateId: string): Promise<void> {
-  const n = (await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM users WHERE affiliate_id = $1 AND created_at > now() - interval '24 hours'", [affiliateId]))!.n;
-  if (n < AFFILIATE_SIGNUPS_PER_DAY_ALERT) return;
-  const recent = await one(db, "SELECT 1 FROM compliance_alerts WHERE kind = 'AFFILIATE_VELOCITY' AND entity_id = $1 AND created_at > now() - interval '24 hours'", [affiliateId]);
-  if (recent) return;
-  await db.query("INSERT INTO compliance_alerts (kind, severity, entity_type, entity_id, details) VALUES ('AFFILIATE_VELOCITY', 'WARNING', 'affiliate', $1, $2)",
-    [affiliateId, JSON.stringify({ signUpsIn24Hours: n })]);
-}
-/** Affiliates market more widely than players, so the threshold is higher. */
-export const AFFILIATE_SIGNUPS_PER_DAY_ALERT = 200;
 
 /** The player's current consents and their history (newest first). */
 export async function privacyChoices(ctx: Ctx, userId: string): Promise<unknown> {

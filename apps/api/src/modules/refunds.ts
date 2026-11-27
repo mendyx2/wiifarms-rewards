@@ -43,11 +43,17 @@ function dbRule(err: unknown): never {
  */
 async function postRefund(db: Db, refundId: string, orderId: string, cycleId: string, amountKobo: number): Promise<void> {
   await post(db, { kind: "REFUND", reference: `order:${orderId}:refund-due`, cycleId, debit: accounts.ticketRevenue(cycleId), credit: accounts.refundsPayable(), amountKobo });
-  const paid = await one<{ provider: string; user_id: string }>(db,
-    "SELECT p.provider, o.user_id FROM payments p JOIN orders o ON o.id = p.order_id WHERE p.order_id = $1 AND p.status = 'SUCCEEDED'", [orderId]);
-  // The simulated gateway refunds at once; a real one confirms later by webhook. A wallet refund is immediate.
-  const to = paid?.provider === "WALLET" ? accounts.playerWinnings(paid.user_id) : accounts.gatewayClearing();
-  await post(db, { kind: "REFUND", reference: `refund:${refundId}`, cycleId, debit: accounts.refundsPayable(), credit: to, amountKobo });
+  const paid = await one<{ provider: string; user_id: string; from_deposits_kobo: number }>(db,
+    "SELECT p.provider, o.user_id, o.from_deposits_kobo FROM payments p JOIN orders o ON o.id = p.order_id WHERE p.order_id = $1 AND p.status = 'SUCCEEDED'", [orderId]);
+  // The simulated gateway refunds at once; a real one confirms later by webhook. A wallet refund is immediate,
+  // and goes back where the money came from: deposits to deposits, winnings to winnings.
+  if (paid?.provider === "WALLET") {
+    const toDeposits = Math.min(amountKobo, Number(paid.from_deposits_kobo)), toWinnings = amountKobo - toDeposits;
+    if (toDeposits > 0) await post(db, { kind: "REFUND", reference: `refund:${refundId}`, cycleId, debit: accounts.refundsPayable(), credit: accounts.playerDeposits(paid.user_id), amountKobo: toDeposits });
+    if (toWinnings > 0) await post(db, { kind: "REFUND", reference: toDeposits > 0 ? `refund:${refundId}:winnings` : `refund:${refundId}`, cycleId, debit: accounts.refundsPayable(), credit: accounts.playerWinnings(paid.user_id), amountKobo: toWinnings });
+  } else {
+    await post(db, { kind: "REFUND", reference: `refund:${refundId}`, cycleId, debit: accounts.refundsPayable(), credit: accounts.gatewayClearing(), amountKobo });
+  }
   await reverseReferral(db, orderId);
   await reverseAffiliateFee(db, orderId);
 }

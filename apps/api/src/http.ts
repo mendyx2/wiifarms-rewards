@@ -23,7 +23,6 @@ import * as tickets from "./modules/tickets.ts";
 import * as referrals from "./modules/referrals.ts";
 import * as promo from "./modules/promo.ts";
 import * as wallet from "./modules/wallet.ts";
-import * as affiliates from "./modules/affiliates.ts";
 import * as deductions from "./modules/deductions.ts";
 import * as portal from "./modules/portal.ts";
 import * as stockists from "./modules/stockists.ts";
@@ -326,24 +325,24 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     return cycles.acceptRules(ctx, actorOf(u.id, req), u.id, req.params.id);
   });
   app.get("/v1/me/referrals", async (req) => referrals.referralSummary(ctx, (await player(req)).id));
-  // Affiliates: a separate application, approved by Compliance (SRS section 13).
-  app.get("/v1/me/affiliate", async (req) => affiliates.affiliateDashboard(ctx, (await player(req)).id));
-  app.get("/v1/me/affiliate/materials", async (req) => portal.affiliateMaterials(ctx, (await player(req)).id));
+  // Reporting someone who promoted WiiFarm Rewards badly (the code is optional).
   app.post<{ Body: { code?: string; category: portal.Category; description: string } }>("/v1/affiliate-reports", {
     schema: body({ code: str(20), category: { enum: [...portal.CATEGORIES] }, description: str(2000) }, ["code"]),
   }, async (req) => {
     const u = await player(req);
     return portal.reportAffiliate(ctx, actorOf(u.id, req), u, req.body);
   });
-  app.post<{ Body: affiliates.AffiliateApplication }>("/v1/me/affiliate", {
-    schema: body({ businessName: str(120), contactEmail: str(200), territoryArea: str(120), channels: str(500), bankAccountId: uuid,
-      acceptAgreement: { type: "boolean" }, trainingCompleted: { type: "boolean" } }, ["territoryArea"]),
+  // Deposits into the wallet, for buying cards.
+  app.post<{ Body: { amountKobo: number; method: wallet.DepositMethod } }>("/v1/deposits", {
+    schema: body({ amountKobo: int(1), method: { enum: [...wallet.DEPOSIT_METHODS] } }),
   }, async (req) => {
     const u = await player(req);
-    return affiliates.applyAsAffiliate(ctx, actorOf(u.id, req), u, req.body);
+    return wallet.createDeposit(ctx, actorOf(u.id, req), u, { amountKobo: req.body.amountKobo, method: req.body.method, idempotencyKey: idemKey(req) });
   });
   app.post<{ Body: { paymentRef: string } }>("/v1/simulated-gateway/pay", { schema: body({ paymentRef: str(64) }) }, async (req) => {
     const u = await player(req);
+    // The simulated provider takes payments for cards and for wallet deposits.
+    if (req.body.paymentRef.startsWith("SIMDEP-")) return wallet.simulateDeposit(ctx, u, req.body.paymentRef);
     return tickets.simulatePayment(ctx, u, req.body.paymentRef);
   });
   app.get<{ Querystring: { cycleId?: string } }>("/v1/tickets", {
@@ -630,22 +629,10 @@ export function buildServer(ctx: Ctx): FastifyInstance {
   step("archive/confirm", (a, id) => archive.confirmArchive(ctx, a, id));
   app.get<{ Params: { id: string } }>("/v1/admin/cycles/:id/archive", { schema: idParam }, async (req) => ({ checks: await archive.archiveReadiness(ctx, await staff(req), req.params.id) }));
 
-  // Affiliates, the fee programme switch and settlements; statutory deductions.
-  app.get("/v1/admin/affiliates", async (req) => affiliates.listAffiliates(ctx, await staff(req)));
-  app.post<{ Params: { id: string }; Body: { decision: "APPROVE" | "REJECT" | "SUSPEND" | "REINSTATE" | "TERMINATE"; reason?: string } }>("/v1/admin/affiliates/:id/decision", {
-    schema: { ...idParam, ...body({ decision: { enum: ["APPROVE", "REJECT", "SUSPEND", "REINSTATE", "TERMINATE"] }, reason: str(500) }, ["reason"]) },
-  }, async (req) => affiliates.decideAffiliate(ctx, await staff(req), req.params.id, req.body.decision, req.body.reason));
-  app.post<{ Body: { enable: boolean; ratePercent: number; legalReference?: string; reason: string } }>("/v1/admin/affiliate-programme/changes", {
-    schema: body({ enable: { type: "boolean" }, ratePercent: { type: "number", minimum: 0, maximum: 10 }, legalReference: str(200), reason: str(500) }, ["legalReference"]),
-  }, async (req) => affiliates.requestProgrammeChange(ctx, await staff(req), req.body));
-  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/affiliate-programme/changes/:id/decision", {
-    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
-  }, async (req) => affiliates.decideProgrammeChange(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
-  app.post<{ Params: { id: string } }>("/v1/admin/affiliates/:id/settlements", { schema: idParam },
-    async (req) => affiliates.prepareSettlement(ctx, await staff(req), req.params.id));
-  app.post<{ Params: { id: string }; Body: { approve: boolean; reason?: string } }>("/v1/admin/affiliate-settlements/:id/decision", {
-    schema: { ...idParam, ...body({ approve: { type: "boolean" }, reason: str(500) }, ["reason"]) },
-  }, async (req) => affiliates.decideSettlement(ctx, await staff(req), req.params.id, req.body.approve, req.body.reason));
+  // Referrals: the players whose links bring in buyers; restoring stopped earnings.
+  app.get("/v1/admin/referrals", async (req) => referrals.listReferrers(ctx, await staff(req)));
+  app.post<{ Body: { code: string; reason: string } }>("/v1/admin/referrals/restore", { schema: body({ code: str(20), reason: str(500) }) },
+    async (req) => portal.restoreReferralEarnings(ctx, await staff(req), req.body.code, req.body.reason));
   app.get<{ Querystring: { from: string; to: string } }>("/v1/admin/reports/deductions", {
     schema: { querystring: { type: "object", additionalProperties: false, properties: { from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } }, required: ["from", "to"] } },
   }, async (req) => deductions.deductionsReport(ctx, await staff(req), req.query.from, req.query.to));
@@ -663,14 +650,14 @@ export function buildServer(ctx: Ctx): FastifyInstance {
     async (req) => portal.decideMaterialVersion(ctx, await staff(req), req.params.id, req.body.approve));
   app.post<{ Params: { id: string } }>("/v1/admin/materials/:id/retire", { schema: idParam }, async (req) => portal.retireMaterial(ctx, await staff(req), req.params.id));
   app.get("/v1/admin/affiliate-complaints", async (req) => portal.listComplaints(ctx, await staff(req)));
-  app.post<{ Body: { affiliateId: string; category: portal.Category; description: string } }>("/v1/admin/affiliate-complaints", {
-    schema: body({ affiliateId: uuid, category: { enum: [...portal.CATEGORIES] }, description: str(2000) }),
+  app.post<{ Body: { code: string; category: portal.Category; description: string } }>("/v1/admin/affiliate-complaints", {
+    schema: body({ code: str(20), category: { enum: [...portal.CATEGORIES] }, description: str(2000) }),
   }, async (req) => portal.openComplaint(ctx, await staff(req), req.body));
-  app.post<{ Params: { id: string }; Body: { affiliateId?: string } }>("/v1/admin/affiliate-complaints/:id/investigate", {
-    schema: { ...idParam, ...body({ affiliateId: uuid }, ["affiliateId"]) },
-  }, async (req) => portal.investigateComplaint(ctx, await staff(req), req.params.id, req.body?.affiliateId));
-  app.post<{ Params: { id: string }; Body: { upheld: boolean; findings: string; outcome: "NO_ACTION" | "WARNING" | "SUSPENDED" | "TERMINATED" } }>("/v1/admin/affiliate-complaints/:id/conclude", {
-    schema: { ...idParam, ...body({ upheld: { type: "boolean" }, findings: str(2000), outcome: { enum: ["NO_ACTION", "WARNING", "SUSPENDED", "TERMINATED"] } }) },
+  app.post<{ Params: { id: string }; Body: { code?: string } }>("/v1/admin/affiliate-complaints/:id/investigate", {
+    schema: { ...idParam, ...body({ code: str(20) }, ["code"]) },
+  }, async (req) => portal.investigateComplaint(ctx, await staff(req), req.params.id, req.body?.code));
+  app.post<{ Params: { id: string }; Body: { upheld: boolean; findings: string; outcome: "NO_ACTION" | "WARNING" | "SUSPENDED" } }>("/v1/admin/affiliate-complaints/:id/conclude", {
+    schema: { ...idParam, ...body({ upheld: { type: "boolean" }, findings: str(2000), outcome: { enum: ["NO_ACTION", "WARNING", "SUSPENDED"] } }) },
   }, async (req) => portal.concludeComplaint(ctx, await staff(req), req.params.id, req.body));
 
   // Management reports (SRS section 15).

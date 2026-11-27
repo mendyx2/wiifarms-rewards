@@ -108,9 +108,11 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   await p.click('button:has-text("Aika")');
   await toast(p, /An aika/);
   await visit(p, s.base + "/#/invite");
-  await p.waitForSelector("h1:has-text('Gayyaci abokai')");
-  await visit(p, s.base + "/#/affiliate");
-  await p.waitForSelector("h1:has-text('Zama wakili')");
+  await p.waitForSelector("h1:has-text('Gayyaci abokai, ka sami kuɗi')");
+  await visit(p, s.base + "/#/wallet");
+  await p.click("summary:has-text('Ƙara kuɗi')");
+  await p.waitForSelector("text=Biya da");
+  await p.click(".history-filter button:has-text('Kuɗin da aka saka')");
   for (const r of ["/#/site", "/#/prizes", "/#/how", "/#/help", "/#/responsible", "/#/about", "/#/past", "/#/centres"]) {
     await visit(p, s.base + r);
     await p.waitForSelector("main h1");
@@ -132,7 +134,7 @@ test("every player screen is in Hausa, and the choice can be switched back to En
   assert.deepEqual(await untranslated(p, serverData), [], "text shown in English in Hausa mode");
   await assertClean(p, "Hausa screens");
   // Hausa phrases are longer than the English: every screen must still fit a small phone.
-  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support", "/#/demo", "/#/invite", "/#/affiliate", "/#/site", "/#/prizes", "/#/how", "/#/help", "/#/responsible", "/#/about", "/#/past", "/#/centres", "/#/liveness", "/#/rules", "/#/privacy"], "main h1, main .hero");
+  await assertFits(p, s.base, ["/#/home", "/#/cards", "/#/wallet", "/#/draw", "/#/me", "/#/inbox", "/#/buy", "/#/support", "/#/demo", "/#/invite", "/#/site", "/#/prizes", "/#/how", "/#/help", "/#/responsible", "/#/about", "/#/past", "/#/centres", "/#/liveness", "/#/rules", "/#/privacy"], "main h1, main .hero");
 
   // Switching back: everything is English again, and the choice is remembered after a reload.
   await visit(p, s.base + "/#/home");

@@ -9,9 +9,9 @@ import { accounts, post } from "../ledger.ts";
 import { assertSimulated, closeIfDue, cycleKeyContext, getCycle, rulesAccepted, ticketAad, type CycleRow } from "./cycles.ts";
 import { naira, notify } from "./notify.ts";
 import { activeExclusion, getLimits, onExclusionRegister, type User } from "./identity.ts";
-import { creditAffiliateFee } from "./affiliates.ts";
+import { creditReferral } from "./referrals.ts";
 import { payCashPrize } from "./deductions.ts";
-import { winningsBalance } from "./wallet.ts";
+import { depositsBalance, winningsBalance } from "./wallet.ts";
 
 const MAX_PER_ORDER = 20;
 const RESERVATION_MINUTES = 15;
@@ -124,7 +124,7 @@ export async function createOrder(ctx: Ctx, actor: Actor, user: User, cycleId: s
       throw conflict("NOT_ENOUGH_CARDS", unsold!.n === 0 ? "This cycle is sold out." : `Only ${unsold!.n} cards are left.`);
     }
 
-    if (payWith === "WALLET" && (await winningsBalance(db, user.id)) < amountKobo) {
+    if (payWith === "WALLET" && (await depositsBalance(db, user.id)) + Math.max(0, await winningsBalance(db, user.id)) < amountKobo) {
       throw conflict("INSUFFICIENT_WALLET", "Your wallet does not have enough for these cards.");
     }
 
@@ -260,12 +260,20 @@ async function settleOrder(ctx: Ctx, db: Db, order: { id: string; user_id: strin
   await db.query(
     "UPDATE tickets SET status = 'SOLD', owner_id = $2, order_id = $3, sold_at = now() WHERE id = ANY($1::uuid[])",
     [ticketIds, order.user_id, order.id]);
-  // Money in: from the provider's clearing account, or out of the player's own wallet.
-  const from = paidWith === "WALLET" ? accounts.playerWinnings(order.user_id) : accounts.gatewayClearing();
-  await post(db, { kind: "TICKET_SALE", reference: `order:${order.id}`, cycleId: order.cycle_id, debit: from, credit: accounts.ticketRevenue(order.cycle_id), amountKobo: order.amount_kobo });
+  // Money in: from the provider's clearing account, or out of the player's own wallet (deposits first, then winnings).
+  if (paidWith === "WALLET") {
+    const fromDeposits = Math.min(Number(order.amount_kobo), await depositsBalance(db, order.user_id)), fromWinnings = Number(order.amount_kobo) - fromDeposits;
+    if (fromDeposits > 0) await post(db, { kind: "TICKET_SALE", reference: `order:${order.id}`, cycleId: order.cycle_id, memo: "Paid from deposits",
+      debit: accounts.playerDeposits(order.user_id), credit: accounts.ticketRevenue(order.cycle_id), amountKobo: fromDeposits });
+    if (fromWinnings > 0) await post(db, { kind: "TICKET_SALE", reference: fromDeposits > 0 ? `order:${order.id}:winnings` : `order:${order.id}`, cycleId: order.cycle_id, memo: "Paid from winnings",
+      debit: accounts.playerWinnings(order.user_id), credit: accounts.ticketRevenue(order.cycle_id), amountKobo: fromWinnings });
+    await db.query("UPDATE orders SET from_deposits_kobo = $2 WHERE id = $1", [order.id, fromDeposits]);
+  } else {
+    await post(db, { kind: "TICKET_SALE", reference: `order:${order.id}`, cycleId: order.cycle_id, debit: accounts.gatewayClearing(), credit: accounts.ticketRevenue(order.cycle_id), amountKobo: order.amount_kobo });
+  }
   await db.query("UPDATE orders SET status = 'FULFILLED' WHERE id = $1", [order.id]);
   await audit(db, SYSTEM, "order.fulfilled", "order", order.id, { tickets: ticketIds.length, amountKobo: order.amount_kobo, paidWith });
-  await creditAffiliateFee(db, order);
+  await creditReferral(ctx, db, order);
 
   // Closing rule: the cycle closes the moment the last card is sold.
   await closeIfDue(db, order.cycle_id);

@@ -298,8 +298,8 @@ async function home() {
         : c.status === "VOID" ? el("div", { class: "note warn" }, VOID_TEXT)
         : el("a", { class: "btn gold", href: "#/draw" }, c.status === "CLOSED" ? "Sales closed — see the draw" : "See the draw"),
       el("a", { class: "btn ghost", href: "#/demo" }, "Try a free demo card")),
-    inv ? el("a", { class: "card invite-card", href: "#/invite" }, el("b", {}, "🤝 Invite friends"),
-      el("small", {}, "Share WiiFarm Rewards with friends who are 18 or over: every card goes into the Mega Draw.")) : null,
+    inv ? el("a", { class: "card invite-card", href: "#/invite" }, el("b", {}, `🤝 Invite friends, earn ${inv.ratePercent}%`),
+      el("small", {}, `Earn ${naira(500 * inv.ratePercent)} on every ₦500 card your friends buy, paid into your wallet.`)) : null,
     el("h2", {}, "Mega Draw prizes"),
     el("p", { class: "muted" }, "Every card you buy is entered automatically, win or lose."),
     el("div", { class: "prizes" }, c.prizes.filter((p) => p.stage === "FINAL_DRAW").map((p) =>
@@ -681,7 +681,10 @@ function demo() {
 
 const BANKS = { "044": "Access Bank", "011": "First Bank", "058": "GTBank", "033": "UBA", "057": "Zenith Bank" };
 const HISTORY_TEXT = { INSTANT_PRIZE: "Instant win", DRAW_PRIZE: "Mega Draw prize", PAYOUT: "Withdrawal", PAYOUT_REVERSAL: "Withdrawal returned",
-  REFERRAL_COMMISSION: "Referral earnings", REFERRAL_REVERSAL: "Referral earnings taken back", TICKET_SALE: "Cards bought", REFUND: "Refund", ADJUSTMENT: "Adjustment" };
+  REFERRAL_COMMISSION: "Referral earnings", REFERRAL_REVERSAL: "Referral earnings taken back", TICKET_SALE: "Cards bought", REFUND: "Refund", ADJUSTMENT: "Adjustment", DEPOSIT: "Money added" };
+/** The wallet history's filters: what each kind of movement is. */
+const HISTORY_FILTERS = [["ALL", "All"], ["DEPOSIT", "Deposits"], ["WIN", "Winnings"], ["REFERRAL", "Referral earnings"], ["CARDS", "Cards"], ["WITHDRAWAL", "Withdrawals"], ["REFUND", "Refunds"]];
+const DEPOSIT_METHODS = [["BANK_TRANSFER", "Bank transfer"], ["OPAY", "OPay"], ["CARD", "Debit card"], ["USSD", "USSD"]];
 const PAYOUT_TEXT = { CONFIRMED: "Sent to your bank", PENDING_APPROVAL: "Being checked", REJECTED: "Not sent — money returned", REQUESTED: "Processing", APPROVED: "Processing", SENT: "On its way", FAILED: "Failed" };
 
 const CLAIM_TEXT = { ENTITLED: "Ready to claim", ON_HOLD: "Being reviewed", VERIFIED: "Claimed — being prepared", DISPATCHED: "On its way", DELIVERED: "Received", EXPIRED: "Claim period ended", VOID: "Not available" };
@@ -748,6 +751,33 @@ function prizeCard(p, centres = []) {
   return card;
 }
 
+/** Adding money to the wallet: the amount and how to pay, then the (simulated) provider's payment step. */
+function depositForm() {
+  const box = el("details", { class: "card deposit" }, el("summary", {}, "Add money"));
+  const form = el("form", { onsubmit: action(async () => {
+    const naira_ = Number(val(form, "amount"));
+    if (!Number.isFinite(naira_) || naira_ < 100 || naira_ > 100000) { toast("You can add from ₦100 to ₦100,000 at a time."); return; }
+    const amountKobo = Math.round(naira_) * 100, name = `deposit:${amountKobo}:${val(form, "method")}`;
+    const d = await api.post("/v1/deposits", { amountKobo, method: val(form, "method") }, stableKey(name));
+    clearKey(name);
+    box.replaceChildren(el("b", {}, `Pay ${naira(d.amountKobo)}`),
+      el("div", { class: "note warn" }, "Simulation: no money moves. In the live service you pay with your bank or OPay here."),
+      el("p", { class: "muted" }, `Reference ${d.paymentRef}`),
+      el("button", { class: "btn gold", type: "button", onclick: action(async () => {
+        await api.post("/v1/simulated-gateway/pay", { paymentRef: d.paymentRef });
+        toast(`${naira(d.amountKobo)} added to your wallet.`);
+        render();
+      }) }, `Pay ${naira(d.amountKobo)} (simulated)`));
+  }) },
+    el("div", { class: "chips amounts" }, [1000, 2000, 5000, 10000].map((v) => el("button", { type: "button", onclick: () => { form.amount.value = String(v); } }, naira(v * 100)))),
+    ...field("Amount (₦)", el("input", { name: "amount", inputmode: "numeric", required: true, value: "2000" })),
+    ...field("Pay with", el("select", { name: "method" }, DEPOSIT_METHODS.map(([v, label]) => el("option", { value: v }, label)))),
+    el("p", { class: "muted" }, "Deposits are for buying cards. They cannot be withdrawn; your winnings and referral earnings can."),
+    el("p"), el("button", { class: "btn", type: "submit" }, "Continue"));
+  box.append(form);
+  return box;
+}
+
 async function wallet() {
   const [w, bank, prizes] = await Promise.all([api.get("/v1/wallet"), api.get("/v1/me/bank-accounts"), api.get("/v1/claims")]);
   await loadMe();
@@ -755,11 +785,14 @@ async function wallet() {
   const nodes = [el("h1", {}, "Wallet"),
     w.owedKobo ? el("div", { class: "note bad" }, `A purchase of yours was refunded after you had withdrawn ${naira(w.owedKobo)} that its cards had won. That prize was forfeited, so this amount is owed back; new winnings will go towards it first. Our team will contact you.`) : null,
     el("div", { class: "card" }, el("span", { class: "muted" }, "Wallet balance"), el("div", { class: "balance" }, naira(w.balanceKobo)),
-      el("p", { class: "muted" }, "Your winnings. Withdraw them to a bank account in your own verified name, or use them to buy cards."),
+      el("div", { class: "row" }, el("span", {}, "You can withdraw"), el("b", {}, naira(w.withdrawableKobo))),
+      el("div", { class: "row" }, el("span", {}, "Deposits"), el("b", {}, naira(w.depositsKobo))),
+      el("p", { class: "muted" }, "Winnings and referral earnings can be withdrawn to a bank account in your own verified name. Deposits are for buying cards, and are used first."),
       state.me.kycTier >= 1 && w.balanceKobo > 0 ? el("a", { class: "btn small ghost", href: "#/buy" }, "Buy cards from my wallet") : null)];
+  if (state.me.kycTier >= 1) nodes.push(depositForm());
 
   if (state.me.kycTier < 1) nodes.push(el("a", { class: "btn", href: "#/verify" }, "Verify your identity"));
-  else if (w.balanceKobo >= 50000 && usable.length) {
+  else if (w.withdrawableKobo >= 50000 && usable.length) {
     const amountKey = () => `payout:${val(form, "amount")}:${val(form, "account")}`;
     const form = el("form", { class: "card", onsubmit: action(async () => {
       const amountKobo = Math.round(Number(val(form, "amount")) * 100);
@@ -770,12 +803,12 @@ async function wallet() {
       render();
     }) },
       el("b", {}, "Withdraw to bank"),
-      ...field("Amount (₦)", el("input", { name: "amount", inputmode: "decimal", required: true, value: String(w.balanceKobo / 100) })),
+      ...field("Amount (₦)", el("input", { name: "amount", inputmode: "decimal", required: true, value: String(w.withdrawableKobo / 100) })),
       ...field("To", el("select", { name: "account" }, usable.map((a) => el("option", { value: a.id }, `${BANKS[a.bank_code] ?? a.bank_code} · ${a.resolved_name}`)))),
       ...field("Your PIN", el("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 6, autocomplete: "current-password", required: true })),
       el("p"), el("button", { class: "btn", type: "submit" }, "Withdraw"));
     nodes.push(form);
-  } else if (w.balanceKobo > 0 && w.balanceKobo < 50000) nodes.push(el("p", { class: "muted" }, "The minimum withdrawal is ₦500."));
+  } else if (w.withdrawableKobo > 0 && w.withdrawableKobo < 50000) nodes.push(el("p", { class: "muted" }, "The minimum withdrawal is ₦500."));
 
   if (state.me.kycTier >= 1) {
     const add = el("form", { onsubmit: action(async () => {
@@ -788,7 +821,7 @@ async function wallet() {
       el("div", { class: "note warn" }, "Simulation: the live service asks the bank for the account name. Here you type it; it must match your verified name."),
       ...field("Account name", el("input", { name: "name", required: true, value: state.me.fullName ?? "" })),
       el("p"), el("button", { class: "btn ghost", type: "submit" }, "Add bank account"));
-    nodes.push(el("details", { class: "card", open: !usable.length && w.balanceKobo > 0 }, el("summary", {}, usable.length ? "Add another bank account" : "Add your bank account"), add));
+    nodes.push(el("details", { class: "card", open: !usable.length && w.withdrawableKobo > 0 }, el("summary", {}, usable.length ? "Add another bank account" : "Add your bank account"), add));
   }
 
   if (prizes.claims.length) {
@@ -800,9 +833,15 @@ async function wallet() {
     nodes.splice(1, 0, el("h2", {}, "My prizes"), ...sorted.map((p) => prizeCard(p, centres)));
   }
 
-  nodes.push(el("h2", {}, "History"), el("div", { class: "card" }, w.history.length
-    ? w.history.map((h) => el("div", { class: "row" }, el("div", {}, el("b", {}, HISTORY_TEXT[h.kind] ?? h.kind), el("small", {}, when(h.created_at))), el("b", {}, (h.amount_kobo > 0 ? "+" : "−") + naira(Math.abs(h.amount_kobo)))))
-    : el("p", { class: "muted" }, "Nothing yet.")));
+  const filter = state.walletFilter ?? "ALL";
+  const shown = w.history.filter((h) => filter === "ALL" || h.type === filter);
+  nodes.push(el("h2", {}, "History"),
+    el("div", { class: "chips history-filter" }, HISTORY_FILTERS.map(([k, label]) =>
+      el("button", { class: k === filter ? "on" : "", type: "button", onclick: () => { state.walletFilter = k; render(); } }, label))),
+    el("div", { class: "card" }, shown.length
+      ? shown.map((h) => el("div", { class: "row history-row", "data-type": h.type }, el("div", {}, el("b", {}, HISTORY_TEXT[h.kind] ?? h.kind), el("small", {}, when(h.created_at))),
+        el("b", { class: h.amount_kobo > 0 ? "plus" : "minus" }, (h.amount_kobo > 0 ? "+" : "−") + naira(Math.abs(h.amount_kobo)))))
+      : el("p", { class: "muted" }, "Nothing yet.")));
   if (w.payouts.length) {
     nodes.push(el("h2", {}, "Withdrawals"), el("div", { class: "card" }, w.payouts.map((p) =>
       el("div", { class: "row" }, el("div", {}, el("b", {}, naira(p.amount_kobo)), el("small", {}, when(p.created_at))), el("span", { class: "pill" + (p.status === "CONFIRMED" ? "" : " gold") }, PAYOUT_TEXT[p.status] ?? p.status)))));
@@ -963,7 +1002,7 @@ async function me() {
         m.kycTier >= 1 ? el("span", { class: "pill" }, "Verified") : el("a", { class: "btn small", href: "#/verify" }, "Verify")),
       el("div", { class: "row" }, el("div", {}, el("b", {}, "Next of kin"), el("small", {}, m.nextOfKin ? `${m.nextOfKin.full_name} · ${m.nextOfKin.relationship}` : "Not added — needed before a big prize is claimed")))),
     el("details", { class: "card" }, el("summary", {}, m.nextOfKin ? "Change next of kin" : "Add next of kin"), nok),
-    el("a", { class: "btn gold", href: "#/invite" }, "Invite friends"), el("p"),
+    el("a", { class: "btn gold", href: "#/invite" }, "Invite friends and earn"), el("p"),
     el("a", { class: "btn ghost", href: "#/site" }, "All pages: prizes, help, rules, about us"), el("p"),
     el("h2", {}, "Achievements"), await achievements(m),
     el("a", { class: "btn ghost", href: "#/support" }, "Help and support"), el("p"),
@@ -1113,46 +1152,47 @@ function shareBlock(text, url) {
 }
 
 const inviteText = (code) => tr(`Join me on WiiFarm Rewards: ₦500 scratch cards with instant cash prizes, and every card goes into the Mega Draw. Use my invite code ${code}. 18+ only. Play responsibly.`);
+const EARNING_TEXT = { EARNED: "Earned", REVERSED: "Taken back (refund)" };
 
 async function invite() {
+  state.invite = undefined; // always fresh: earnings change as friends buy
   const inv = await myInvite();
   if (!inv) return [el("h1", {}, "Invite friends"), el("p", { class: "muted" }, "Something went wrong. Please try again.")];
   return [
-    el("h1", {}, "Invite friends"),
-    el("p", { class: "muted" }, "Share WiiFarm Rewards with friends who are 18 or over. Inviting friends does not earn money."),
+    el("h1", {}, "Invite friends, earn"),
+    el("p", { class: "muted" }, `Earn ${inv.ratePercent}% of every card your friends buy: ${naira(500 * inv.ratePercent)} on each ₦500 card, paid straight into your wallet. Withdraw it with your winnings.`),
+    inv.earningsStopped ? el("div", { class: "note bad" }, "Your referral earnings have been stopped after a complaint was upheld. Contact support if you think this is wrong.") : null,
     el("div", { class: "card center" }, el("span", { class: "muted" }, "Your invite code"), el("div", { class: "code-big" }, inv.code), el("small", { class: "muted" }, inv.url)),
     shareBlock(inviteText(inv.code), inv.url),
-    el("h2", {}, "Your invites"),
+    el("h2", {}, "Your earnings"),
     el("div", { class: "tiles" },
+      el("div", { class: "tile" }, el("b", {}, naira(inv.earnedKobo)), el("span", {}, "earned")),
       el("div", { class: "tile" }, el("b", {}, String(inv.friendsJoined)), el("span", {}, "friends joined")),
-      el("div", { class: "tile" }, el("b", {}, String(inv.friendsWhoPlayed)), el("span", {}, "friends played"))),
-    el("a", { class: "card invite-card", href: "#/affiliate" }, el("b", {}, inv.affiliateStatus ? "Your affiliate page" : "Promote WiiFarm Rewards professionally?"),
-      el("small", {}, inv.affiliateStatus ? "Your attribution code, results and statements." : "Authorised affiliates are paid marketing fees. Apply to become one.")),
-    el("div", { class: "note" }, "Please share responsibly: only with adults, and never pressure anyone to play."),
+      el("div", { class: "tile" }, el("b", {}, String(inv.friendsWhoBought)), el("span", {}, "friends played")),
+      el("div", { class: "tile" }, el("b", {}, String(inv.cardsBought)), el("span", {}, "cards they bought"))),
+    inv.recent.length ? el("div", { class: "card" }, inv.recent.map((r) => el("div", { class: "row" },
+      el("div", {}, el("b", {}, EARNING_TEXT[r.status] ?? r.status), el("small", {}, plural(r.cards, "card"), " · ", when(r.created_at))),
+      el("b", {}, (r.status === "REVERSED" ? "−" : "+") + naira(r.amount_kobo))))) : el("p", { class: "muted" }, "No earnings yet. Share your link to start."),
+    el("a", { class: "btn ghost", href: "#/wallet" }, "Open my wallet"), el("p"),
+    approvedMaterials(inv),
+    el("div", { class: "note" }, "Please share responsibly: only with adults, never promise anyone a win, and never pressure anyone to play. You don't earn on your own cards, or on friends of friends."),
   ];
 }
 
 /**
- * The approved marketing texts (SRS AFF-005): the only ones an affiliate may use.
- * {link} in a text becomes the affiliate's own link; otherwise the link is added at the end.
+ * The approved messages every player can share. {link} in a text becomes the
+ * player's own link; otherwise the link is added at the end.
  */
-async function approvedMaterials() {
-  const m = await api.get("/v1/me/affiliate/materials");
-  const url = location.origin + m.link;
-  const linkOnly = el("button", { class: "btn small ghost", type: "button", onclick: async () => {
-    try { await navigator.clipboard.writeText(url); toast("Link copied."); } catch { toast(url); }
-  } }, "Copy link");
-  if (!m.materials.length) {
-    return el("div", {}, el("h2", {}, "Approved materials"),
-      el("div", { class: "note warn" }, "There are no approved materials yet. Until there are, share only your link, without your own wording."), linkOnly);
-  }
-  return el("div", {}, el("h2", {}, "Approved materials"),
-    el("p", { class: "muted" }, "Use only these texts and pictures, as they are. Each one already contains your link."), linkOnly, el("p"),
-    m.materials.map((x) => {
+function approvedMaterials(inv) {
+  const url = inv.url;
+  if (!inv.materials?.length) return null;
+  return el("div", {}, el("h2", {}, "Messages ready to share"),
+    el("p", { class: "muted" }, "Use these as they are. Each one already contains your link."),
+    inv.materials.map((x) => {
       const body = (lang() === "ha" && x.body_ha) || x.body_en;
       const text = body.includes("{link}") ? body.replaceAll("{link}", url) : `${body} ${url}`;
       return el("div", { class: "card material" },
-        el("div", { class: "row" }, el("b", {}, x.name), el("span", { class: "pill grey" }, `${CHANNEL_TEXT[x.channel] ?? x.channel} · v${x.version}`)),
+        el("div", { class: "row" }, el("b", {}, x.name), el("span", { class: "pill grey" }, CHANNEL_TEXT[x.channel] ?? x.channel)),
         x.has_image ? el("img", { class: "material-pic", src: `/v1/material-images/${x.version_id}`, alt: x.name, loading: "lazy" }) : null,
         el("p", { class: "material-text" }, text),
         el("div", { class: "share-apps" },
@@ -1166,7 +1206,7 @@ const CHANNEL_TEXT = { WHATSAPP: "WhatsApp", SMS: "Text message", SOCIAL: "Socia
 
 // --- Public website pages (SRS WEB-001 to WEB-015) --------------------------------------------
 // Home and the current campaign (WEB-001/002), My cards (005), the draw centre (006), claiming
-// prizes (007), affiliates (008), collection centres (009), game rules (012) and privacy (014)
+// prizes (007), invite and earn (008), collection centres (009), game rules (012) and privacy (014)
 // are screens of their own; these are the rest, and the site map that links them all.
 
 const SITE_PAGES = [
@@ -1176,7 +1216,7 @@ const SITE_PAGES = [
   ["#/cards", "🎟️", "My cards", "Your cards and results"],
   ["#/draw", "🎯", "Draw centre", "The draw date and verified results"],
   ["#/wallet", "🏆", "Claim your prize", "Cash winnings and merchandise prizes"],
-  ["#/affiliate", "📣", "Digital agency", "Become an authorised affiliate"],
+  ["#/invite", "🤝", "Invite and earn", "Earn 10% of the cards your friends buy"],
   ["#/centres", "📍", "Collection centres", "Where winners collect prizes"],
   ["#/past", "📜", "Previous campaigns", "Results and how prizes were delivered"],
   ["#/rules", "📘", "Game rules and odds", "The approved terms and chances of winning"],
@@ -1265,7 +1305,8 @@ function helpScreen() {
     qa("Do I have to pay to collect a prize?", "No. Nobody may ask you to pay, buy anything or join anything to receive a prize. Report anyone who does."),
     qa("Is any tax taken from winnings?", "If the law requires a deduction, it is shown in the game rules and when you scratch, and only the rest goes to your wallet."),
     qa("I lost my phone or forgot my PIN.", "Reset your PIN with a code sent to your phone number. If you no longer have the number, contact support. We will never ask for your PIN."),
-    qa("Someone promoting WiiFarm misled me.", "Report them from the help page below (Report a promoter). Only authorised affiliates may promote us, with approved materials."),
+    qa("Someone promoting WiiFarm misled me.", "Report them from the help page below (Report a promoter). Players may share their link only with adults, using the approved messages, and must never promise a win."),
+    qa("How do I earn from inviting friends?", "Share your invite link. You earn 10% of every card bought by friends who joined with it (₦50 a card), paid into your wallet. Withdraw it with your winnings. You don't earn on your own cards, or on friends of friends."),
     el("a", { class: "btn gold", href: "#/support" }, "Contact support"),
     el("p", { class: "muted" }, "Support replies in the app and by text message. We never ask for your PIN or the codes sent to your phone.")];
 }
@@ -1382,79 +1423,6 @@ async function centresScreen() {
       : el("p", { class: "muted" }, "No collection centres yet. Winners can choose delivery.")];
 }
 
-const AFFILIATE_STATUS = { APPLIED: "Waiting for review", APPROVED: "Approved", REJECTED: "Not approved", SUSPENDED: "Suspended", TERMINATED: "Ended" };
-
-/** The affiliate application and, once applied, the affiliate's own page (SRS section 13). */
-async function affiliateScreen() {
-  const d = await api.get("/v1/me/affiliate");
-  const fees = d.programme.enabled
-    ? el("div", { class: "note" }, `Affiliate fees: ${d.programme.ratePercent}% of the purchases made by the players you bring, in your territory.`)
-    : el("div", { class: "note warn" }, "Affiliate fees are not being paid yet: they start once they have been legally approved. Sales from your players are recorded meanwhile.");
-  if (!d.affiliate) {
-    if (((await api.get("/v1/me")).kycTier ?? 0) < 2) {
-      return [el("h1", {}, "Become an affiliate"), fees,
-        el("p", { class: "muted" }, "Affiliates are paid, so they need the liveness check and a bank account in their own verified name."),
-        el("a", { class: "btn gold", href: "#/liveness" }, "Do the liveness check")];
-    }
-    const banks = (await api.get("/v1/me/bank-accounts")).accounts.filter((b) => b.name_match);
-    if (!banks.length) {
-      return [el("h1", {}, "Become an affiliate"), fees,
-        el("p", { class: "muted" }, "Add a bank account in your own verified name on the Wallet page first. Your fees will be paid to it."),
-        el("a", { class: "btn gold", href: "#/wallet" }, "Go to Wallet")];
-    }
-    const form = el("form", { class: "card stack", onsubmit: action(async (e) => {
-      e.preventDefault();
-      const r = await api.post("/v1/me/affiliate", {
-        businessName: val(form, "business"), contactEmail: val(form, "email"), channels: val(form, "channels"), bankAccountId: val(form, "bank"),
-        ...(val(form, "area") ? { territoryArea: val(form, "area") } : {}),
-        acceptAgreement: form.querySelector("input[name=agreement]").checked, trainingCompleted: form.querySelector("input[name=training]").checked,
-      });
-      toast(`Application ${r.reference} sent. Compliance will review it.`);
-      state.invite = undefined;
-      render();
-    }) },
-      ...field("Your name or business name", el("input", { name: "business", required: true, maxlength: 120 })),
-      ...field("Email address", el("input", { name: "email", type: "email", required: true, maxlength: 200 })),
-      ...field("Your area in the state (optional)", el("input", { name: "area", maxlength: 120 })),
-      ...field("Where you will promote (for example WhatsApp groups, market days, radio)", el("textarea", { name: "channels", required: true, maxlength: 500 })),
-      ...field("Bank account for your fees", el("select", { name: "bank" }, banks.map((b) => el("option", { value: b.id }, `${BANKS[b.bank_code] ?? b.bank_code} · ${b.resolved_name}`)))),
-      el("details", { class: "card" }, el("summary", {}, "Compliance training"),
-        el("div", { class: "row" }, el("small", {}, "Only promote to adults (18 or over), and never to anyone on a self-exclusion list.")),
-        el("div", { class: "row" }, el("small", {}, "Never promise or suggest that anyone will win, or that playing is a way to make money.")),
-        el("div", { class: "row" }, el("small", {}, "Use only the approved materials and your own attribution code. Do not pay or reward people for signing up.")),
-        el("div", { class: "row" }, el("small", {}, "Never ask for anyone's PIN, sign-up code or bank details, and never buy cards for other people.")),
-        el("div", { class: "row" }, el("small", {}, "You earn only on the players you bring yourself. There are no downlines or recruitment bonuses."))),
-      el("label", { class: "check" }, el("input", { type: "checkbox", name: "training", required: true }), " I have read and understood the compliance training"),
-      el("label", { class: "check" }, el("input", { type: "checkbox", name: "agreement", required: true }), ` I accept the affiliate agreement (version ${d.agreementVersion})`),
-      el("button", { class: "btn gold", type: "submit" }, "Apply"));
-    return [el("h1", {}, "Become an affiliate"),
-      el("p", { class: "muted" }, "Authorised affiliates promote WiiFarm Rewards in their territory. Compliance reviews every application."), fees, form];
-  }
-  const a = d.affiliate, st = d.stats;
-  return [
-    el("h1", {}, "Your affiliate page"),
-    el("div", { class: "card" },
-      el("div", { class: "row" }, el("span", {}, "Reference"), el("b", {}, a.reference)),
-      el("div", { class: "row" }, el("span", {}, "Status"), el("b", {}, AFFILIATE_STATUS[a.status] ?? a.status)),
-      el("div", { class: "row" }, el("span", {}, "Territory"), el("b", {}, a.territory + (a.territoryArea ? ` · ${a.territoryArea}` : "")))),
-    a.status === "APPLIED" ? el("div", { class: "note" }, "Compliance is reviewing your application. We will message you when it has been decided.") : null,
-    a.status === "SUSPENDED" ? el("div", { class: "note warn" }, "Your affiliate account is suspended while Compliance reviews it.") : null,
-    a.code ? el("div", { class: "card center" }, el("span", { class: "muted" }, "Your attribution code"), el("div", { class: "code-big" }, a.code),
-      el("small", { class: "muted" }, location.origin + a.link)) : null,
-    a.code ? await approvedMaterials() : null,
-    a.status === "APPLIED" || a.status === "REJECTED" ? null : fees,
-    a.status === "APPLIED" || a.status === "REJECTED" ? null : el("div", { class: "tiles" },
-      el("div", { class: "tile" }, el("b", {}, String(st.signUps)), el("span", {}, "sign-ups")),
-      el("div", { class: "tile" }, el("b", {}, String(st.buyers)), el("span", {}, "players who bought")),
-      el("div", { class: "tile" }, el("b", {}, naira(st.salesKobo)), el("span", {}, "their purchases")),
-      el("div", { class: "tile" }, el("b", {}, naira(st.pendingKobo)), el("span", {}, "fees to be paid")),
-      el("div", { class: "tile" }, el("b", {}, naira(st.paidKobo)), el("span", {}, "fees paid"))),
-    d.statements.length ? el("h2", {}, "Statements") : null,
-    d.statements.length ? el("div", { class: "card" }, d.statements.map((x) => el("div", { class: "row" },
-      el("div", {}, el("b", {}, x.status === "PAID" ? "Paid to your bank" : "Being approved"), el("small", {}, when(x.decided_at ?? x.created_at) + (x.payment_ref ? ` · ${x.payment_ref}` : ""))),
-      el("b", {}, naira(x.amount_kobo))))) : null,
-  ];
-}
 
 /** A short burst of confetti for a win (not shown to people who prefer less motion). */
 function confetti() {
@@ -1527,7 +1495,7 @@ const ROUTES = {
   signup: { screen: signup, tab: "me" }, login: { screen: login, tab: "me" },
   verify: { screen: verify, tab: "home", auth: true }, buy: { screen: buy, tab: "home", auth: true, verified: true },
   cards: { screen: cards, tab: "cards", auth: true }, card: { screen: card, tab: "cards", auth: true },
-  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, affiliate: { screen: affiliateScreen, tab: "me", auth: true }, centres: { screen: centresScreen, tab: "wallet" }, site: { screen: siteMap, tab: "home" }, prizes: { screen: prizesScreen, tab: "home" },
+  wallet: { screen: wallet, tab: "wallet", auth: true }, invite: { screen: invite, tab: "me", auth: true }, centres: { screen: centresScreen, tab: "wallet" }, site: { screen: siteMap, tab: "home" }, prizes: { screen: prizesScreen, tab: "home" },
   prize: { screen: prizeScreen, tab: "home" }, how: { screen: howScreen, tab: "home" }, help: { screen: helpScreen, tab: "me" }, responsible: { screen: responsibleScreen, tab: "me" },
   about: { screen: aboutScreen, tab: "home" }, past: { screen: pastScreen, tab: "draw" }, "draw-report": { screen: drawReportScreen, tab: "draw" }, liveness: { screen: liveness, tab: "wallet", auth: true },
   rules: { screen: rulesScreen, tab: "home" }, privacy: { screen: privacyScreen, tab: "me" }, inbox: { screen: inbox, tab: "me", auth: true }, support: { screen: supportScreen, tab: "me", auth: true }, draw: { screen: draw, tab: "draw" }, me: { screen: me, tab: "me" },

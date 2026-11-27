@@ -1,11 +1,12 @@
-import { audit, type Actor } from "../audit.ts";
+import { audit, SYSTEM, type Actor } from "../audit.ts";
 import { naira, notify } from "./notify.ts";
 import type { Ctx } from "../context.ts";
 import { lockKey, one, withTx, type Db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { accounts, balance, post } from "../ledger.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
-import { DEFAULT_MAJOR_PRIZE_KOBO, livenessRequired, onExclusionRegister, type User } from "./identity.ts";
+import { activeExclusion, DEFAULT_MAJOR_PRIZE_KOBO, livenessRequired, onExclusionRegister, type User } from "./identity.ts";
+import { newToken } from "../crypto.ts";
 
 const MIN_PAYOUT_KOBO = 50_000; // ₦500
 
@@ -14,20 +15,109 @@ export async function winningsBalance(db: Db, userId: string): Promise<number> {
   return -(await balance(db, accounts.playerWinnings(userId).code));
 }
 
+/** Money the player has deposited and not yet spent: for buying cards, not withdrawable. */
+export async function depositsBalance(db: Db, userId: string): Promise<number> {
+  return Math.max(0, -(await balance(db, accounts.playerDeposits(userId).code)));
+}
+
+/** What each kind of ledger posting means in the player's wallet history. */
+const HISTORY_TYPE: Record<string, string> = {
+  DEPOSIT: "DEPOSIT", INSTANT_PRIZE: "WIN", DRAW_PRIZE: "WIN", REFERRAL_COMMISSION: "REFERRAL", REFERRAL_REVERSAL: "REFERRAL",
+  TICKET_SALE: "CARDS", PAYOUT: "WITHDRAWAL", PAYOUT_REVERSAL: "WITHDRAWAL", REFUND: "REFUND",
+};
+
+/**
+ * The wallet: deposits (for buying cards) and withdrawable money (winnings and
+ * referral earnings), with one history of everything that moved in or out:
+ * deposits, wins, referral earnings, cards bought from the wallet, withdrawals
+ * and refunds. A purchase paid partly from each part shows as one line.
+ */
 export async function getWallet(ctx: Ctx, userId: string): Promise<unknown> {
   const db = await ctx.pool.connect();
   try {
-    const history = await db.query(
-      `SELECT t.kind, t.created_at, -e.amount_kobo AS amount_kobo
+    const history = (await db.query<{ kind: string; created_at: Date; amount_kobo: string; memo: string | null }>(
+      `SELECT min(t.kind) AS kind, min(t.created_at) AS created_at, sum(-e.amount_kobo)::bigint AS amount_kobo, string_agg(DISTINCT t.memo, ' · ') AS memo
        FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id JOIN ledger_accounts a ON a.id = e.account_id
-       WHERE a.code = $1 ORDER BY e.id DESC LIMIT 100`, [accounts.playerWinnings(userId).code]);
+       WHERE a.code IN ($1, $2) GROUP BY regexp_replace(t.reference, ':winnings$', '') ORDER BY max(e.id) DESC LIMIT 150`,
+      [accounts.playerWinnings(userId).code, accounts.playerDeposits(userId).code])).rows
+      .map((r) => ({ kind: r.kind, type: r.kind === "ADJUSTMENT" && r.memo?.startsWith("Prize forfeited") ? "WIN" : HISTORY_TYPE[r.kind] ?? "OTHER",
+        created_at: r.created_at, amount_kobo: Number(r.amount_kobo), memo: r.memo }));
     const payouts = await db.query("SELECT id, amount_kobo, status, created_at FROM payouts WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50", [userId]);
+    const deposits = await db.query("SELECT id, amount_kobo, method, status, provider_ref, created_at, confirmed_at FROM deposits WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50", [userId]);
     // If a refunded purchase's prize had already been withdrawn, the player owes it back.
-    const b = await winningsBalance(db, userId);
-    return { balanceKobo: Math.max(0, b), owedKobo: Math.max(0, -b), history: history.rows, payouts: payouts.rows };
+    const w = await winningsBalance(db, userId), d = await depositsBalance(db, userId);
+    const earned = await one<{ e: string }>(db, "SELECT coalesce(sum(amount_kobo), 0)::bigint AS e FROM referral_commissions WHERE referrer_id = $1 AND status = 'EARNED'", [userId]);
+    return { balanceKobo: Math.max(0, w) + d, withdrawableKobo: Math.max(0, w), depositsKobo: d, owedKobo: Math.max(0, -w), referralEarnedKobo: Number(earned!.e),
+      history, payouts: payouts.rows, deposits: deposits.rows.map((r) => ({ ...r, amount_kobo: Number(r.amount_kobo) })) };
   } finally {
     db.release();
   }
+}
+
+// --- Deposits --------------------------------------------------------------------------------
+
+export const DEPOSIT_METHODS = ["BANK_TRANSFER", "CARD", "USSD", "OPAY"] as const;
+export type DepositMethod = typeof DEPOSIT_METHODS[number];
+const MIN_DEPOSIT_KOBO = 10_000, MAX_DEPOSIT_KOBO = 10_000_000; // ₦100 to ₦100,000 at a time
+
+/**
+ * Starts a deposit into the wallet. The player pays the provider (simulated
+ * here); the money reaches the wallet when the provider confirms it. Only
+ * verified adults who are not taking a break may deposit.
+ */
+export async function createDeposit(ctx: Ctx, actor: Actor, user: User, input: { amountKobo: number; method: DepositMethod; idempotencyKey: string }): Promise<{ id: string; status: string; amountKobo: number; paymentRef: string }> {
+  if (!Number.isSafeInteger(input.amountKobo) || input.amountKobo < MIN_DEPOSIT_KOBO || input.amountKobo > MAX_DEPOSIT_KOBO || input.amountKobo % 100 !== 0)
+    throw badRequest("INVALID_AMOUNT", "You can add from ₦100 to ₦100,000 at a time, in whole naira.");
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(input.idempotencyKey)) throw badRequest("INVALID_IDEMPOTENCY_KEY", "Missing or invalid Idempotency-Key.");
+  if (user.kyc_tier < 1) throw forbidden("VERIFICATION_REQUIRED", "Verify your age and identity before adding money.");
+  return withTx(ctx.pool, async (db) => {
+    await lockKey(db, `player:${user.id}`);
+    const key = `${user.id}:${input.idempotencyKey}`;
+    const replay = await one<{ id: string; status: string; amount_kobo: number; provider_ref: string }>(db, "SELECT id, status, amount_kobo, provider_ref FROM deposits WHERE idempotency_key = $1", [key]);
+    if (replay) return { id: replay.id, status: replay.status, amountKobo: Number(replay.amount_kobo), paymentRef: replay.provider_ref };
+    if (await activeExclusion(db, user.id)) throw forbidden("SELF_EXCLUDED", "You are taking a break from play, so adding money is switched off.");
+    if (await onExclusionRegister(db, user)) throw forbidden("NOT_ELIGIBLE", "You are not eligible to take part.");
+    const paymentRef = "SIMDEP-" + newToken().token.slice(0, 24);
+    const r = await db.query<{ id: string }>(
+      "INSERT INTO deposits (user_id, amount_kobo, method, provider, provider_ref, idempotency_key) VALUES ($1, $2, $3, 'SIMULATED', $4, $5) RETURNING id",
+      [user.id, input.amountKobo, input.method, paymentRef, key]);
+    await audit(db, actor, "deposit.created", "deposit", r.rows[0]!.id, { amountKobo: input.amountKobo, method: input.method });
+    return { id: r.rows[0]!.id, status: "PENDING", amountKobo: input.amountKobo, paymentRef };
+  });
+}
+
+/** The provider confirms a deposit: the money goes into the player's wallet, once. */
+export async function confirmDeposit(ctx: Ctx, notice: { provider: string; eventId: string; paymentRef: string; amountKobo: number; currency: string }): Promise<{ depositId: string; status: string }> {
+  return withTx(ctx.pool, async (db) => {
+    const d = await one<{ id: string; user_id: string; amount_kobo: number; status: string }>(db,
+      "SELECT id, user_id, amount_kobo, status FROM deposits WHERE provider = $1 AND provider_ref = $2 FOR NO KEY UPDATE", [notice.provider, notice.paymentRef]);
+    if (!d) throw notFound("Unknown deposit.");
+    const fresh = await db.query(
+      `INSERT INTO payment_events (provider, provider_event_id, signature_valid, payload, processed_at) VALUES ($1, $2, true, $3, now()) ON CONFLICT (provider, provider_event_id) DO NOTHING`,
+      [notice.provider, notice.eventId, JSON.stringify(notice)]);
+    if (!fresh.rowCount || d.status !== "PENDING") return { depositId: d.id, status: d.status };
+    if (notice.currency !== "NGN" || notice.amountKobo !== Number(d.amount_kobo)) {
+      await db.query("INSERT INTO compliance_alerts (kind, severity, entity_type, entity_id, details) VALUES ('PAYMENT_AMOUNT_MISMATCH', 'CRITICAL', 'deposit', $1, $2)",
+        [d.id, JSON.stringify({ expected: Number(d.amount_kobo), received: notice.amountKobo, currency: notice.currency })]);
+      return { depositId: d.id, status: "PENDING" };
+    }
+    await db.query("UPDATE deposits SET status = 'CONFIRMED', confirmed_at = now() WHERE id = $1", [d.id]);
+    await post(db, { kind: "DEPOSIT", reference: `deposit:${d.id}`, memo: "Money added to the wallet",
+      debit: accounts.gatewayClearing(), credit: accounts.playerDeposits(d.user_id), amountKobo: Number(d.amount_kobo) });
+    await audit(db, SYSTEM, "deposit.confirmed", "deposit", d.id, { amountKobo: Number(d.amount_kobo) });
+    await notify(db, { userId: d.user_id, kind: "WALLET_CREDIT", link: "#/wallet", dedupeKey: `deposit:${d.id}`,
+      title: `${naira(Number(d.amount_kobo))} added to your wallet`, body: `Your deposit of ${naira(Number(d.amount_kobo))} is in your wallet, ready to buy cards.`,
+      ha: { title: `An ƙara ${naira(Number(d.amount_kobo))} a jakarka`, body: `Kuɗin da ka saka, ${naira(Number(d.amount_kobo))}, suna cikin jakarka, a shirye don sayen katuna.` } });
+    return { depositId: d.id, status: "CONFIRMED" };
+  });
+}
+
+/** Simulation only: the player "pays" the deposit at the simulated provider. */
+export async function simulateDeposit(ctx: Ctx, user: User, paymentRef: string): Promise<{ depositId: string; status: string }> {
+  if (!ctx.config.simulated) throw forbidden("NOT_AVAILABLE", "Not available.");
+  const d = await one<{ amount_kobo: number }>(ctx.pool, "SELECT amount_kobo FROM deposits WHERE provider = 'SIMULATED' AND provider_ref = $1 AND user_id = $2", [paymentRef, user.id]);
+  if (!d) throw notFound("Unknown deposit.");
+  return confirmDeposit(ctx, { provider: "SIMULATED", eventId: `${paymentRef}:succeeded`, paymentRef, amountKobo: Number(d.amount_kobo), currency: "NGN" });
 }
 
 /**

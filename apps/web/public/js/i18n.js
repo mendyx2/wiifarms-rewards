@@ -29,6 +29,34 @@ export function setLang(l) {
 document.documentElement.lang = current;
 
 const HA = {
+  // --- Wallet deposits and invite-and-earn ---
+  "Invite friends and earn": "Gayyaci abokai ka sami kuɗi", "Invite and earn": "Gayyata da samun kuɗi", "Invite friends, earn": "Gayyaci abokai, ka sami kuɗi",
+  "Earn 10% of the cards your friends buy": "Ka sami kashi 10% na katunan da abokanka suka saya",
+  "Earn {0} on every ₦500 card your friends buy, paid into your wallet.": "Ka sami {0} a kan kowane katin ₦500 da abokanka suka saya, a cikin jakarka.",
+  "Earn {0}% of every card your friends buy: {1} on each ₦500 card, paid straight into your wallet. Withdraw it with your winnings.":
+    "Ka sami kashi {0}% na kowane kati da abokanka suka saya: {1} a kan kowane katin ₦500, kai tsaye cikin jakarka. Ka cire shi tare da kuɗin nasararka.",
+  "Your referral earnings have been stopped after a complaint was upheld. Contact support if you think this is wrong.":
+    "An dakatar da kuɗin gayyatarka bayan an tabbatar da wani ƙorafi. Tuntuɓi masu taimako idan kana ganin ba daidai ba ne.",
+  "Your earnings": "Kuɗin da ka samu", "earned": "an samu", "cards they bought": "katunan da suka saya", "Earned": "An samu", "Taken back (refund)": "An karɓe baya (maida kuɗi)",
+  "No earnings yet. Share your link to start.": "Babu kuɗin da aka samu tukuna. Ka raba hanyar haɗinka don farawa.",
+  "Messages ready to share": "Saƙonni a shirye don rabawa", "Use these as they are. Each one already contains your link.": "Ka yi amfani da su yadda suke. Kowanne yana ɗauke da hanyar haɗinka.",
+  "Please share responsibly: only with adults, never promise anyone a win, and never pressure anyone to play. You don't earn on your own cards, or on friends of friends.":
+    "Da fatan ka raba cikin hankali: ga manya kawai, kada ka yi wa kowa alƙawarin nasara, kuma kada ka tilasta wa kowa ya yi wasa. Ba ka samun kuɗi a kan katunanka, ko a kan abokan abokanka.",
+  "Money added": "An ƙara kuɗi", "Deposits": "Kuɗin da aka saka", "Cards": "Katuna", "Refunds": "Maida kuɗi", "All": "Duka",
+  "Bank transfer": "Tura kuɗi ta banki", "OPay": "OPay", "Debit card": "Katin banki", "USSD": "USSD",
+  "You can withdraw": "Za ka iya cirewa",
+  "Winnings and referral earnings can be withdrawn to a bank account in your own verified name. Deposits are for buying cards, and are used first.":
+    "Ana iya cire kuɗin nasara da na gayyata zuwa asusun banki da sunanka da aka tabbatar. Kuɗin da aka saka na sayen katuna ne, kuma da su ake farawa.",
+  "Add money": "Ƙara kuɗi", "Pay {0}": "Biya {0}", "Pay {0} (simulated)": "Biya {0} (gwaji)", "Reference {0}": "Lambar shaida {0}",
+  "Simulation: no money moves. In the live service you pay with your bank or OPay here.": "Gwaji: babu kuɗin da ke motsawa. A ainihin sabis, a nan za ka biya ta bankinka ko OPay.",
+  "You can add from ₦100 to ₦100,000 at a time.": "Za ka iya ƙara daga ₦100 zuwa ₦100,000 a lokaci ɗaya.", "Pay with": "Biya da",
+  "Deposits are for buying cards. They cannot be withdrawn; your winnings and referral earnings can.": "Kuɗin da aka saka na sayen katuna ne. Ba a iya cire su; kuɗin nasara da na gayyata kuwa ana iya cirewa.",
+  "Continue": "Ci gaba",
+  "How do I earn from inviting friends?": "Yaya zan sami kuɗi ta gayyatar abokai?",
+  "Share your invite link. You earn 10% of every card bought by friends who joined with it (₦50 a card), paid into your wallet. Withdraw it with your winnings. You don't earn on your own cards, or on friends of friends.":
+    "Ka raba hanyar haɗin gayyatarka. Za ka sami kashi 10% na kowane kati da abokan da suka shiga da ita suka saya (₦50 a kowane kati), a cikin jakarka. Ka cire shi tare da kuɗin nasararka. Ba ka samun kuɗi a kan katunanka, ko a kan abokan abokanka.",
+  "Report them from the help page below (Report a promoter). Players may share their link only with adults, using the approved messages, and must never promise a win.":
+    "Ka kai rahotonsa daga shafin taimako da ke ƙasa (Kai rahoton mai talla). 'Yan wasa za su iya raba hanyar haɗinsu ga manya kawai, da saƙonnin da aka amince da su, kuma kada su taɓa yin alƙawarin nasara.",
   // --- Frame and navigation ---
   "WiiFarm Rewards": "WiiFarm Rewards",
   "Home": "Gida", "My cards": "Katuna na", "Winnings": "Kuɗin nasara", "Draw": "Zaɓe", "Me": "Ni",

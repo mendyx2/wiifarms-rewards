@@ -1,17 +1,16 @@
 // Inviting friends and the wallet, in the browser: an invite link fills in the
-// code at sign-up (inviting earns nothing since the affiliate model), and the
-// wallet pays for cards with the PIN.
+// code at sign-up, the inviter earns 10% of the friend's cards into their
+// wallet, adds money (a deposit), pays for cards from the wallet with the PIN
+// (deposits first), and sees it all in the wallet history.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { accounts, post } from "@wiifarm/api/ledger.ts";
-import { withTx } from "@wiifarm/api/db.ts";
 import { answerDialogs, apiPlayer, assertClean, call, newPage, playerSignIn, startStack, toast, type Stack } from "./harness.ts";
 
 let s: Stack;
 before(async () => { s = await startStack(); });
 after(async () => { await s?.stop(); });
 
-test("an invite link fills in the code, and the wallet buys cards with the PIN", async () => {
+test("an invite link fills in the code; the inviter earns 10%, adds money, and buys cards from the wallet with the PIN", async () => {
   const inviter = await apiPlayer(s, "08039990101", "Fatima Danladi");
   const { code } = await call(s, "GET", "/v1/me/referrals", { token: inviter.token });
 
@@ -44,25 +43,34 @@ test("an invite link fills in the code, and the wallet buys cards with the PIN",
   await f.waitForSelector(".ticket");
   await assertClean(f, "invited friend");
 
-  // The inviter has earned nothing from it. (₦625 is credited here so a card can be bought from the wallet.)
-  const inviterId = (await s.pool.query("SELECT id FROM users WHERE phone_e164 = '+2348039990101'")).rows[0].id as string;
-  await withTx(s.pool, (db) => post(db, { kind: "ADJUSTMENT", reference: "test:credit:inviter", memo: "test set-up", debit: accounts.companyBank(), credit: accounts.playerWinnings(inviterId), amountKobo: 62_500 }));
+  // The inviter has earned 10% of the friend's ₦5,000: ₦500, withdrawable.
   const p = await newPage(s);
   answerDialogs(p);
   await playerSignIn(p, s, "08039990101");
   await p.click("#tabs a[data-tab=wallet]");
   await p.waitForSelector("h1:has-text('Wallet')");
-  assert.equal((await p.innerText(".balance")).trim(), "₦625");
-  assert.ok(!(await p.locator(".row b").allInnerTexts()).includes("Referral earnings"));
+  assert.equal((await p.innerText(".balance")).trim(), "₦500");
+  await p.waitForSelector(".row:has-text('You can withdraw') >> text=₦500");
+
+  // Adding money: ₦1,000 through the (simulated) provider. Deposits are for cards, not for withdrawing.
+  await p.click("summary:has-text('Add money')");
+  await p.click(".chips.amounts button:has-text('₦1,000')");
+  await p.selectOption("select[name=method]", "OPAY");
+  await p.click('.deposit button:has-text("Continue")');
+  await p.click('button:has-text("Pay ₦1,000 (simulated)")');
+  await toast(p, /₦1,000 added to your wallet/);
+  await p.waitForFunction(() => document.querySelector(".balance")?.textContent?.trim() === "₦1,500");
+  await p.waitForSelector(".row:has-text('Deposits') >> text=₦1,000");
+  await p.waitForSelector(".row:has-text('You can withdraw') >> text=₦500");
 
   // Paying from the wallet asks for the PIN again.
   await p.click("text=Buy cards from my wallet");
   await p.waitForSelector("text=How many cards?");
   await p.click('.chips button:has-text("1")');
   await p.check("input[name=rules]");
-  await p.click('button:has-text("Pay ₦500 from my wallet (₦625)")');
+  await p.click('button:has-text("Pay ₦500 from my wallet (₦1,500)")');
   await p.waitForSelector("h1:has-text('Pay from your wallet')");
-  assert.match(await p.innerText("main .card"), /Wallet balance after\s+₦125/);
+  assert.match(await p.innerText("main .card"), /Wallet balance after\s+₦1,000/);
   await p.fill("input[name=pin]", "999999");
   await p.click('button:has-text("Confirm and buy")');
   await toast(p, /Enter your PIN/);
@@ -71,6 +79,16 @@ test("an invite link fills in the code, and the wallet buys cards with the PIN",
   await toast(p, /Paid from your wallet/);
   await p.waitForSelector(".ticket");
   assert.equal(await p.locator(".ticket").count(), 1);
-  assert.equal((await p.innerText("#topBal")).trim(), "₦125");
+  assert.equal((await p.innerText("#topBal")).trim(), "₦1,000");
+
+  // The wallet: deposits were spent first, so the ₦500 earned is still withdrawable; the history shows every kind of movement.
+  await p.click("#tabs a[data-tab=wallet]");
+  await p.waitForSelector(".row:has-text('Deposits') >> text=₦500");
+  await p.waitForSelector(".row:has-text('You can withdraw') >> text=₦500");
+  assert.deepEqual(await p.locator(".history-row").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-type"))), ["CARDS", "DEPOSIT", "REFERRAL"]);
+  await p.click(".history-filter button:has-text('Deposits')");
+  await p.waitForSelector(".history-filter button.on:has-text('Deposits')");
+  await p.waitForSelector(".history-row[data-type=DEPOSIT] >> text=+₦1,000");
+  assert.equal(await p.locator(".history-row").count(), 1);
   await assertClean(p, "wallet purchase");
 });

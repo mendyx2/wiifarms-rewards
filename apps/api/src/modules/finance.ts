@@ -90,14 +90,16 @@ export interface Statement { collectedKobo: number; refundedKobo: number; paidOu
  * independently: once from the payment, refund and payout records, once from
  * the ledger. With a real provider a third column, the provider's own
  * statement, is entered by Finance. In simulation the provider has no
- * statement of its own, so the check is records-versus-ledger only. Cards
+ * statement of its own, so the check is records-versus-ledger only. Deposits
+ * into wallets come through the provider and are counted as collected; cards
  * bought from a player's wallet (and their refunds) never pass through the
  * provider, so they are not part of this check.
  */
 async function dayTotals(db: Db, day: string): Promise<{ records: Totals; ledger: Totals }> {
   const inDay = (col: string) => `(${col} AT TIME ZONE '${TZ}')::date = $1::date`;
   const records = (await one<{ c: number; r: number; p: number }>(db,
-    `SELECT (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider <> 'WALLET' AND ${inDay("verified_at")})::bigint AS c,
+    `SELECT (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider <> 'WALLET' AND ${inDay("verified_at")})::bigint
+              + (SELECT coalesce(sum(amount_kobo), 0) FROM deposits WHERE status = 'CONFIRMED' AND ${inDay("confirmed_at")})::bigint AS c,
             (SELECT coalesce(sum(rf.amount_kobo), 0) FROM refunds rf JOIN payments p ON p.id = rf.payment_id
               WHERE rf.status = 'CONFIRMED' AND p.provider <> 'WALLET' AND coalesce(rf.provider_ref, '') NOT LIKE 'WALLET-%'
                 AND ${inDay("coalesce(rf.decided_at, rf.created_at)")})::bigint AS r,
@@ -242,6 +244,7 @@ export async function periodSummary(ctx: Ctx, admin: Admin, from: string, to: st
     `SELECT
        (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider <> 'WALLET' AND ${inRange("verified_at")})::bigint AS collected_kobo,
        (SELECT coalesce(sum(amount_kobo), 0) FROM payments WHERE status = 'SUCCEEDED' AND provider = 'WALLET' AND ${inRange("verified_at")})::bigint AS wallet_sales_kobo,
+       (SELECT coalesce(sum(amount_kobo), 0) FROM deposits WHERE status = 'CONFIRMED' AND ${inRange("confirmed_at")})::bigint AS deposits_kobo,
        (SELECT coalesce(sum(rf.amount_kobo), 0) FROM refunds rf JOIN payments p ON p.id = rf.payment_id WHERE rf.status = 'CONFIRMED'
           AND p.provider <> 'WALLET' AND coalesce(rf.provider_ref, '') NOT LIKE 'WALLET-%' AND ${inRange("coalesce(rf.decided_at, rf.created_at)")})::bigint AS refunded_kobo,
        (SELECT coalesce(sum(rf.amount_kobo), 0) FROM refunds rf JOIN payments p ON p.id = rf.payment_id WHERE rf.status = 'CONFIRMED'
@@ -264,7 +267,7 @@ export async function periodSummary(ctx: Ctx, admin: Admin, from: string, to: st
      FROM operating_expenses WHERE incurred_on BETWEEN $1::date AND $2::date GROUP BY category ORDER BY 2 DESC`, [from, to])).rows;
   const net = s.collected_kobo! + s.wallet_sales_kobo! - s.refunded_kobo! - s.refunded_to_wallets_kobo!;
   return { from, to, ...s, net_sales_kobo: net, result_kobo: net - s.cash_prizes_kobo! - s.referral_commissions_kobo! - s.affiliate_fees_kobo! - s.operating_expenses_kobo!, expensesByCategory: byCategory,
-    note: "Cash prizes are counted when awarded. Merchandise prize costs are shown per cycle in the cycle results. Cash prizes include the statutory deductions withheld from them. Sales include cards bought from players' wallets; affiliate fees (and referral commissions under the earlier model) are paid from the operator's share." };
+    note: "Cash prizes are counted when awarded. Merchandise prize costs are shown per cycle in the cycle results. Cash prizes include the statutory deductions withheld from them. Sales include cards bought from players' wallets (deposits become sales only when spent on cards); referral earnings (and affiliate fees under the earlier model) are paid from the operator's share." };
 }
 
 // --- Spreadsheet export ----------------------------------------------------------------------------

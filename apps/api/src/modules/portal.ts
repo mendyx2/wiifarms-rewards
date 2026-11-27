@@ -4,18 +4,18 @@ import type { Ctx } from "../context.ts";
 import { one, withTx, type Db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../errors.ts";
 import { adminActor, requireRole, type Admin } from "./admin.ts";
-import { decideAffiliateInTx } from "./affiliates.ts";
 import type { User } from "./identity.ts";
 import { notify } from "./notify.ts";
 import { MAX_IMAGE, SIGNATURES } from "./promo.ts";
 import { normaliseCode } from "./referrals.ts";
 
 /**
- * The affiliate portal (SRS section 13): the approved content library with
- * version control (AFF-005, AFF-011), and complaints and investigations
- * (AFF-009).
+ * Promotion by players: the approved messages every player can share with
+ * their referral link (version controlled), and complaints about promoters
+ * with investigations. An upheld complaint can stop that player's referral
+ * earnings.
  *
- * Affiliates may only use approved materials. Each text is written by staff,
+ * Players are asked to share only approved messages. Each text is written by staff,
  * approved by someone else in Compliance, and never edited afterwards: a
  * correction is a new version, and approving it retires the old one. Texts may
  * contain {link}, which becomes the affiliate's own attribution link; every
@@ -136,16 +136,6 @@ export async function materialImage(ctx: Ctx, versionId: string, staff: boolean)
   return { bytes: v.image, type: v.content_type!, etag: `"${v.sha256.toString("hex").slice(0, 32)}"` };
 }
 
-/** What an approved affiliate may use, right now. */
-export async function affiliateMaterials(ctx: Ctx, userId: string): Promise<unknown> {
-  const a = await one<{ status: string; attribution_code: string | null }>(ctx.pool, "SELECT status, attribution_code FROM affiliates WHERE user_id = $1", [userId]);
-  if (!a || a.status !== "APPROVED") throw forbidden("NOT_AN_AFFILIATE", "Approved materials are for approved affiliates.");
-  const rows = (await ctx.pool.query(
-    `SELECT m.name, m.channel, v.id AS version_id, v.version, v.body_en, v.body_ha, v.image IS NOT NULL AS has_image, v.decided_at AS approved_at
-     FROM marketing_materials m JOIN marketing_material_versions v ON v.material_id = m.id AND v.status = 'APPROVED' ORDER BY m.channel, m.name`)).rows;
-  return { link: `/r/${a.attribution_code}`, materials: rows };
-}
-
 // --- Complaints and investigations ------------------------------------------------------------
 
 export const CATEGORIES = ["MISLEADING", "UNDERAGE", "PRESSURE", "UNAPPROVED_MATERIAL", "PAID_SIGNUPS", "IMPERSONATION", "OTHER"] as const;
@@ -155,30 +145,40 @@ async function newReference(db: Db): Promise<string> {
   return `CMP-${(await one<{ n: string }>(db, "SELECT nextval('affiliate_complaint_seq')::text AS n"))!.n.padStart(6, "0")}`;
 }
 
+/** The player behind a code: a player's referral code, or a former affiliate's code (now counted for their player account). */
+async function playerByCode(db: Db, code: string): Promise<{ id: string; affiliate_id: string | null } | undefined> {
+  return one<{ id: string; affiliate_id: string | null }>(db,
+    `SELECT u.id, NULL::uuid AS affiliate_id FROM users u WHERE u.referral_code = $1
+     UNION ALL SELECT a.user_id, a.id FROM affiliates a WHERE a.attribution_code = $1 LIMIT 1`, [code]);
+}
+
 /** A player reports a promoter. The code is optional: people often do not know it. */
 export async function reportAffiliate(ctx: Ctx, actor: Actor, user: User, input: { code?: string; category: Category; description: string }): Promise<{ reference: string }> {
   return withTx(ctx.pool, async (db) => {
     const recent = await one<{ n: number }>(db, "SELECT count(*)::int AS n FROM affiliate_complaints WHERE reporter_user_id = $1 AND created_at > now() - interval '24 hours'", [user.id]);
     if (recent!.n >= 5) throw conflict("TOO_MANY_REPORTS", "You have sent several reports today. We are looking into them; please contact support if it is urgent.");
     const code = input.code?.trim() ? normaliseCode(input.code) : null;
-    const aff = code ? await one<{ id: string }>(db, "SELECT id FROM affiliates WHERE attribution_code = $1", [code]) : null;
+    const who = code ? await playerByCode(db, code) : null;
     const reference = await newReference(db);
     const r = await db.query<{ id: string }>(
-      `INSERT INTO affiliate_complaints (reference, affiliate_id, reported_code, source, reporter_user_id, category, description)
-       VALUES ($1, $2, $3, 'PLAYER', $4, $5, $6) RETURNING id`, [reference, aff?.id ?? null, code, user.id, input.category, input.description.trim()]);
+      `INSERT INTO affiliate_complaints (reference, affiliate_id, referrer_id, reported_code, source, reporter_user_id, category, description)
+       VALUES ($1, $2, $3, $4, 'PLAYER', $5, $6, $7) RETURNING id`, [reference, who?.affiliate_id ?? null, who?.id ?? null, code, user.id, input.category, input.description.trim()]);
     await audit(db, actor, "affiliate_complaint.reported", "affiliate_complaint", r.rows[0]!.id, { reference, category: input.category });
     return { reference };
   });
 }
 
-export async function openComplaint(ctx: Ctx, admin: Admin, input: { affiliateId: string; category: Category; description: string }): Promise<{ id: string; reference: string }> {
+/** Staff record a complaint about the player with this referral code. */
+export async function openComplaint(ctx: Ctx, admin: Admin, input: { code: string; category: Category; description: string }): Promise<{ id: string; reference: string }> {
   requireRole(admin, "COMPLIANCE", "SUPPORT");
   return withTx(ctx.pool, async (db) => {
-    if (!(await one(db, "SELECT 1 FROM affiliates WHERE id = $1", [input.affiliateId]))) throw notFound("Affiliate not found.");
+    const code = normaliseCode(input.code);
+    const who = await playerByCode(db, code);
+    if (!who) throw notFound("No player has that code.");
     const reference = await newReference(db);
     const r = await db.query<{ id: string }>(
-      `INSERT INTO affiliate_complaints (reference, affiliate_id, source, reporter_admin_id, category, description)
-       VALUES ($1, $2, 'STAFF', $3, $4, $5) RETURNING id`, [reference, input.affiliateId, admin.id, input.category, input.description.trim()]);
+      `INSERT INTO affiliate_complaints (reference, affiliate_id, referrer_id, reported_code, source, reporter_admin_id, category, description)
+       VALUES ($1, $2, $3, $4, 'STAFF', $5, $6, $7) RETURNING id`, [reference, who.affiliate_id, who.id, code, admin.id, input.category, input.description.trim()]);
     await audit(db, adminActor(admin), "affiliate_complaint.opened", "affiliate_complaint", r.rows[0]!.id, { reference, category: input.category });
     return { id: r.rows[0]!.id, reference };
   });
@@ -187,54 +187,58 @@ export async function openComplaint(ctx: Ctx, admin: Admin, input: { affiliateId
 export async function listComplaints(ctx: Ctx, admin: Admin): Promise<unknown> {
   requireRole(admin, "COMPLIANCE", "AUDITOR");
   return { complaints: (await ctx.pool.query(
-    `SELECT c.id, c.reference, c.affiliate_id, a.reference AS affiliate_reference, a.business_name, a.status AS affiliate_status, c.reported_code, c.source,
+    `SELECT c.id, c.reference, c.referrer_id, u.referral_code AS player_code, u.referral_earnings_blocked AS earnings_stopped, c.reported_code, c.source,
             c.category, c.description, c.status, c.findings, c.outcome, c.created_at, c.decided_at, c.reporter_admin_id,
             c.investigator_id, i.full_name AS investigator_name
-     FROM affiliate_complaints c LEFT JOIN affiliates a ON a.id = c.affiliate_id LEFT JOIN admin_users i ON i.id = c.investigator_id
+     FROM affiliate_complaints c LEFT JOIN users u ON u.id = c.referrer_id LEFT JOIN admin_users i ON i.id = c.investigator_id
      ORDER BY (c.status IN ('OPEN','INVESTIGATING')) DESC, c.created_at DESC LIMIT 300`)).rows };
 }
 
-/** Compliance takes the case. A complaint can be linked to the affiliate here when the reporter did not know the code. */
-export async function investigateComplaint(ctx: Ctx, admin: Admin, complaintId: string, affiliateId?: string): Promise<{ status: string }> {
+/** Compliance takes the case. A complaint can be linked to the player here (by their code) when the reporter did not know it. */
+export async function investigateComplaint(ctx: Ctx, admin: Admin, complaintId: string, code?: string): Promise<{ status: string }> {
   requireRole(admin, "COMPLIANCE");
   return withTx(ctx.pool, async (db) => {
-    const c = await one<{ status: string; affiliate_id: string | null; reporter_admin_id: string | null }>(db,
-      "SELECT status, affiliate_id, reporter_admin_id FROM affiliate_complaints WHERE id = $1 FOR UPDATE", [complaintId]);
+    const c = await one<{ status: string; referrer_id: string | null; reporter_admin_id: string | null }>(db,
+      "SELECT status, referrer_id, reporter_admin_id FROM affiliate_complaints WHERE id = $1 FOR UPDATE", [complaintId]);
     if (!c) throw notFound("Complaint not found.");
     if (c.status !== "OPEN") throw conflict("ALREADY_TAKEN", "This complaint is already being investigated or has been concluded.");
     if (c.reporter_admin_id === admin.id) throw forbidden("SAME_PERSON", "You reported this, so someone else must investigate it.");
-    await db.query("UPDATE affiliate_complaints SET status = 'INVESTIGATING', investigator_id = $2, affiliate_id = coalesce(affiliate_id, $3) WHERE id = $1",
-      [complaintId, admin.id, affiliateId ?? null]).catch(dbRule);
-    await audit(db, adminActor(admin), "affiliate_complaint.investigating", "affiliate_complaint", complaintId, { affiliateId: affiliateId ?? c.affiliate_id });
+    const who = code?.trim() ? await playerByCode(db, normaliseCode(code)) : null;
+    if (code?.trim() && !who) throw notFound("No player has that code.");
+    await db.query("UPDATE affiliate_complaints SET status = 'INVESTIGATING', investigator_id = $2, referrer_id = coalesce(referrer_id, $3) WHERE id = $1",
+      [complaintId, admin.id, who?.id ?? null]).catch(dbRule);
+    await audit(db, adminActor(admin), "affiliate_complaint.investigating", "affiliate_complaint", complaintId, { playerId: who?.id ?? c.referrer_id });
     return { status: "INVESTIGATING" };
   });
 }
 
 /**
- * Records the findings and outcome. Suspending or ending the affiliate happens
- * in the same transaction, so a recorded outcome always matches what was done.
+ * Records the findings and outcome: no action, a formal warning, or stopping
+ * the player's referral earnings (outcome SUSPENDED). The action happens in
+ * the same transaction, so a recorded outcome always matches what was done.
  */
 export async function concludeComplaint(ctx: Ctx, admin: Admin, complaintId: string,
-  input: { upheld: boolean; findings: string; outcome: "NO_ACTION" | "WARNING" | "SUSPENDED" | "TERMINATED" }): Promise<{ status: string }> {
+  input: { upheld: boolean; findings: string; outcome: "NO_ACTION" | "WARNING" | "SUSPENDED" }): Promise<{ status: string }> {
   requireRole(admin, "COMPLIANCE");
   if (!input.findings.trim()) throw badRequest("FINDINGS_REQUIRED", "Record what the investigation found.");
   if (!input.upheld && input.outcome !== "NO_ACTION") throw badRequest("INVALID_OUTCOME", "A dismissed complaint leads to no action.");
   return withTx(ctx.pool, async (db) => {
-    const c = await one<{ id: string; reference: string; status: string; investigator_id: string | null; affiliate_id: string | null; reporter_user_id: string | null }>(db,
-      "SELECT id, reference, status, investigator_id, affiliate_id, reporter_user_id FROM affiliate_complaints WHERE id = $1 FOR UPDATE", [complaintId]);
+    const c = await one<{ id: string; reference: string; status: string; investigator_id: string | null; referrer_id: string | null; reporter_user_id: string | null }>(db,
+      "SELECT id, reference, status, investigator_id, referrer_id, reporter_user_id FROM affiliate_complaints WHERE id = $1 FOR UPDATE", [complaintId]);
     if (!c) throw notFound("Complaint not found.");
     if (c.status !== "INVESTIGATING") throw conflict("NOT_INVESTIGATING", "Start the investigation first.");
     if (c.investigator_id !== admin.id) throw forbidden("NOT_INVESTIGATOR", "Only the investigating officer can conclude this complaint.");
-    if (input.outcome !== "NO_ACTION" && !c.affiliate_id) throw badRequest("AFFILIATE_UNKNOWN", "Link the complaint to an affiliate before taking action.");
-    const reason = `Complaint ${c.reference}: ${input.findings.trim()}`;
-    if (input.outcome === "SUSPENDED") await decideAffiliateInTx(db, admin, c.affiliate_id!, "SUSPEND", reason);
-    if (input.outcome === "TERMINATED") await decideAffiliateInTx(db, admin, c.affiliate_id!, "TERMINATE", reason);
+    if (input.outcome !== "NO_ACTION" && !c.referrer_id) throw badRequest("PLAYER_UNKNOWN", "Link the complaint to a player (by their code) before taking action.");
+    if (input.outcome === "SUSPENDED") {
+      await db.query("UPDATE users SET referral_earnings_blocked = true WHERE id = $1", [c.referrer_id]);
+      await notify(db, { userId: c.referrer_id!, kind: "ACCOUNT", urgent: true, link: "#/invite", dedupeKey: `complaint-stopped:${c.id}`,
+        title: "Referral earnings stopped", body: `A complaint about how you promoted WiiFarm Rewards was upheld (${c.reference}), so you no longer earn from friends' cards. Earnings already in your wallet are yours to keep.`,
+        ha: { title: "An dakatar da kuɗin gayyata", body: `An tabbatar da ƙorafi game da yadda kake tallata WiiFarm Rewards (${c.reference}), don haka ba za ka ƙara samun kuɗi daga katunan abokanka ba. Kuɗin da suka riga suka shiga jakarka naka ne.` } });
+    }
     if (input.outcome === "WARNING") {
-      const a = (await one<{ user_id: string }>(db, "SELECT user_id FROM affiliates WHERE id = $1", [c.affiliate_id]))!;
-      await notify(db, { userId: a.user_id, kind: "ACCOUNT", urgent: true, link: "#/affiliate", dedupeKey: `complaint-warning:${c.id}`,
-        title: "Formal warning", body: `A complaint about your promotion was upheld (${c.reference}). Use only the approved materials and follow the training. Another upheld complaint may end your agreement.`,
-        ha: { title: "Gargaɗi na hukuma", body: `An tabbatar da ƙorafi game da tallanka (${c.reference}). Ka yi amfani da kayan talla da aka amince da su kawai kuma ka bi horon. Wani ƙorafi da aka tabbatar zai iya kawo ƙarshen yarjejeniyarka.` } });
-      await db.query("INSERT INTO affiliate_history (affiliate_id, status, by_admin, reason) VALUES ($1, 'WARNED', $2, $3)", [c.affiliate_id, admin.id, reason]);
+      await notify(db, { userId: c.referrer_id!, kind: "ACCOUNT", urgent: true, link: "#/invite", dedupeKey: `complaint-warning:${c.id}`,
+        title: "Formal warning", body: `A complaint about how you promoted WiiFarm Rewards was upheld (${c.reference}). Share only the approved messages, only with adults, and never promise a win. Another upheld complaint may stop your referral earnings.`,
+        ha: { title: "Gargaɗi na hukuma", body: `An tabbatar da ƙorafi game da yadda kake tallata WiiFarm Rewards (${c.reference}). Ka raba saƙonnin da aka amince da su kawai, ga manya kawai, kuma kada ka yi alƙawarin nasara. Wani ƙorafi da aka tabbatar zai iya dakatar da kuɗin gayyatarka.` } });
     }
     await db.query("UPDATE affiliate_complaints SET status = $2, findings = $3, outcome = $4, decided_at = now() WHERE id = $1",
       [c.id, input.upheld ? "UPHELD" : "DISMISSED", input.findings.trim(), input.outcome]).catch(dbRule);
@@ -245,5 +249,18 @@ export async function concludeComplaint(ctx: Ctx, admin: Admin, complaintId: str
         ha: { title: "An duba rahotonka", body: `Mun gode da rahotonka ${c.reference}. Sashen bin doka ya bincika shi${input.upheld ? " kuma ya ɗauki mataki" : ""}.` } });
     }
     return { status: input.upheld ? "UPHELD" : "DISMISSED" };
+  });
+}
+
+/** Compliance can let a player earn from referrals again (for example after an appeal). */
+export async function restoreReferralEarnings(ctx: Ctx, admin: Admin, code: string, reason: string): Promise<{ status: string }> {
+  requireRole(admin, "COMPLIANCE");
+  if (!reason.trim()) throw badRequest("REASON_REQUIRED", "Give a reason.");
+  return withTx(ctx.pool, async (db) => {
+    const who = await playerByCode(db, normaliseCode(code));
+    if (!who) throw notFound("No player has that code.");
+    await db.query("UPDATE users SET referral_earnings_blocked = false WHERE id = $1", [who.id]);
+    await audit(db, adminActor(admin), "referral.earnings_restored", "user", who.id, { reason: reason.trim() });
+    return { status: "RESTORED" };
   });
 }

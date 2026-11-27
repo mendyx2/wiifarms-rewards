@@ -95,15 +95,15 @@ const REPORTS: ReportDef[] = [
   },
   {
     id: "campaign-profitability", title: "Campaign profitability", frequency: "Daily", roles: FIN, needs: "none",
-    description: "Per campaign: net revenue, prizes (cash awarded, statutory deductions, merchandise at landed cost), affiliate fees, operating expenses and contribution.",
+    description: "Per campaign: net revenue, prizes (cash awarded, statutory deductions, merchandise at landed cost), referral earnings, operating expenses and contribution.",
     columns: [c("campaign", "Campaign"), c("status", "Status"), c("cards_sold", "Cards sold", "int"), c("net_revenue", "Net revenue", "kobo"), c("cash_prizes", "Cash prizes", "kobo"),
-      c("deductions", "Statutory deductions", "kobo"), c("merchandise", "Merchandise (landed)", "kobo"), c("affiliate_fees", "Affiliate fees", "kobo"),
+      c("deductions", "Statutory deductions", "kobo"), c("merchandise", "Merchandise (landed)", "kobo"), c("referrals", "Referral earnings", "kobo"),
       c("operating", "Operating expenses", "kobo"), c("contribution", "Contribution", "kobo"), c("payout_ratio", "Prize payout ratio", "pct")],
     async run(ctx) {
       const rows = await cycleResults(ctx, { id: "", email: "", fullName: "", roles: ["AUDITOR"] });
       return { rows: rows.map((r) => ({ campaign: r.name, status: r.status, cards_sold: r.cards_sold, net_revenue: k(r.net_revenue_kobo),
         cash_prizes: k(r.instant_prizes_kobo) + k(r.draw_cash_prizes_kobo) - k(r.forfeited_prizes_kobo), deductions: k(r.statutory_deductions_kobo),
-        merchandise: k(r.merchandise_cost_kobo), affiliate_fees: k(r.affiliate_fees_kobo), operating: k(r.operating_expenses_kobo), contribution: k(r.contribution_kobo),
+        merchandise: k(r.merchandise_cost_kobo), referrals: k(r.referral_commissions_kobo) + k(r.affiliate_fees_kobo), operating: k(r.operating_expenses_kobo), contribution: k(r.contribution_kobo),
         payout_ratio: r.prize_payout_ratio })) };
     },
   },
@@ -177,22 +177,20 @@ const REPORTS: ReportDef[] = [
     },
   },
   {
-    id: "affiliate-remuneration", title: "Affiliate remuneration", frequency: "As applicable", roles: FIN, needs: "range",
-    description: "Per affiliate for the period: attributed sales, fees earned and reversed, settlements paid, and what is still owed. Fees are paid only while the fee programme is switched on.",
-    columns: [c("affiliate", "Affiliate"), c("status", "Status"), c("sales", "Attributed sales", "kobo"), c("fees", "Fees earned", "kobo"), c("reversed", "Reversed", "kobo"),
-      c("paid", "Settlements paid", "kobo"), c("owed", "Owed now", "kobo")],
+    id: "referral-earnings", title: "Referral earnings", frequency: "As applicable", roles: FIN, needs: "range",
+    description: "Per player whose link brought in buyers, for the period: friends who joined, cards they bought, earnings paid into the wallet (10% of each card) and earnings taken back on refunds. Players are shown by code, not name.",
+    columns: [c("code", "Player code"), c("friends", "Friends joined", "int"), c("cards", "Cards bought by friends", "int"), c("earned", "Earned", "kobo"),
+      c("reversed", "Taken back", "kobo"), c("stopped", "Earnings stopped")],
     async run(ctx, p) {
       const rows = (await ctx.pool.query(
-        `SELECT a.reference || ' · ' || a.business_name AS affiliate, a.status,
-                coalesce(sum(f.sales_kobo) FILTER (WHERE f.status = 'ACCRUED' AND ${inRange("f.created_at")}), 0)::bigint AS sales,
-                coalesce(sum(f.amount_kobo) FILTER (WHERE ${inRange("f.created_at")}), 0)::bigint AS fees,
-                coalesce(sum(f.amount_kobo) FILTER (WHERE f.status = 'REVERSED' AND ${inRange("f.reversed_at")}), 0)::bigint AS reversed,
-                (SELECT coalesce(sum(s.amount_kobo), 0) FROM affiliate_settlements s WHERE s.affiliate_id = a.id AND s.status = 'PAID' AND ${inRange("s.decided_at")})::bigint AS paid,
-                -coalesce((SELECT balance_kobo FROM ledger_balances WHERE code = 'AFFILIATE_PAYABLE:' || a.id), 0)::bigint AS owed
-         FROM affiliates a LEFT JOIN affiliate_fees f ON f.affiliate_id = a.id WHERE a.status <> 'REJECTED' GROUP BY a.id ORDER BY a.reference`, [p.from, p.to])).rows;
-      const prog = await one<{ remuneration_enabled: boolean; rate_bp: number }>(ctx.pool, "SELECT remuneration_enabled, rate_bp FROM affiliate_programme");
-      return { rows: rows.map((r) => ({ affiliate: r.affiliate, status: r.status, sales: k(r.sales), fees: k(r.fees), reversed: k(r.reversed), paid: k(r.paid), owed: k(r.owed) })),
-        notes: [prog?.remuneration_enabled ? `Fee programme on at ${prog.rate_bp / 100}%.` : `Fee programme off (the approved rate would be ${(prog?.rate_bp ?? 0) / 100}%); attributed sales are recorded with no fee.`] };
+        `SELECT u.referral_code AS code, u.referral_earnings_blocked AS stopped,
+                (SELECT count(*) FROM users x WHERE x.referred_by = u.id AND ${inRange("x.created_at")})::int AS friends,
+                coalesce(sum(r.cards) FILTER (WHERE r.status = 'EARNED' AND ${inRange("r.created_at")}), 0)::int AS cards,
+                coalesce(sum(r.amount_kobo) FILTER (WHERE ${inRange("r.created_at")}), 0)::bigint AS earned,
+                coalesce(sum(r.amount_kobo) FILTER (WHERE r.status = 'REVERSED' AND ${inRange("r.reversed_at")}), 0)::bigint AS reversed
+         FROM referral_commissions r JOIN users u ON u.id = r.referrer_id GROUP BY u.id ORDER BY earned DESC LIMIT 1000`, [p.from, p.to])).rows;
+      return { rows: rows.map((r) => ({ code: r.code, friends: r.friends, cards: r.cards, earned: k(r.earned), reversed: k(r.reversed), stopped: r.stopped ? "Yes" : "" })),
+        notes: [`Every player earns ${(ctx.config.policy?.referralBp ?? 1000) / 100}% of the cards bought by friends who joined with their link, paid into their wallet from the operator's share.`] };
     },
   },
   {
@@ -284,7 +282,7 @@ const REPORTS: ReportDef[] = [
         { section: "Prizes", item: "Statutory deductions", value: naira(res.statutory_deductions_kobo) },
         { section: "Prizes", item: "Merchandise won / delivered / outstanding / unclaimed", value: `${claims.goods} / ${claims.delivered} / ${claims.outstanding} / ${claims.expired}` },
         { section: "Money", item: "Merchandise at landed cost", value: naira(res.merchandise_cost_kobo) },
-        { section: "Money", item: "Affiliate fees / operating expenses", value: `${naira(res.affiliate_fees_kobo)} / ${naira(res.operating_expenses_kobo)}` },
+        { section: "Money", item: "Referral earnings / operating expenses", value: `${naira(k(res.referral_commissions_kobo) + k(res.affiliate_fees_kobo))} / ${naira(res.operating_expenses_kobo)}` },
         { section: "Money", item: "Contribution / prize payout ratio", value: `${naira(res.contribution_kobo)} / ${res.prize_payout_ratio === null ? "—" : Math.round(res.prize_payout_ratio * 100) + "%"}` },
         { section: "Close-out", item: "Archived", value: d(cy.archived_at) },
       ];
@@ -330,7 +328,7 @@ export async function campaignPosition(ctx: Ctx, cycleId: string): Promise<unkno
             (SELECT coalesce(sum(CASE WHEN p.kind = 'CASH' THEN p.cash_kobo ELSE k.advertised_value_kobo END * p.quantity), 0)
                FROM prize_tiers p LEFT JOIN skus k ON k.id = p.sku_id WHERE p.cycle_id = $1)::bigint AS commitments,
             (SELECT coalesce(sum(CASE WHEN reverses IS NULL THEN amount_kobo ELSE -amount_kobo END), 0) FROM operating_expenses WHERE cycle_id = $1)::bigint AS recorded_costs,
-            coalesce((SELECT sum(balance_kobo) FROM ledger_balances WHERE code IN ('AFFILIATE_EXPENSE:' || $1, 'FULFILMENT_EXPENSE:' || $1)), 0)::bigint AS other_costs`, [cycleId]))!;
+            coalesce((SELECT sum(balance_kobo) FROM ledger_balances WHERE code IN ('AFFILIATE_EXPENSE:' || $1, 'FULFILMENT_EXPENSE:' || $1, 'REFERRAL_EXPENSE:' || $1)), 0)::bigint AS other_costs`, [cycleId]))!;
   const realised = k(x.realised), maxRevenue = c.total_tickets * k(c.ticket_price_kobo), commitments = k(x.commitments);
   const bp = ctx.config.illustrativeCostBp ?? 2000;
   const illustrative = Math.round((realised * bp) / 10_000);
