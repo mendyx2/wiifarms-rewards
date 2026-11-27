@@ -163,8 +163,8 @@ const nextStep = () => (!state.me ? "signup" : state.me.kycTier < 1 ? "verify" :
  * advertising only. Which artwork a card gets comes from its serial number,
  * never from its outcome, so the picture can never hint at the result.
  */
-const CARD_THEMES = ["cash", "rice", "car", "vita", "appliances"];
-const CARD_ART_HEIGHT = { cash: 698, rice: 683, car: 691, vita: 754, appliances: 685 }; // at 720 wide
+const CARD_THEMES = ["cash", "rice", "car", "vita", "appliances", "vitaforce"];
+const CARD_ART_HEIGHT = { cash: 698, rice: 683, car: 691, vita: 754, appliances: 685, vitaforce: 756 }; // at 720 wide
 const themeOf = (serial) => { let h = 0; for (const ch of serial) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0; return CARD_THEMES[h % CARD_THEMES.length]; };
 
 function scratchCard(theme, { priceKobo = 50_000, serial = null, isDemo = false }, strip) {
