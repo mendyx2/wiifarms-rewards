@@ -249,6 +249,11 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 .earnbar{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;margin:14px 0 0;padding:14px 16px;border:0;border-radius:16px;background:linear-gradient(135deg,#fff3cf,#f6dc8c);color:#4a3203;font:800 15px Figtree;text-align:left;cursor:pointer;box-shadow:0 3px 0 #c9a24a}
 .mono{font-family:ui-monospace,monospace}
 @media(max-width:980px){.aff-top{grid-template-columns:1fr}}
+.hchips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.hchips button,.amts button{flex:none;border:1.5px solid #e4dbc6;background:#fffdf6;border-radius:999px;padding:8px 13px;font:700 13px Figtree;color:#4d5e53;cursor:pointer}
+.hchips button[aria-pressed=true],.amts button[aria-pressed=true]{background:var(--em2);border-color:var(--em2);color:#fff}
+.amts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 18px}.amts button{padding:16px;font:800 18px Figtree;border-radius:16px}
+.two .btn{padding:12px 10px}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -256,7 +261,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 </defs></svg>
 
 <header class="nav gut"><a class="logo" href="#top"><img class="brandlogo" src="brand/logo-sm.webp" alt="WiiFarms Rewards &amp; Lotto"></a>
-<nav class="links"><a href="about.html">About</a><a href="#prizes">Prizes</a><a href="#how">How it works</a><a href="#mega">Mega Draw</a><a href="#affiliates">Affiliates</a><a href="#join">Try the demo</a></nav>
+<nav class="links"><a href="about.html">About</a><a href="#prizes">Prizes</a><a href="#how">How it works</a><a href="#mega">Mega Draw</a><a href="#affiliates">Invite &amp; earn</a><a href="#join">Try the demo</a></nav>
 <a class="btn red" href="#join">Get my first card</a></header>
 
 <main id="top">
@@ -315,29 +320,29 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 
 <section class="sec gut aff" id="affiliates"><div class="max">
   <div class="aff-top">
-    <div><div class="eyebrow">Affiliate programme</div><h2>Share the excitement. Earn 10% on every card.</h2>
-    <p class="aff-lede">Become an approved WiiFarm Rewards affiliate and earn <b>₦50 on every ₦500 card</b> bought by players who join with your link, for as long as they keep playing. Your fees are paid straight to your bank account.</p>
-    <div class="cta" style="opacity:1;animation:none"><button class="btn red" type="button" data-open="earn">Try the affiliate portal <span class="arrow">→</span></button></div></div>
-    <div class="calc" aria-label="Affiliate earnings illustration">
+    <div><div class="eyebrow">Invite and earn</div><h2>Share your link. Earn ₦50 on every card.</h2>
+    <p class="aff-lede">Every player gets a personal link. When friends join with it, you earn <b>10% of every card they buy, ₦50 a card</b>, paid straight into your wallet. Withdraw it to your bank together with your winnings.</p>
+    <div class="cta" style="opacity:1;animation:none"><button class="btn red" type="button" data-open="earn">Get my link <span class="arrow">→</span></button></div></div>
+    <div class="calc" aria-label="Referral earnings illustration">
       <small>What you could earn in a month</small>
-      <div class="calc-out" id="calcOut">₦150,000</div>
-      <label>Players who join with your link <b id="cpv">100</b><input type="range" id="cp1" min="10" max="1000" step="10" value="100"></label>
-      <label>Cards each player buys in a month <b id="ccv">30</b><input type="range" id="cc1" min="1" max="60" value="30"></label>
-      <p>Illustration only: 10% of ₦500 per card. What you earn depends on real sales.</p>
+      <div class="calc-out" id="calcOut">₦15,000</div>
+      <label>Friends who join with your link <b id="cpv">10</b><input type="range" id="cp1" min="1" max="200" value="10"></label>
+      <label>Cards each friend buys in a month <b id="ccv">30</b><input type="range" id="cc1" min="1" max="60" value="30"></label>
+      <p>Illustration only: ₦50 (10%) per card your friends buy. What you earn depends on what they actually buy.</p>
     </div>
   </div>
   <div class="steps steps-aff">
-    <div class="step"><span class="n">1</span><h3>Apply in the app</h3><p>Verify your ID, add a bank account in your own name and complete the short compliance training.</p></div>
-    <div class="step"><span class="n">2</span><h3>Get approved</h3><p>Our Compliance team checks your application and gives you your own code and link.</p></div>
-    <div class="step"><span class="n">3</span><h3>Share approved messages</h3><p>Ready-made WhatsApp, text and social posts, with your link already in them.</p></div>
-    <div class="step"><span class="n">4</span><h3>Get paid</h3><p>10% of every card your players buy, settled to your bank account with a statement.</p></div>
+    <div class="step"><span class="n">1</span><h3>Get your link</h3><p>It's in the app the moment you sign up. No forms, no fees.</p></div>
+    <div class="step"><span class="n">2</span><h3>Share it</h3><p>Send it on WhatsApp, text or social media, with ready-made messages.</p></div>
+    <div class="step"><span class="n">3</span><h3>Friends play</h3><p>Every ₦500 card a friend buys earns you ₦50.</p></div>
+    <div class="step"><span class="n">4</span><h3>Withdraw</h3><p>Your earnings land in your wallet. Withdraw them with your winnings to your bank.</p></div>
   </div>
-  <div class="pills aff-rules"><span>No sign-up fee</span><span>No downlines or recruitment bonuses</span><span>Approved messages only</span><span>Players must be 18+</span><span>Paid to your own verified bank account</span></div>
+  <div class="pills aff-rules"><span>No sign-up, no fees</span><span>Paid into your wallet</span><span>Withdraw with your winnings</span><span>Not on your own cards</span><span>Friends must be 18+</span></div>
 </div></section>
 
 <section class="sec gut" id="join"><div class="max join">
   <div><div class="eyebrow">Try it now</div><h2>Play a season in two minutes.</h2>
-  <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet, the Mega Draw and the affiliate portal.</p></div>
+  <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet, the Mega Draw and your invite link.</p></div>
   <form class="form" id="signup" autocomplete="off">
     <img class="formlogo" src="brand/logo-sm.webp" alt="WiiFarms Rewards &amp; Lotto" style="display:block;width:150px;height:auto;margin:0 auto 8px"><div class="pv">Private demonstration platform</div>
     <h3>Create your demo account</h3>
@@ -361,7 +366,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
     <li>For players aged 18 and over only. Play responsibly and spend only what you can afford to lose. Daily purchase limits apply.</li>
     <li>Prizes, quantities, values and images shown are for illustration and are subject to the final approved campaign terms. Prizes may be replaced with items of equal or greater value.</li>
     <li>Prizes are collected at participating WiiFarm Cooperative mega stockist and sub-stockist locations, subject to identity checks. Winnings may be subject to applicable taxes.</li>
-    <li>Affiliate fees are subject to the approval of the affiliate programme and the affiliate agreement. Earnings shown are illustrations, not promises; fees are paid only on real card sales by players who join with an affiliate's link.</li>
+    <li>Referral earnings are 10% of the price of cards bought by players who join with your link, paid into your wallet, subject to the final approved terms. You do not earn on your own cards or on players referred by others. Earnings shown are illustrations, not promises.</li>
     <li>The service will launch only after licensing by the relevant state lottery regulator and independent certification. This is a demonstration: no real money is taken and no real prizes are paid.</li>
   </ul>
 </div></section>
@@ -452,9 +457,15 @@ const valid = () => { go.disabled = !(nm.value.trim() && ack.checked); };
 nm.addEventListener("input", valid); ack.addEventListener("change", valid);
 let user = null;
 try { user = JSON.parse(localStorage.getItem("wr-demo") || "null"); } catch {}
+// Older demo accounts: move to the wallet with deposits, withdrawable money and a typed history.
+if (user) {
+  user.history = (user.history || []).map((h) => Array.isArray(h) ? { k: h[0] === "Instant win" ? "win" : h[1] < 0 ? "buy" : "dep", t: h[0], a: h[1], d: Date.now() } : h);
+  if (user.dep == null) { user.wd = Math.min(user.won || 0, user.credit); user.dep = user.credit - user.wd; user.out = 0; }
+  if (!user.aff || user.aff.status) user.aff = newAff();
+}
 $("#signup").addEventListener("submit", (e) => {
   e.preventDefault(); if (go.disabled) return;
-  user = { name: nm.value.trim(), cat: $("input[name=cat]:checked").value, credit: 5000, cards: [], won: 0, history: [["Demo credit", 5000]] };
+  user = { name: nm.value.trim(), cat: $("input[name=cat]:checked").value, credit: 5000, dep: 5000, wd: 0, out: 0, cards: [], won: 0, history: [{ k: "dep", t: "Demo deposit", a: 5000, d: Date.now() }], aff: newAff() };
   save(); openApp(want);
 });
 let want = "home";
@@ -484,10 +495,10 @@ $("#closeApp").onclick = () => { app.hidden = true; document.body.style.overflow
 function go2(tab, arg) {
   cur = tab;
   $("#bal").textContent = naira(user.credit);
-  $("#tabbar").innerHTML = TABS.map(([k, l]) => `<button data-t="${k}" aria-selected="${k === tab || (tab === "buy" && k === "home") || (tab === "card" && k === "cards")}"><svg viewBox="0 0 24 24">${ICONS[k]}</svg>${l}</button>`).join("");
+  $("#tabbar").innerHTML = TABS.map(([k, l]) => `<button data-t="${k}" aria-selected="${k === tab || (tab === "buy" && k === "home") || (tab === "card" && k === "cards") || ((tab === "deposit" || tab === "withdraw") && k === "wallet")}"><svg viewBox="0 0 24 24">${ICONS[k]}</svg>${l}</button>`).join("");
   $("#tabbar").querySelectorAll("button").forEach((b) => (b.onclick = () => go2(b.dataset.t)));
   view.scrollTop = 0;
-  ({ home, buy, cards, card, wallet, draw, earn })[tab](arg);
+  ({ home, buy, cards, card, wallet, draw, earn, deposit, withdraw })[tab](arg);
 }
 function home() {
   const left = user.cards.filter((c) => !c.done).length;
@@ -499,7 +510,7 @@ function home() {
   <h3 style="margin-top:20px">Up for grabs</h3>
   <p class="fine2" style="margin-top:-4px">Instant cash under the foil, and these at the Mega Draw:</p>
   <div class="grid">${PRIZES.map(([f, n]) => `<div class="mini" style="cursor:default;animation:none"><img src="prizes/${f}.jpg" alt="" style="aspect-ratio:4/3;object-position:center"><span>${n}</span></div>`).join("")}</div>
-  <button class="earnbar" id="toEarn"><span>${user.aff && user.aff.status === "approved" ? "Your affiliate portal" : "Earn 10% on every card as an affiliate"}</span><span>→</span></button>`;
+  <button class="earnbar" id="toEarn"><span>Earn ₦50 on every card your friends buy</span><span>→</span></button>`;
   $("#toEarn").onclick = () => go2("earn");
   $("#buyBtn").onclick = () => go2("buy");
   $("#toCards") && ($("#toCards").onclick = () => go2("cards"));
@@ -509,17 +520,17 @@ function buy() {
   view.innerHTML = `<h3>How many cards?</h3><div class="stepper"><button id="minus" aria-label="Fewer">−</button><output id="q">3</output><button id="plus" aria-label="More">+</button></div>
   <div class="panel"><div class="row"><span>Total</span><b id="tot">₦1,500</b></div><div class="row"><span>Cards today</span><b>${Math.min(10, user.cards.length)} of 10</b></div></div>
   <h3 style="font-size:16px">Pay with</h3>
-  <div class="pay"><label><input type="radio" name="pm" checked>Demo credit<small>${naira(user.credit)}</small></label><label><input type="radio" name="pm">Bank transfer<small>simulated</small></label><label><input type="radio" name="pm">OPay<small>simulated</small></label></div>
+  <div class="pay"><label><input type="radio" name="pm" checked>Wallet<small>${naira(user.credit)}</small></label></div>
   <p class="fine2">Every card is entered in the Mega Draw. Demo odds are boosted so you can see a win. All sales are final.</p>
   <button class="btn red big" id="pay">Pay ₦1,500</button>`;
   const upd = () => { $("#q").textContent = q; $("#tot").textContent = naira(q * 500); $("#pay").textContent = `Pay ${naira(q * 500)}`; };
   $("#minus").onclick = () => { q = Math.max(1, q - 1); upd(); };
   $("#plus").onclick = () => { q = Math.min(10, q + 1); upd(); };
   $("#pay").onclick = () => {
-    if (q * 500 > user.credit) { $("#pay").textContent = "Not enough demo credit"; return; }
+    if (q * 500 > user.credit) { go2("deposit"); return; }
     view.innerHTML = `<div class="spin"></div><p style="text-align:center">Confirming payment…</p>`;
     setTimeout(() => {
-      user.credit -= q * 500; user.history.unshift([`${q} card${q > 1 ? "s" : ""} bought`, -q * 500]);
+      spend(q * 500); log("buy", `${q} card${q > 1 ? "s" : ""} bought`, -q * 500);
       const fresh = [];
       for (let i = 0; i < q; i++) { const s = serial(); fresh.push({ s, t: themeOf(s), cash: roll(), done: false }); }
       if (!user.cards.some((c) => c.cash) && !fresh.some((c) => c.cash)) fresh[0].cash = 1000; // the first purchase always shows a win
@@ -547,7 +558,7 @@ function card(i) {
   <p class="fine2" style="text-align:center">Card ${c.s}</p><div id="after"></div>`;
   $("#back").onclick = () => go2("cards");
   const after = () => {
-    if (!c.done) { c.done = true; if (c.cash) { user.credit += c.cash; user.won += c.cash; user.history.unshift(["Instant win", c.cash]); confetti(); } save(); $("#bal").textContent = naira(user.credit); }
+    if (!c.done) { c.done = true; if (c.cash) { credit(c.cash); user.won += c.cash; log("win", "Instant win", c.cash); confetti(); } save(); $("#bal").textContent = naira(user.credit); }
     const next = user.cards.findIndex((x) => !x.done);
     $("#after").innerHTML = `<p style="text-align:center;font-weight:800;margin-bottom:4px">${c.cash ? `${naira(c.cash)} added to your wallet` : "This card is in the Mega Draw ✓"}</p>
       <p class="fine2" style="text-align:center;margin-top:0">${c.cash ? "And it still goes into the Mega Draw. " : ""}The Mega Draw is on ${drawDate}.</p>` +
@@ -558,100 +569,106 @@ function card(i) {
   if (c.done) after();
   else { const f = foil($(".strip canvas", view), after); $("#after").innerHTML = `<button class="btn line big" style="color:var(--em2);box-shadow:inset 0 0 0 1.5px #c9bc9c" id="rv">Reveal now</button>`; $("#rv").onclick = () => f.reveal(); }
 }
-function wallet() {
-  view.innerHTML = `<h3>Wallet</h3><div class="season" style="text-align:center"><small>Demo balance</small><div class="p">${naira(user.credit)}</div><small>Won so far ${naira(user.won)}</small></div>
-  <p class="fine2">In the real app, winnings are withdrawn from ₦500 to a bank account in your own verified name.</p>
-  <div class="panel">${user.history.map(([t, a]) => `<div class="row"><span>${esc(t)}</span><b style="color:${a < 0 ? "#9e1410" : "#0b4a2b"}">${a < 0 ? "−" : "+"}${naira(Math.abs(a))}</b></div>`).join("")}</div>`;
+// The wallet: deposits are for buying cards; winnings and referral earnings can be withdrawn.
+const log = (k, t, a) => user.history.unshift({ k, t, a, d: Date.now() });
+const credit = (a) => { user.wd += a; user.credit += a; };
+const spend = (a) => { const fromDep = Math.min(user.dep, a); user.dep -= fromDep; user.wd -= a - fromDep; user.credit -= a; };
+const KINDS = { all: "All", dep: "Deposits", win: "Winnings", aff: "Referrals", wd: "Withdrawals", buy: "Cards" };
+const when = (d) => new Date(d).toLocaleString("en-NG", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const BANKS = ["Access Bank","Fidelity Bank","First Bank","GTBank","Kuda","Moniepoint","OPay","Sterling Bank","UBA","Union Bank","Wema Bank","Zenith Bank"];
+function wallet(filter = "all") {
+  const h = user.history.filter((x) => filter === "all" || x.k === filter);
+  view.innerHTML = `<h3>Wallet</h3>
+  <div class="season" style="text-align:center"><small>Wallet balance</small><div class="p">${naira(user.credit)}</div><small>You can withdraw <b>${naira(user.wd)}</b> · Deposits ${naira(user.dep)}</small></div>
+  <div class="two" style="margin-top:12px"><button class="btn" id="addm">Add money</button><button class="btn red" id="wdr">Withdraw</button></div>
+  <div class="panel"><div class="row"><span>Instant winnings</span><b>${naira(user.won)}</b></div><div class="row"><span>Referral earnings</span><b>${naira(user.aff.earned)}</b></div><div class="row"><span>Withdrawn to your bank</span><b>${naira(user.out)}</b></div></div>
+  <h3 style="font-size:17px;margin-top:18px">History</h3>
+  <div class="hchips">${Object.entries(KINDS).map(([k, l]) => `<button data-f="${k}" aria-pressed="${k === filter}">${l}</button>`).join("")}</div>
+  <div class="panel">${h.length ? h.map((x) => `<div class="row"><span><b style="font-weight:700">${esc(x.t)}</b><br><small style="color:#6b7a70">${KINDS[x.k]} · ${when(x.d)}${x.ref ? " · " + esc(x.ref) : ""}</small></span><b style="color:${x.a < 0 ? "#9e1410" : "#0b4a2b"};white-space:nowrap">${x.a < 0 ? "−" : "+"}${naira(Math.abs(x.a))}</b></div>`).join("") : `<div class="row"><span>Nothing here yet.</span></div>`}</div>
+  <p class="fine2">Instant winnings and referral earnings can be withdrawn together to a bank account in your own name, from ₦500. Deposits are for buying cards. When you buy cards, your deposits are used first.</p>`;
+  $("#addm").onclick = () => go2("deposit");
+  $("#wdr").onclick = () => go2("withdraw");
+  view.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => wallet(b.dataset.f)));
+}
+function deposit() {
+  let amt = 2000;
+  view.innerHTML = `<button class="close" style="color:var(--em2);padding:0;font:700 15px Figtree" id="back">← Wallet</button><h3 style="margin-top:12px">Add money</h3>
+  <div class="amts">${[1000, 2000, 5000, 10000].map((v) => `<button data-a="${v}" aria-pressed="${v === amt}">${naira(v)}</button>`).join("")}</div>
+  <h3 style="font-size:16px">Pay with</h3>
+  <div class="pay"><label><input type="radio" name="pm" value="Bank transfer" checked>Bank transfer<small>simulated</small></label><label><input type="radio" name="pm" value="OPay">OPay<small>simulated</small></label><label><input type="radio" name="pm" value="Debit card">Debit card<small>simulated</small></label></div>
+  <button class="btn red big" id="go3">Add ${naira(amt)}</button>`;
+  $("#back").onclick = () => go2("wallet");
+  view.querySelectorAll("[data-a]").forEach((b) => (b.onclick = () => { amt = +b.dataset.a; view.querySelectorAll("[data-a]").forEach((x) => x.setAttribute("aria-pressed", x === b)); $("#go3").textContent = `Add ${naira(amt)}`; }));
+  $("#go3").onclick = () => {
+    const how = view.querySelector("input[name=pm]:checked").value;
+    view.innerHTML = `<div class="spin"></div><p style="text-align:center">Confirming your ${how.toLowerCase()}…</p>`;
+    setTimeout(() => {
+      user.dep += amt; user.credit += amt; user.history.unshift({ k: "dep", t: `Deposit · ${how}`, a: amt, d: Date.now(), ref: "SIMDEP-" + rnd(100000, 999999) }); save(); $("#bal").textContent = naira(user.credit);
+      view.innerHTML = `<div class="ok"><div class="tickbig">✓</div><h3 style="margin-top:18px">${naira(amt)} added</h3><p style="color:#4d5e53">Your wallet balance is ${naira(user.credit)}.</p><button class="btn red big" id="b1">Buy scratch cards</button><button class="btn big" id="b2">Back to wallet</button></div>`;
+      $("#b1").onclick = () => go2("buy"); $("#b2").onclick = () => go2("wallet");
+    }, 1100);
+  };
+}
+function withdraw() {
+  const back = `<button class="close" style="color:var(--em2);padding:0;font:700 15px Figtree" id="back">← Wallet</button>`;
+  if (user.wd < 500) {
+    view.innerHTML = `${back}<div class="ok"><h3>Nothing to withdraw yet</h3><p style="color:#4d5e53">You can withdraw once you have ₦500 or more in winnings and referral earnings. You have ${naira(user.wd)}.</p><button class="btn red big" id="b1">Earn by sharing your link</button></div>`;
+    $("#back").onclick = () => go2("wallet"); $("#b1").onclick = () => go2("earn"); return;
+  }
+  view.innerHTML = `${back}<h3 style="margin-top:12px">Withdraw</h3>
+  <div class="season" style="text-align:center"><small>Available to withdraw</small><div class="p">${naira(user.wd)}</div><small>Winnings and referral earnings</small></div>
+  <form class="afform" id="wf" autocomplete="off">
+    <label>Amount (₦)<input type="text" name="amt" inputmode="numeric" value="${user.wd}"></label>
+    <label>Bank<select name="bank">${BANKS.map((x) => `<option${x === user.bank ? " selected" : ""}>${x}</option>`).join("")}</select></label>
+    <label>Account number<input type="text" name="acct" inputmode="numeric" maxlength="10" placeholder="10 digits" value="${user.acct || ""}"></label>
+    <p class="fine2">The account must be in your own name. In the real app we check the name with your bank before paying.</p>
+    <button class="btn red big" id="go4">Withdraw</button>
+  </form>`;
+  $("#back").onclick = () => go2("wallet");
+  const f = $("#wf"), btn = $("#go4");
+  const ok = () => { const v = +f.amt.value; btn.disabled = !(v >= 500 && v <= user.wd && /^\d{10}$/.test(f.acct.value)); btn.textContent = v >= 500 && v <= user.wd ? `Withdraw ${naira(v)}` : v > user.wd ? "More than you can withdraw" : "Minimum ₦500"; };
+  f.addEventListener("input", ok); ok();
+  f.onsubmit = (e) => {
+    e.preventDefault(); if (btn.disabled) return;
+    const v = +f.amt.value; user.bank = f.bank.value; user.acct = f.acct.value; const to = `${user.bank} ••••${user.acct.slice(-4)}`;
+    view.innerHTML = `<div class="spin"></div><p style="text-align:center">Sending ${naira(v)} to ${esc(to)}…</p>`;
+    setTimeout(() => {
+      user.wd -= v; user.credit -= v; user.out += v; user.history.unshift({ k: "wd", t: `Withdrawal to ${to}`, a: -v, d: Date.now(), ref: "SIMWD-" + rnd(100000, 999999) }); save(); $("#bal").textContent = naira(user.credit);
+      view.innerHTML = `<div class="ok"><div class="tickbig">✓</div><h3 style="margin-top:18px">${naira(v)} on its way</h3><p style="color:#4d5e53">Sent to ${esc(to)}. Simulated: no real money moves in the demo.</p><button class="btn red big" id="b2">Back to wallet</button></div>`;
+      $("#b2").onclick = () => go2("wallet");
+    }, 1300);
+  };
 }
 
-// The affiliate portal (SRS section 13): apply, approval, link, approved messages, fees, payout.
-const STATES = ["Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno","Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT","Gombe","Imo","Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa","Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba","Yobe","Zamfara"];
-const BANKS = ["Access Bank","Fidelity Bank","First Bank","GTBank","Kuda","Moniepoint","OPay","Sterling Bank","UBA","Union Bank","Wema Bank","Zenith Bank"];
+// Invite and earn: every player has a link; 10% (₦50 a card) of friends' card purchases goes to their wallet.
 const MAT = [
   ["WhatsApp", "🎉 Have you tried WiiFarm Rewards? A ₦500 scratch card with instant cash up to ₦10,000, and every card goes into the Mega Draw for a luxury SUV, appliances and NaijaSweetRice. 18+ only, please play responsibly. Join with my link: {link}"],
   ["Text message", "WiiFarm Rewards: scratch a ₦500 card for instant cash up to N10,000, plus a Mega Draw entry. 18+ only. Play responsibly. {link}"],
   ["Social media", "Scratch. Reveal. Discover. ✨ WiiFarm Rewards cards are ₦500, with instant cash under the foil and a Mega Draw at the end of the season. Prizes are collected at WiiFarm Cooperative stockists nationwide. 18+ only. {link}"],
 ];
-const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
-const affCode = () => Array.from({ length: 8 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[rnd(0, 31)]).join("");
+function rnd(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+function newAff() { return { code: Array.from({ length: 7 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[rnd(0, 31)]).join(""), friends: 0, buyers: 0, cards: 0, earned: 0 }; }
 const copy = (txt, btn) => { const done = () => { const o = btn.textContent; btn.textContent = "Copied ✓"; setTimeout(() => (btn.textContent = o), 1500); }; try { navigator.clipboard.writeText(txt).then(done, done); } catch { done(); } };
-function earn() {
-  const a = user.aff;
-  if (!a) return affApply();
-  if (a.status === "review") return affReview();
-  affDash();
-}
-function affApply() {
-  view.innerHTML = `<h3>Earn with WiiFarm Rewards</h3>
-  <div class="season"><small>Affiliate fee</small><div class="p">10%</div><small>₦50 on every ₦500 card bought by players who join with your link</small></div>
-  <div class="panel"><div class="row"><span>Sign-up fee</span><b>None</b></div><div class="row"><span>Paid to</span><b>Your own bank account</b></div><div class="row"><span>Downlines or recruiting bonuses</span><b>None</b></div></div>
-  <h3 style="font-size:17px;margin-top:18px">Apply to become an affiliate</h3>
-  <form id="af" class="afform" autocomplete="off">
-    <label>State you will promote in<select name="st">${STATES.map((x) => `<option${x === "Niger" ? " selected" : ""}>${x}</option>`).join("")}</select></label>
-    <span class="lbl2">Where will you promote?</span>
-    ${["WhatsApp", "Social media", "Market or shop", "Church, mosque or community group", "Radio"].map((x, i) => `<label class="ck"><input type="checkbox" name="ch" value="${x}"${i === 0 ? " checked" : ""}>${x}</label>`).join("")}
-    <label>Bank<select name="bank">${BANKS.map((x) => `<option>${x}</option>`).join("")}</select></label>
-    <label>Account number<input type="text" name="acct" inputmode="numeric" maxlength="10" placeholder="10 digits"></label>
-    <div class="panel train"><b>Compliance training</b><ul>
-      <li>Promote only to people aged 18 and over.</li>
-      <li>Use only the approved messages in your portal, and never promise anyone a win.</li>
-      <li>No pressure, no lending money for cards and no buying cards for others.</li>
-      <li>You don't earn on your own cards, and there are no fees for recruiting other affiliates.</li></ul></div>
-    <label class="ck"><input type="checkbox" name="tr">I have read the training and agree to the affiliate agreement.</label>
-    <button class="btn red big" id="ap" disabled>Submit application</button>
-  </form>
-  <p class="fine2">In the real app you also pass a selfie check, and the bank account must be in your own verified name. Here everything is simulated.</p>`;
-  const f = $("#af"), ap = $("#ap");
-  const ok = () => { ap.disabled = !(/^\d{10}$/.test(f.acct.value) && f.tr.checked && f.querySelector("input[name=ch]:checked")); };
-  f.addEventListener("input", ok); f.addEventListener("change", ok);
-  f.onsubmit = (e) => {
-    e.preventDefault(); if (ap.disabled) return;
-    user.aff = { status: "review", st: f.st.value, ch: [...f.querySelectorAll("input[name=ch]:checked")].map((x) => x.value), bank: f.bank.value, acct: f.acct.value.slice(-4) };
-    save(); affReview();
-  };
-}
-function affReview() {
-  view.innerHTML = `<div class="ok"><div class="spin" style="margin:10px auto 18px"></div><h3>Application under review</h3><p style="color:#4d5e53">Compliance is checking your ID, bank account and training. In the demo this takes a few seconds.</p></div>`;
-  setTimeout(() => {
-    if (!user.aff || user.aff.status !== "review") return;
-    Object.assign(user.aff, { status: "approved", code: affCode(), day: 0, signups: 0, buyers: 0, cards: 0, earned: 0, paid: 0, ledger: [], payouts: [] });
-    save(); if (!app.hidden && cur === "earn") affDash(true);
-  }, 2400);
-}
-function affDash(fresh) {
-  const a = user.aff, owed = a.earned - a.paid, link = `https://wiifarmrewards.ng/r/${a.code}`;
-  view.innerHTML = `${fresh ? `<div class="okbar">✓ You're approved. Welcome aboard!</div>` : ""}
-  <h3>Affiliate portal</h3>
-  <div class="season"><small>Fees to be paid</small><div class="p">${naira(owed)}</div><small>Earned ${naira(a.earned)} · Paid out ${naira(a.paid)}</small></div>
-  <div class="panel"><div class="row"><span>Status</span><b style="color:#0b4a2b">Approved</b></div><div class="row"><span>Territory</span><b>${esc(a.st)}${a.st === "FCT" ? "" : " State"}</b></div><div class="row"><span>Your code</span><b class="mono">${a.code}</b></div></div>
-  <div class="share"><div class="lnk">${link}</div><div class="two"><button class="btn small" id="cpl">Copy link</button><a class="btn small wa" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(MAT[0][1].replace("{link}", link))}">Share on WhatsApp</a></div></div>
-  <div class="stats"><div><b>${a.signups}</b><span>sign-ups with your link</span></div><div><b>${a.buyers}</b><span>players who bought</span></div><div><b>${a.cards.toLocaleString("en-NG")}</b><span>cards bought</span></div><div><b>${naira(a.earned)}</b><span>fees earned (10%)</span></div></div>
-  <button class="btn big" id="sim">Simulate a day of referrals</button>
-  <p class="fine2" style="margin-top:0">Demo only: adds pretend sign-ups and card sales from your link so you can watch your fees grow.</p>
-  <button class="btn red big" id="pay" ${owed > 0 ? "" : "disabled"}>${owed > 0 ? `Request payout of ${naira(owed)}` : "Nothing to pay out yet"}</button>
-  <h3 style="font-size:17px;margin-top:20px">Approved messages</h3>
-  <p class="fine2" style="margin-top:-4px">Use only these. Your link is already in them.</p>
+function earn(note) {
+  const a = user.aff, link = `https://wiifarmrewards.ng/r/${a.code}`;
+  view.innerHTML = `${note ? `<div class="okbar">${note}</div>` : ""}<h3>Invite friends, earn</h3>
+  <div class="season"><small>Earned from friends' cards</small><div class="p">${naira(a.earned)}</div><small>₦50 for every ₦500 card a friend buys · paid into your wallet</small></div>
+  <div class="share"><small style="font-weight:700;color:#6b7a70">Your link · code <b class="mono" style="color:var(--em2)">${a.code}</b></small><div class="lnk" style="margin-top:6px">${link}</div><div class="two"><button class="btn small" id="cpl">Copy link</button><a class="btn small wa" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(MAT[0][1].replace("{link}", link))}">Share on WhatsApp</a></div></div>
+  <div class="stats"><div><b>${a.friends}</b><span>friends joined</span></div><div><b>${a.buyers}</b><span>friends who played</span></div><div><b>${a.cards.toLocaleString("en-NG")}</b><span>cards they bought</span></div><div><b>${naira(a.earned)}</b><span>added to your wallet</span></div></div>
+  <button class="btn big" id="sim">Simulate friends buying cards</button>
+  <p class="fine2" style="margin-top:0">Demo only: pretend friends join with your link and buy cards, so you can watch your wallet grow.</p>
+  <button class="btn red big" id="tw">Go to my wallet</button>
+  <h3 style="font-size:17px;margin-top:20px">Messages ready to share</h3>
   ${MAT.map(([ch, t], i) => `<div class="panel mat"><small>${ch}</small><p>${esc(t.replace("{link}", link))}</p><button class="btn small" data-m="${i}">Copy message</button></div>`).join("")}
-  <h3 style="font-size:17px;margin-top:20px">Fee statement</h3>
-  <div class="panel">${a.ledger.length ? a.ledger.slice(0, 12).map(([d, c, fee]) => `<div class="row"><span>${esc(d)} · ${c} card${c === 1 ? "" : "s"}</span><b style="color:#0b4a2b">+${naira(fee)}</b></div>`).join("") : `<div class="row"><span>No sales yet. Share your link to start earning.</span></div>`}</div>
-  ${a.payouts.length ? `<h3 style="font-size:17px;margin-top:20px">Payouts</h3><div class="panel">${a.payouts.map((p) => `<div class="row"><span>${esc(p.ref)}<br><small style="color:#6b7a70">${esc(p.to)}</small></span><b>${naira(p.amt)}</b></div>`).join("")}</div>` : ""}
-  <p class="fine2">You earn 10% of the cards bought by players who joined with your link, in your territory, while you are approved. You don't earn on your own cards or on players brought in by your players, and fees are taken back if a sale is refunded. Your players' names are never shown to you.</p>`;
+  <p class="fine2">You earn 10% (₦50) on every ₦500 card bought by friends who joined with your link. You don't earn on your own cards or on friends of friends. Your earnings go into your wallet, and you can withdraw them to your bank together with your winnings.</p>`;
   $("#cpl").onclick = (e) => copy(link, e.currentTarget);
+  $("#tw").onclick = () => go2("wallet");
   view.querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => copy(MAT[+b.dataset.m][1].replace("{link}", link), b)));
   $("#sim").onclick = () => {
-    a.day += 1;
-    const su = rnd(4, 14), nb = rnd(1, Math.max(1, Math.round(su * .7))), c = rnd(nb * 2, nb * 8), fee = c * 50;
-    a.signups += su; a.buyers = Math.min(a.signups, a.buyers + nb); a.cards += c; a.earned += fee;
-    a.ledger.unshift([`Day ${a.day}`, c, fee]); save(); affDash();
-  };
-  $("#pay").onclick = () => {
-    if (owed <= 0) return;
-    view.innerHTML = `<div class="spin"></div><p style="text-align:center">Paying ${naira(owed)} to ${esc(a.bank)} ••••${esc(a.acct)}…</p>`;
-    setTimeout(() => {
-      a.paid += owed; a.payouts.unshift({ ref: "SIMAFF-" + rnd(100000, 999999), amt: owed, to: `${a.bank} ••••${a.acct}` }); save();
-      view.innerHTML = `<div class="ok"><div class="tickbig">✓</div><h3 style="margin-top:18px">${naira(owed)} paid</h3><p style="color:#4d5e53">Sent to ${esc(a.bank)} ••••${esc(a.acct)}. In the real app, Finance prepares the settlement and a second person approves it.</p><button class="btn red big" id="bk">Back to my portal</button></div>`;
-      $("#bk").onclick = () => affDash();
-    }, 1300);
+    const nf = rnd(1, 4), nb = rnd(1, nf + 1), c = rnd(nb * 2, nb * 6), fee = c * 50;
+    a.friends += nf; a.buyers = Math.min(a.friends, a.buyers + nb); a.cards += c; a.earned += fee;
+    credit(fee); log("aff", `Referral earnings · ${c} card${c === 1 ? "" : "s"} bought by friends`, fee); save(); $("#bal").textContent = naira(user.credit);
+    earn(`+${naira(fee)} added to your wallet`);
   };
 }
 function draw() {
