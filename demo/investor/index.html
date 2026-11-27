@@ -209,6 +209,11 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 @media(min-width:981px){.mega .max>*{max-width:min(60%,780px)}.mega .max>p{max-width:min(58%,34em)!important}.mega .count{max-width:min(60%,620px)}}
 @media(min-width:981px) and (max-width:1200px){.mega-guy{width:40vw}}
 @media(max-width:980px){.mega-guy{position:static;display:block;width:min(100%,440px);margin:36px auto calc(-1 * clamp(72px,10vw,140px))}}
+
+.dealhead{margin:64px 0 0;font:900 clamp(26px,3.4vw,46px)/1.08 Unbounded;letter-spacing:-.03em;color:var(--gold);max-width:18ch;text-shadow:0 4px 30px rgba(233,185,73,.25)}
+.disclaimer{padding-block:48px;border-top:1px solid rgba(247,239,220,.1);background:#020e08}
+.disclaimer h3{font:800 18px Unbounded;letter-spacing:-.01em;color:var(--cream);margin-bottom:14px}
+.disclaimer ul{margin:0;padding-left:18px;display:grid;gap:8px;color:var(--mut);font-size:14px;line-height:1.55;max-width:70em}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -242,9 +247,9 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 
 <section class="sec gut" id="prizes"><div class="max">
   <div class="split"><div><div class="eyebrow">One ticket. All prize categories.</div><h2>Every card plays for everything.</h2></div>
-  <p>Instant cash from ₦500 to ₦10,000 is revealed the moment you scratch. Every card — win or lose — then goes into the Mega Draw at the end of the 90-day season, where these prizes are won.</p></div>
+  <p>Scratch a card and you find out straight away whether it has won instant cash of ₦500 to ₦10,000. Most cards don't win instantly, about 1 in 146 does. Every card, winning or not, then goes into the Mega Draw at the end of the 90-day season for a chance at the prizes below. An entry is a chance to win, not a promise of a prize.</p></div>
   <div class="instant"><b>₦500 – ₦10,000</b><span>Instant cash under the foil, paid straight to your wallet</span></div>
-  <div class="eyebrow" style="margin-top:56px">Won at the Mega Draw · 29,541 prizes</div>
+  <h3 class="dealhead">Amazing prizes to be won at the Mega Draw</h3>
   <div class="deck" id="deck"></div>
 </div></section>
 
@@ -292,6 +297,16 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
   </form>
 </div></section>
 </main>
+<section class="gut disclaimer" id="disclaimer"><div class="max">
+  <h3>Disclaimer</h3>
+  <ul>
+    <li>WiiFarm Rewards &amp; Lotto is a game of chance. Buying a card does not guarantee a prize: most cards do not win instant cash, and entry into the Mega Draw is a chance to win, not a promise of a prize.</li>
+    <li>For players aged 18 and over only. Play responsibly and spend only what you can afford to lose. Daily purchase limits apply.</li>
+    <li>Prizes, quantities, values and images shown are for illustration and are subject to the final approved campaign terms. Prizes may be replaced with items of equal or greater value.</li>
+    <li>Prizes are collected at participating WiiFarm Cooperative mega stockist and sub-stockist locations, subject to identity checks. Winnings may be subject to applicable taxes.</li>
+    <li>The service will launch only after licensing by the relevant state lottery regulator and independent certification. This is a demonstration: no real money is taken and no real prizes are paid.</li>
+  </ul>
+</div></section>
 <footer class="gut"><div class="max"><span>© WiiFarm Rewards &amp; Lotto · 18+ only · Play responsibly</span><span><a href="about.html">About WiiFarm</a> · Demonstration · no real money is taken or paid</span></div></footer>
 
 <div class="app" id="app" hidden><div class="device" role="dialog" aria-label="WiiFarm Rewards app">

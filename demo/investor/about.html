@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>About WiiFarm Rewards</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="WiiFarm Rewards & Lotto is built in partnership with WiiFarm Cooperative Society, a member-owned agricultural cooperative working since 2022.">
+<meta name="description" content="WiiFarm Rewards & Lotto is a ₦500 digital scratch card and Mega Draw that rewards the public with cash, food, appliances and a car, powered by WiiFarm Cooperative Society.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800;900&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -142,6 +142,19 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
   .card{padding:24px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important}html{scroll-behavior:auto}}
+
+.rw-mark{width:64px;height:64px;margin-bottom:22px;filter:drop-shadow(0 10px 24px rgba(226,54,43,.35))}
+.prom{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:48px}
+.prom div{border-radius:22px;padding:26px;background:linear-gradient(180deg,#0c3b23,#06281a);border:1px solid rgba(233,185,73,.3)}
+.prom b{display:block;font:800 19px/1.2 Unbounded;letter-spacing:-.02em;color:var(--goldl);margin-bottom:10px}
+.prom span{color:#cfdcd3;font-size:15.5px}
+.powered{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+.powered .badge{background:var(--cream);border-radius:14px;padding:8px 14px}.powered .badge img{height:30px;width:auto}
+.powered small{color:var(--mut);font-weight:600;font-size:14px}
+.disclaimer{padding-block:48px;border-top:1px solid var(--line);background:#020e08}
+.disclaimer h3{font:800 18px Unbounded;letter-spacing:-.01em;margin-bottom:14px}
+.disclaimer ul{margin:0;padding-left:18px;display:grid;gap:8px;color:var(--mut);font-size:14px;line-height:1.55;max-width:70em}
+@media(max-width:980px){.prom{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -155,89 +168,94 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 
 <main>
 <section class="hero gut"><div class="hero-bg" role="img" aria-label="Aerial view of a green farm field with a tractor"></div><div class="max">
-  <div class="eyebrow">About us</div>
-  <h1>Grown from the land. <em>Shared</em> with the people.</h1>
-  <p class="lede">WiiFarm Rewards &amp; Lotto is built in partnership with WiiFarm Cooperative Society, a registered, member-owned agricultural cooperative that has been growing, processing and distributing food since 2022. Together we are building a way to reward the public for being part of it.</p>
-  <div class="chips"><span>Member-owned since 2022</span><span>NaijaSweetRice®</span><span>10,000-hectare farm estate plan</span></div>
+  <div class="eyebrow">About WiiFarm Rewards</div>
+  <h1>Rewards with <em>roots.</em></h1>
+  <p class="lede">WiiFarm Rewards &amp; Lotto is a digital scratch card and Mega Draw that gives everyday Nigerians a ₦500 chance to win instant cash, bags of NaijaSweetRice®, home appliances and a car. Every prize comes from a real food chain, run by our partner, WiiFarm Cooperative Society.</p>
+  <div class="chips"><span>₦500 digital cards</span><span>₦20 million instant cash</span><span>Mega Draw every 90 days</span><span>Independently audited</span></div>
 </div></section>
 
-<section class="sec gut" id="coop"><div class="max split">
+<section class="sec gut" id="what"><div class="max split">
   <div>
     <div class="eyebrow">Who we are</div>
-    <h2>A cooperative that builds, not just talks.</h2>
-    <p class="lede" style="margin-top:26px">WiiFarm Cooperative Society brings land, capital and labour together under one structure, so everyday Nigerians can collectively own productive farmland, grow food at scale and earn from it over the long term.</p>
-    <p style="color:#cfdcd3;max-width:36em">Its members aggregate and process paddy rice, run a food distribution network of stockists, and are developing the WiiFarm Multipurpose Farm Estate, a 10,000-hectare master plan for rice, maize, beef, poultry and fish, starting in Itu, Akwa Ibom State.</p>
-    <blockquote class="quote">“We are not just a cooperative – we are a movement.”<cite>WiiFarm Cooperative Society</cite></blockquote>
+    <h2>A rewards platform built for the public.</h2>
+    <p class="lede" style="margin-top:26px">WiiFarm Rewards exists to share the rewards of a growing food economy with the people who buy from it. You buy a ₦500 card on your phone, scratch it, and find out at once whether it has won instant cash, paid straight into your wallet.</p>
+    <p style="color:#cfdcd3;max-width:36em">Most cards don't win instantly, but every card, winning or not, goes into the Mega Draw at the end of the 90-day season. That's where the big prizes are won: a luxury SUV, solar freezers and fridges, NaijaSweetRice®, VitaActive and VitaForce. Winners collect their prizes close to home, at WiiFarm Cooperative stockists across the country.</p>
+    <blockquote class="quote">“Scratch. Reveal. Discover.”<cite>WiiFarm Rewards &amp; Lotto</cite></blockquote>
   </div>
-  <figure class="photo" style="margin:0;aspect-ratio:3/4"><img src="about/visit.webp" alt="A WiiFarm Cooperative delegation in branded caps meeting an official in his office" loading="lazy"><figcaption>A WiiFarm Cooperative delegation on a courtesy visit.</figcaption></figure>
+  <figure class="photo" style="margin:0;aspect-ratio:4/5"><img src="about/stock.webp" alt="Hundreds of red and green NaijaSweetRice bags stacked in a warehouse" loading="lazy" style="object-position:40% 50%"><figcaption>NaijaSweetRice® stock: some of the food behind the prizes.</figcaption></figure>
 </div>
 <div class="max">
   <div class="figs">
-    <div><b>2022</b><span>members working together since</span></div>
-    <div><b>10,000 ha</b><span>farm estate master plan</span></div>
-    <div><b>5</b><span>value chains: rice, maize, beef, poultry, fish</span></div>
-    <div><b>1</b><span>member, one vote</span></div>
+    <div><b>₦500</b><span>per card</span></div>
+    <div><b>₦20m</b><span>instant cash in the first season</span></div>
+    <div><b>90 days</b><span>per season, ending in the Mega Draw</span></div>
+    <div><b>1</b><span>card plays for every prize</span></div>
   </div>
 </div></section>
 
-<section class="sec gut journey" id="journey"><div class="max">
-  <div class="eyebrow">Our journey</div>
-  <h2>Years in the field.</h2>
-  <ol class="tl">
-    <li><time>2022</time><div><h3>The Paddy Aggregation Program begins</h3><p>Members pool capital to buy paddy rice from farmers, process it and distribute it with corporate partners. The cooperative reports an average return on capital of 24% a year from the programme since 2022.</p></div></li>
-    <li><time>2022</time><div><h3>In the national press</h3><p>ThisDay reports the cooperative's plan to help members grow their earnings across the rice value chain.</p></div></li>
-    <li><time>2025</time><div><h3>Uyo Food Service Hub and fractional farmland</h3><p>The cooperative opens its food service hub in Uyo, distributing NaijaSweetRice® to a growing member network across Akwa Ibom State, and launches deed-backed fractional farmland ownership with The Factory Company.</p></div></li>
-    <li><time>2025</time><div><h3>Working with the state</h3><p>A WiiFarm delegation presents the 10,000-hectare master plan to the Akwa Ibom State Commissioner for Budget and Economic Planning.</p></div></li>
-    <li class="next"><time>Next</time><div><h3>WiiFarm Rewards &amp; Lotto</h3><p>A rewards platform that opens the cooperative's food chain to the public: ₦500 cards, instant cash, and a Mega Draw for prizes from the farm to the family table. Launch follows the state licence and certification.</p></div></li>
-  </ol>
-  <div class="gallery">
-    <figure class="photo" style="margin:0"><img src="about/stock.webp" alt="Hundreds of red and green NaijaSweetRice bags stacked in a warehouse" loading="lazy"><figcaption>NaijaSweetRice® stock ready for the member network.</figcaption></figure>
-    <figure class="photo" style="margin:0"><img src="about/hub.webp" alt="Rendering of a WiiFarm Coop depot and experience hub storefront" loading="lazy"><figcaption>The WiiFarm Coop depot and experience hub (artist's impression).</figcaption></figure>
-    <figure class="photo" style="margin:0"><img src="about/tractor.webp" alt="A tractor working a large green field, seen from above" loading="lazy"><figcaption>Mechanised farming at estate scale.</figcaption></figure>
+<section class="sec gut journey" id="fair"><div class="max">
+  <div class="eyebrow">Our promise</div>
+  <h2>Fair play you can check.</h2>
+  <p class="lede" style="margin-top:24px">A rewards platform is only worth playing if people trust it. WiiFarm Rewards is built so that every result can be checked, by us, by an independent auditor and by anyone else.</p>
+  <div class="prom">
+    <div><b>Results sealed before sale</b><span>Every season's results are fixed and sealed before the first card is sold, so nothing can be changed afterwards.</span></div>
+    <div><b>An audited Mega Draw</b><span>The draw uses public randomness, and an independent auditor signs the report. Anyone can re-check the result.</span></div>
+    <div><b>Paid straight to your wallet</b><span>Instant cash lands in your wallet the moment you scratch. Food and appliance prizes are collected at a stockist near you.</span></div>
+    <div><b>Responsible play</b><span>18+ only, with a daily limit on the number of cards. Play for fun and spend only what you can afford to lose.</span></div>
+    <div><b>In English and Hausa</b><span>The app speaks your language, so everyone can play and understand the rules.</span></div>
+    <div><b>Licensed before launch</b><span>We launch only after licensing by the state lottery regulator and independent certification.</span></div>
   </div>
 </div></section>
 
 <section class="sec gut partner" id="partnership"><div class="max">
-  <div class="eyebrow">The partnership</div>
-  <h2>A system that rewards the public.</h2>
-  <p class="lede" style="margin-top:24px">The cooperative rewards its members. WiiFarm Rewards &amp; Lotto opens that idea to everyone: buy a ₦500 card, and you take part in a season built around real food, real prizes and a nationwide network of stockists.</p>
+  <div class="powered"><span class="badge"><img src="about/coop-logo.webp" alt="WiiFarm Cooperative Society"></span><small>Our partner</small></div>
+  <h2>Powered by WiiFarm Cooperative.</h2>
+  <p class="lede" style="margin-top:24px">The prizes and the network behind WiiFarm Rewards come from WiiFarm Cooperative Society, a registered, member-owned agricultural cooperative that has been growing, processing and distributing food since 2022.</p>
   <div class="trio">
-    <div class="step"><div class="n">1</div><h3>The cooperative grows and delivers</h3><p>WiiFarm Cooperative supplies the food prizes, NaijaSweetRice®, VitaActive and VitaForce, and runs the mega stockist and sub-stockist locations where prizes are collected.</p></div>
-    <div class="step"><div class="n">2</div><h3>Rewards &amp; Lotto runs the game</h3><p>We run the cards, the instant wins and the Mega Draw, keep the books, and work with an independent auditor so every result can be checked.</p></div>
-    <div class="step"><div class="n">3</div><h3>The public wins</h3><p>Instant cash of ₦500 to ₦10,000 goes straight to the winner's wallet, and every card, win or lose, goes into the Mega Draw at the end of the 90-day season.</p></div>
+    <div class="step"><div class="n">1</div><h3>The cooperative grows and delivers</h3><p>It supplies the food prizes, NaijaSweetRice®, VitaActive and VitaForce, and runs the mega stockist and sub-stockist locations where winners collect them.</p></div>
+    <div class="step"><div class="n">2</div><h3>WiiFarm Rewards runs the game</h3><p>We run the cards, the instant wins and the Mega Draw, keep the books, and work with the independent auditor.</p></div>
+    <div class="step"><div class="n">3</div><h3>The public is rewarded</h3><p>Players win cash and food, and every card sold helps grow a food economy that feeds families across Nigeria.</p></div>
   </div>
-  <div class="promise"><span>Results sealed before sale</span><span>Independent auditor signs off</span><span>Prizes redeemed nationwide</span><span>18+ only · play responsibly</span></div>
 </div></section>
 
-<section class="sec gut" id="vision"><div class="max">
-  <div class="eyebrow">What we stand for</div>
-  <h2>Growing food. Growing wealth. Growing hope.</h2>
-  <div class="vm">
-    <div class="card"><h3>Vision</h3><p>To be Africa's leading member-owned agricultural cooperative, turning underused rural land into thriving, technology-enabled food production hubs that create wealth and jobs and promote food sovereignty.</p></div>
-    <div class="card"><h3>Mission</h3><ul><li>Pool land and capital</li><li>Drive sustainable food production</li><li>Build collective wealth</li><li>Restore the dignity of agricultural labour</li><li>Strengthen national and regional food systems</li></ul></div>
+<section class="sec gut" id="journey"><div class="max">
+  <div class="eyebrow">How we got here</div>
+  <h2>From the farm to your phone.</h2>
+  <ol class="tl">
+    <li><time>2022</time><div><h3>The cooperative starts trading rice</h3><p>WiiFarm Cooperative members begin buying, processing and distributing paddy rice together.</p></div></li>
+    <li><time>2025</time><div><h3>A food network takes shape</h3><p>The cooperative opens its Uyo Food Service Hub, distributing NaijaSweetRice® through a growing network of stockists, and unveils a 10,000-hectare farm estate plan.</p></div></li>
+    <li class="next"><time>Next</time><div><h3>WiiFarm Rewards &amp; Lotto launches</h3><p>The first 90-day season: ₦500 cards, ₦20 million of instant cash and a Mega Draw, with prizes collected at stockists nationwide. Launch follows the state licence and certification.</p></div></li>
+  </ol>
+  <div class="gallery">
+    <figure class="photo" style="margin:0"><img src="about/hub.webp" alt="Rendering of a WiiFarm Coop depot and experience hub storefront" loading="lazy"><figcaption>A WiiFarm Coop depot and experience hub, where prizes can be collected (artist's impression).</figcaption></figure>
+    <figure class="photo" style="margin:0"><img src="about/visit.webp" alt="A WiiFarm Cooperative delegation in branded caps meeting an official" loading="lazy" style="object-position:50% 30%"><figcaption>A WiiFarm Cooperative delegation on a courtesy visit.</figcaption></figure>
+    <figure class="photo" style="margin:0"><img src="about/tractor.webp" alt="A tractor working a large green field, seen from above" loading="lazy"><figcaption>The farms behind the food prizes.</figcaption></figure>
   </div>
-  <div class="values"><span>Voluntary and open membership</span><span>Democratic member control</span><span>Member economic participation</span><span>Autonomy and independence</span><span>Education, training and information</span><span>Cooperation among cooperatives</span><span>Concern for community</span></div>
-</div></section>
-
-<section class="sec gut" id="news" style="padding-top:0"><div class="max">
-  <div class="eyebrow">In the news</div>
-  <h2>What the press says.</h2>
   <div class="news">
     <a href="https://www.thisdaylive.com/2022/12/03/wiifarm-cooperative-set-to-help-members-grow-earnings-in-rice-value-chain/" target="_blank" rel="noopener"><small>ThisDay · December 2022</small><b>WiiFarm Cooperative set to help members grow earnings in rice value chain</b></a>
     <a href="https://dailytrust.com/wiifarm-cooperative-launches-rice-distribution-hub/" target="_blank" rel="noopener"><small>Daily Trust · 2025</small><b>WiiFarm cooperative launches rice distribution hub</b></a>
-    <a href="https://blueprint.ng/firm-launches-rice-distribution-service-set-to-revolutionalise-farmland-ownership-model/" target="_blank" rel="noopener"><small>Blueprint · 2025</small><b>Firm launches rice distribution service, set to revolutionise farmland ownership model</b></a>
-    <a href="https://guardian.ng/features/agro-care/wiifarmcoop-factory-company-set-to-revolutionise-nigerias-agric-sector/" target="_blank" rel="noopener"><small>The Guardian</small><b>WiifarmCoop, Factory Company set to revolutionise Nigeria's agric sector</b></a>
   </div>
 </div></section>
 
 <section class="sec gut close" style="padding-top:0"><div class="max">
-  <div class="badge"><img src="about/coop-logo.webp" alt="WiiFarm Cooperative Society logo"></div>
-  <h2>One member, one hectare, one harvest at a time.</h2>
-  <p class="lede">Try the WiiFarm Rewards demo, or learn more about the cooperative behind it.</p>
-  <div class="cta"><a class="btn red" href="./#join">Try the demo <span aria-hidden="true">→</span></a><a class="btn line" href="https://wiifarmcoop.org/" target="_blank" rel="noopener">Visit wiifarmcoop.org</a></div>
-  <p class="note">Facts about WiiFarm Cooperative Society are from wiifarmcoop.org and published news reports. Returns are as reported by the cooperative. Field photography: Chris Ensminger / Unsplash; other images © WiiFarm Cooperative Society.</p>
+  <svg class="rw-mark" aria-hidden="true"><use href="#mark"/></svg>
+  <h2>Scratch. Reveal. Discover.</h2>
+  <p class="lede">Try WiiFarm Rewards for yourself in the demo, with ₦5,000 of demo credit and no real money involved.</p>
+  <div class="cta"><a class="btn red" href="./#join">Try the demo <span aria-hidden="true">→</span></a><a class="btn line" href="./#prizes">See the prizes</a></div>
+  <p class="note">Facts about WiiFarm Cooperative Society are from wiifarmcoop.org and published news reports. Field photography: Chris Ensminger / Unsplash; other photographs © WiiFarm Cooperative Society.</p>
 </div></section>
 </main>
+
+<section class="gut disclaimer"><div class="max">
+  <h3>Disclaimer</h3>
+  <ul>
+    <li>WiiFarm Rewards &amp; Lotto is a game of chance. Buying a card does not guarantee a prize: most cards do not win instant cash, and entry into the Mega Draw is a chance to win, not a promise of a prize.</li>
+    <li>For players aged 18 and over only. Play responsibly and spend only what you can afford to lose. Daily purchase limits apply.</li>
+    <li>Prizes, quantities, values and images shown are for illustration and are subject to the final approved campaign terms. Prizes may be replaced with items of equal or greater value.</li>
+    <li>Prizes are collected at participating WiiFarm Cooperative mega stockist and sub-stockist locations, subject to identity checks. Winnings may be subject to applicable taxes.</li>
+    <li>The service will launch only after licensing by the relevant state lottery regulator and independent certification. This is a demonstration: no real money is taken and no real prizes are paid.</li>
+  </ul>
+</div></section>
 
 <footer class="gut"><div class="max"><span>© WiiFarm Rewards &amp; Lotto · 18+ only · Play responsibly</span><span>Demonstration · no real money is taken or paid</span></div></footer>
 </body>
