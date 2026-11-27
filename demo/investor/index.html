@@ -80,11 +80,14 @@ section{position:relative}
 .eyebrow{color:var(--gold);font-weight:700;font-size:15px;margin-bottom:16px}
 h2{font-size:clamp(36px,5.4vw,76px)}
 /* prizes */
-.deck{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:18px;margin-top:56px;align-items:end}
+.deck{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-top:18px;align-items:end}
+.instant{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 24px;margin-top:48px;padding:26px 30px;border-radius:24px;background:linear-gradient(120deg,#c4241b,var(--red) 45%,#ff5a4c);box-shadow:inset 0 0 0 2px var(--gold),0 20px 40px rgba(226,54,43,.25)}
+.instant b{font:900 clamp(34px,5vw,64px) Unbounded;letter-spacing:-.04em;color:var(--goldl)}
+.instant span{font-size:18px;font-weight:600;max-width:22em}
 .deck figure{margin:0;transition:transform .35s cubic-bezier(.2,.8,.2,1)}
 .deck figure:nth-child(odd){transform:translateY(28px)}
 .deck figure:hover{transform:translateY(-14px) rotate(-1.5deg)}
-.deck img{width:100%;display:block;border-radius:16px;box-shadow:0 0 0 2px var(--gold),0 24px 40px rgba(0,0,0,.45)}
+.deck img{width:100%;display:block;aspect-ratio:4/3;object-fit:cover;border-radius:16px;box-shadow:0 0 0 2px var(--gold),0 24px 40px rgba(0,0,0,.45)}
 .deck figcaption{margin-top:14px;font-weight:700}
 .deck figcaption span{display:block;color:var(--mut);font-weight:500;font-size:14px}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,6vw,96px);align-items:end}
@@ -174,9 +177,9 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 @keyframes sp{to{transform:rotate(360deg)}}
 .reel{font:900 26px Unbounded;letter-spacing:-.03em;text-align:center;padding:22px 10px;border-radius:18px;background:var(--em);color:var(--goldl);box-shadow:inset 0 3px 8px rgba(0,0,0,.5);font-variant-numeric:tabular-nums;margin:14px 0}
 .confetti{position:fixed;inset:0;pointer-events:none;z-index:60}
-@media(max-width:980px){.hero .max,.split,.join{grid-template-columns:1fr}.deck{grid-template-columns:repeat(3,minmax(0,1fr))}.deck figure:nth-child(n+4){display:none}.steps{grid-template-columns:repeat(2,minmax(0,1fr))}.figs{grid-template-columns:repeat(2,minmax(0,1fr))}.figs div:nth-child(2){border-right:0}.figs div:nth-child(3){padding-left:0}.links{display:none}.hero{min-height:auto}.tilt{width:min(78vw,340px)}}
+@media(max-width:980px){.hero .max,.split,.join{grid-template-columns:1fr}.deck{grid-template-columns:repeat(2,minmax(0,1fr))}.steps{grid-template-columns:repeat(2,minmax(0,1fr))}.figs{grid-template-columns:repeat(2,minmax(0,1fr))}.figs div:nth-child(2){border-right:0}.figs div:nth-child(3){padding-left:0}.links{display:none}.hero{min-height:auto}.tilt{width:min(78vw,340px)}}
 @media(max-width:980px){.hero .copy{display:contents}.kicker{order:0;justify-self:start;margin-bottom:0}.hero h1{order:1}.stage{order:2}.sub{order:3;margin:0}.cta{order:4}.trust{order:5;margin-top:0}.hero .max{gap:22px}}
-@media(max-width:560px){.hint{top:auto;bottom:30%;right:-12px}.ribbon{font-size:12.5px;padding:8px 6px}.ribbon b{font-size:15px}.hero h1{font-size:clamp(44px,13vw,60px)}.tilt{width:min(70vw,290px)}.deck{grid-template-columns:repeat(2,minmax(0,1fr))}.deck figure:nth-child(3){display:none}.steps{grid-template-columns:1fr}.step{min-height:0}.count{gap:8px}.count div{padding:14px 4px;border-radius:14px}.hint{right:4px}.nav .btn{display:none}}
+@media(max-width:560px){.hint{top:auto;bottom:30%;right:-12px}.ribbon{font-size:12.5px;padding:8px 6px}.ribbon b{font-size:15px}.hero h1{font-size:clamp(44px,13vw,60px)}.tilt{width:min(70vw,290px)}.deck{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.deck figure:nth-child(odd){transform:none}.steps{grid-template-columns:1fr}.step{min-height:0}.count{gap:8px}.count div{padding:14px 4px;border-radius:14px}.hint{right:4px}.nav .btn{display:none}}
 @media(max-width:460px){.device{border-radius:0;height:100%;width:100vw;box-shadow:none}}
 @media(prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}.hero h1 span,.sub,.cta,.trust,.stage{opacity:1;transform:none}}
 </style>
@@ -211,7 +214,9 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 
 <section class="sec gut" id="prizes"><div class="max">
   <div class="split"><div><div class="eyebrow">One ticket. All prize categories.</div><h2>Every card plays for everything.</h2></div>
-  <p>Cash prizes from ₦500 to ₦10,000 are revealed the moment you scratch. Then your card stays in for the Mega Draw at the end of the season — the SUV, freezers and refrigerators, and bags of NaijaSweetRice and VitaActive.</p></div>
+  <p>Instant cash from ₦500 to ₦10,000 is revealed the moment you scratch. Every card — win or lose — then goes into the Mega Draw at the end of the 90-day season, where these prizes are won.</p></div>
+  <div class="instant"><b>₦500 – ₦10,000</b><span>Instant cash under the foil, paid straight to your wallet</span></div>
+  <div class="eyebrow" style="margin-top:56px">Won at the Mega Draw</div>
   <div class="deck" id="deck"></div>
 </div></section>
 
@@ -226,7 +231,8 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 </div></section>
 
 <section class="sec gut mega" id="mega"><div class="max">
-  <div class="eyebrow">The Mega Draw</div><h2>Win or lose, you're still in.</h2>
+  <div class="eyebrow">The Mega Draw · at the end of the 90-day season</div><h2>Win or lose, you're still in.</h2>
+  <p style="font-size:19px;color:#d9e6dc;margin-top:22px;max-width:34em">Every card sold this season is entered. The draw takes place once, when the season closes on <b id="drawDate"></b>, and the winners are notified in the app.</p>
   <div class="count" id="count"></div>
   <div class="pills"><span>Every card entered automatically</span><span>Public randomness</span><span>Independent auditor signs off</span><span>Anyone can re-check the result</span></div>
 </div></section>
@@ -277,7 +283,8 @@ const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Marquee and prize deck.
 const words = ["Instant cash up to ₦10,000", "The SUV", "50kg NaijaSweetRice", "Solar freezers", "VitaActive", "Every card in the Mega Draw", "₦500 a card"];
 $("#mq").innerHTML = [...words, ...words, ...words, ...words].map((w) => `${w}<i>✦</i>`).join("");
-$("#deck").innerHTML = THEMES.map((t) => `<figure><img src="cards/${t}.jpg" alt="${NAMES[t][0]} card design" loading="lazy"><figcaption>${NAMES[t][0]}<span>${NAMES[t][1]}</span></figcaption></figure>`).join("");
+const PRIZES = [["suv", "The SUV", "One vehicle, the top prize"], ["appliances", "Home appliances", "Solar freezers, fridges, fans"], ["rice", "NaijaSweetRice", "50kg, 25kg, 5kg and 1kg bags"], ["vita", "VitaActive Complete", "Fortified rice meal packs"]];
+$("#deck").innerHTML = PRIZES.map(([f, n, d]) => `<figure><img src="prizes/${f}.jpg" alt="${n}" loading="lazy"><figcaption>${n}<span>${d}</span></figcaption></figure>`).join("");
 
 // Mega Draw countdown: 90 days from the start of this visit's season.
 const drawAt = Date.now() + 89 * 864e5 + 13 * 36e5 + 47 * 6e4;
@@ -287,6 +294,8 @@ function tick() {
   $("#count").innerHTML = [[d, "days"], [h, "hours"], [m, "minutes"], [x, "seconds"]].map(([v, l]) => `<div><b>${String(v).padStart(2, "0")}</b><span>${l}</span></div>`).join("");
 }
 tick(); setInterval(tick, 1000);
+const drawDate = new Date(drawAt).toLocaleDateString("en-NG", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+$("#drawDate").textContent = drawDate;
 
 // The scratch foil, shared by the hero card and the app.
 function foil(canvas, onDone) {
@@ -353,7 +362,8 @@ const ICONS = {
 };
 const TABS = [["home", "Home"], ["cards", "My cards"], ["wallet", "Wallet"], ["draw", "Mega Draw"]];
 // Demo odds are boosted (the real game is about 1 in 146) so a visitor sees a win; the app says so.
-const roll = () => { const r = Math.random(); return r < .2 ? 500 : r < .28 ? 1000 : r < .32 ? 2000 : r < .335 ? 5000 : r < .34 ? 10000 : 0; };
+// The real game is about 1 in 146: here the first card always wins and later ones often, so a visitor sees how it feels.
+const roll = () => { const r = Math.random(); return r < .22 ? 500 : r < .34 ? 1000 : r < .41 ? 2000 : r < .44 ? 5000 : r < .45 ? 10000 : 0; };
 const serial = () => "WR-" + Math.random().toString(36).slice(2, 7).toUpperCase() + "-" + Math.random().toString(36).slice(2, 7).toUpperCase();
 const themeOf = (s) => THEMES[[...s].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 0) % THEMES.length];
 
@@ -370,11 +380,12 @@ function home() {
   const left = user.cards.filter((c) => !c.done).length;
   view.innerHTML = `<p style="margin:2px 0 12px;color:#4d5e53">Welcome, <b>${esc(user.name)}</b></p>
   <div class="season"><small>Harvest Season · on sale</small><div class="p">₦500 <small style="font:600 14px Figtree">per card</small></div>
-    <div class="prog"><i></i></div><small>1,020,680 of 2,686,000 cards sold · Mega Draw in 89 days</small></div>
+    <div class="prog"><i></i></div><small>1,020,680 of 2,686,000 cards sold · Mega Draw on ${drawDate}</small></div>
   <button class="btn red big" id="buyBtn">Buy scratch cards</button>
   ${left ? `<button class="btn big" id="toCards">Scratch your ${left} card${left > 1 ? "s" : ""}</button>` : ""}
   <h3 style="margin-top:20px">Up for grabs</h3>
-  <div class="grid">${THEMES.slice(0, 4).map((t) => `<div class="mini" style="cursor:default;animation:none"><img src="cards/${t}.jpg" alt=""><span>${NAMES[t][0]}</span></div>`).join("")}</div>`;
+  <p class="fine2" style="margin-top:-4px">Instant cash under the foil, and these at the Mega Draw:</p>
+  <div class="grid">${PRIZES.map(([f, n]) => `<div class="mini" style="cursor:default;animation:none"><img src="prizes/${f}.jpg" alt="" style="aspect-ratio:4/3;object-position:center"><span>${n}</span></div>`).join("")}</div>`;
   $("#buyBtn").onclick = () => go2("buy");
   $("#toCards") && ($("#toCards").onclick = () => go2("cards"));
 }
@@ -394,7 +405,10 @@ function buy() {
     view.innerHTML = `<div class="spin"></div><p style="text-align:center">Confirming payment…</p>`;
     setTimeout(() => {
       user.credit -= q * 500; user.history.unshift([`${q} card${q > 1 ? "s" : ""} bought`, -q * 500]);
-      for (let i = 0; i < q; i++) { const s = serial(); user.cards.unshift({ s, t: themeOf(s), cash: roll(), done: false }); }
+      const fresh = [];
+      for (let i = 0; i < q; i++) { const s = serial(); fresh.push({ s, t: themeOf(s), cash: roll(), done: false }); }
+      if (!user.cards.some((c) => c.cash) && !fresh.some((c) => c.cash)) fresh[0].cash = 1000; // the first purchase always shows a win
+      user.cards.unshift(...fresh);
       save(); $("#bal").textContent = naira(user.credit);
       view.innerHTML = `<div class="ok"><div class="tickbig">✓</div><h3 style="margin-top:18px">${q} card${q > 1 ? "s" : ""} are yours</h3><p style="color:#4d5e53">Each one is already in the Mega Draw.</p><button class="btn red big" id="sc">Start scratching</button></div>`;
       $("#sc").onclick = () => go2("cards");
@@ -413,14 +427,15 @@ function card(i) {
   view.innerHTML = `<button class="close" style="color:var(--em2);padding:0;font:700 15px Figtree" id="back">← My cards</button>
   <div class="scard t-${c.t}" style="margin:12px 4px 14px;box-shadow:0 0 0 3px var(--gold),0 0 0 5px var(--gold2),0 16px 30px rgba(0,0,0,.3)"><img src="cards/${c.t}.jpg" alt="">
     <div class="ribbon"><b>₦500</b> — Digital raffle ticket</div>
-    <div class="strip"><div class="res">${c.cash ? `<span>You won</span><b>${naira(c.cash)}</b>` : `<b style="font-size:20px">No instant win</b><span>Still in the Mega Draw</span>`}</div>${c.done ? "" : "<canvas></canvas>"}</div>
+    <div class="strip"><div class="res">${c.cash ? `<span>You won</span><b>${naira(c.cash)}</b>` : `<b style="font-size:19px">No instant win</b><span>Entered in the Mega Draw</span>`}</div>${c.done ? "" : "<canvas></canvas>"}</div>
     <div class="tag">One ticket. All prize categories.</div></div>
   <p class="fine2" style="text-align:center">Card ${c.s}</p><div id="after"></div>`;
   $("#back").onclick = () => go2("cards");
   const after = () => {
     if (!c.done) { c.done = true; if (c.cash) { user.credit += c.cash; user.won += c.cash; user.history.unshift(["Instant win", c.cash]); confetti(); } save(); $("#bal").textContent = naira(user.credit); }
     const next = user.cards.findIndex((x) => !x.done);
-    $("#after").innerHTML = `<p style="text-align:center;font-weight:800">${c.cash ? `${naira(c.cash)} added to your wallet` : "Entered in the Mega Draw ✓"}</p>` +
+    $("#after").innerHTML = `<p style="text-align:center;font-weight:800;margin-bottom:4px">${c.cash ? `${naira(c.cash)} added to your wallet` : "This card is in the Mega Draw ✓"}</p>
+      <p class="fine2" style="text-align:center;margin-top:0">${c.cash ? "And it still goes into the Mega Draw. " : ""}The Mega Draw is on ${drawDate}.</p>` +
       (next >= 0 ? `<button class="btn big" id="nx">Next card →</button>` : `<button class="btn red big" id="md">See the Mega Draw</button>`);
     $("#nx")?.addEventListener("click", () => go2("card", next));
     $("#md")?.addEventListener("click", () => go2("draw"));
@@ -434,21 +449,18 @@ function wallet() {
   <div class="panel">${user.history.map(([t, a]) => `<div class="row"><span>${esc(t)}</span><b style="color:${a < 0 ? "#9e1410" : "#0b4a2b"}">${a < 0 ? "−" : "+"}${naira(Math.abs(a))}</b></div>`).join("")}</div>`;
 }
 function draw() {
-  view.innerHTML = `<h3>Mega Draw</h3><p style="color:#4d5e53">Your ${user.cards.length} card${user.cards.length === 1 ? "" : "s"} ${user.cards.length === 1 ? "is" : "are"} in, with every card sold this season.</p>
-  <div class="reel" id="reel">WR-•••••-•••••</div><button class="btn red big" id="run">Run a demo draw</button>
-  <p class="fine2">The real draw uses a secret sealed before sales opened and public randomness, overseen by an independent auditor; anyone can re-check it. This demo gives your cards a better chance than the real draw.</p><div id="dres"></div>`;
-  $("#run").onclick = () => {
-    $("#run").disabled = true; let k = 0;
-    const iv = setInterval(() => { $("#reel").textContent = serial(); if (++k > 26) { clearInterval(iv); fin(); } }, 65);
-    const fin = () => {
-      const mine = user.cards.length && Math.random() < Math.min(.6, user.cards.length * .08);
-      const w = mine ? user.cards[Math.floor(Math.random() * user.cards.length)].s : serial();
-      $("#reel").textContent = w;
-      $("#dres").innerHTML = mine ? `<div class="panel" style="text-align:center;padding:16px"><b>Your card won 50kg NaijaSweetRice!</b><p class="fine2">You'd collect it at an approved centre with your voucher, a one-time code and photo ID.</p></div>` : `<div class="panel" style="text-align:center;padding:16px">Not this time. Your cards stay in for the next prize.</div>`;
-      if (mine) confetti();
-      $("#run").disabled = false; $("#run").textContent = "Draw the next prize";
-    };
-  };
+  const n = user.cards.length;
+  view.innerHTML = `<h3>Mega Draw</h3>
+  <div class="season" style="text-align:center"><small>Takes place at the end of the season</small><div class="p" id="dd" style="font-size:30px"></div><small>${drawDate}</small></div>
+  <div class="panel"><div class="row"><span>Your entries</span><b>${n} card${n === 1 ? "" : "s"}</b></div><div class="row"><span>Instant wins so far</span><b>${naira(user.won)}</b></div></div>
+  <p class="fine2">Every card you buy this season is entered automatically, win or lose. The draw runs once when the season closes, using a secret sealed before sales opened and public randomness, with an independent auditor. Winners are notified in the app.</p>
+  <h3 style="font-size:16px;margin-top:18px">Prizes in the Mega Draw</h3>
+  <div class="grid">${PRIZES.map(([f, nm, d]) => `<div class="mini" style="cursor:default;animation:none"><img src="prizes/${f}.jpg" alt="" style="aspect-ratio:4/3"><span>${nm}</span></div>`).join("")}</div>
+  ${n ? `<h3 style="font-size:16px;margin-top:18px">Your entries</h3><div class="panel">${user.cards.slice(0, 20).map((c) => `<div class="row"><span style="font-family:monospace">${c.s}</span><b style="color:#0b4a2b">Entered ✓</b></div>`).join("")}${n > 20 ? `<div class="row"><span>and ${n - 20} more</span><b></b></div>` : ""}</div>`
+    : `<button class="btn red big" id="b">Buy cards to enter</button>`}`;
+  const t = () => { const el = $("#dd"); if (!el) return clearInterval(iv); let s2 = Math.max(0, Math.floor((drawAt - Date.now()) / 1000)); el.textContent = `${Math.floor(s2 / 86400)}d ${String(Math.floor(s2 % 86400 / 3600)).padStart(2, "0")}h ${String(Math.floor(s2 % 3600 / 60)).padStart(2, "0")}m ${String(s2 % 60).padStart(2, "0")}s`; };
+  const iv = setInterval(t, 1000); t();
+  $("#b")?.addEventListener("click", () => go2("buy"));
 }
 }
 </script>
