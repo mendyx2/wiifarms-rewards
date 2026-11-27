@@ -156,7 +156,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 .close{background:none;border:0;color:#fff;font-size:22px;cursor:pointer;padding:0 0 0 10px}
 .view{flex:1;overflow-y:auto;padding:16px;scrollbar-width:none}
 .view h3{font-size:20px;margin:6px 0 10px;color:var(--ink)}
-.tabbar{display:grid;grid-template-columns:repeat(4,1fr);background:#fffaf0;border-top:1px solid #e4dbc6;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
+.tabbar{display:grid;grid-template-columns:repeat(5,1fr);background:#fffaf0;border-top:1px solid #e4dbc6;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
 .tabbar button{border:0;background:none;padding:8px 2px;border-radius:12px;font:700 12px Figtree;color:#6b7a70;display:grid;justify-items:center;gap:3px;cursor:pointer}
 .tabbar svg{width:22px;height:22px}
 .tabbar button[aria-selected=true]{color:var(--em2);background:#ebe2cd;box-shadow:inset 0 2px 4px rgba(70,50,20,.2)}
@@ -217,6 +217,38 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 .disclaimer ul{margin:0;padding-left:18px;display:grid;gap:8px;color:var(--mut);font-size:14px;line-height:1.55;max-width:70em}
 .brandlogo{height:74px;width:auto;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.4))}
 @media(max-width:560px){.brandlogo{height:54px}}
+
+.aff{background:radial-gradient(70% 60% at 85% 20%,rgba(233,185,73,.16),transparent 70%),linear-gradient(180deg,var(--night),#062a17 55%,var(--night))}
+.aff-top{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(28px,5vw,80px);align-items:center}
+.aff-lede{font-size:clamp(18px,1.6vw,21px);color:#d9e6dc;margin:24px 0 30px;max-width:32em}.aff-lede b{color:var(--goldl)}
+.calc{border-radius:28px;padding:clamp(24px,3vw,36px);background:linear-gradient(180deg,#0c3b23,#04210f);box-shadow:0 0 0 2px var(--gold),0 30px 60px rgba(0,0,0,.45)}
+.calc small{color:var(--mut);font-weight:700}
+.calc-out{font:900 clamp(40px,5vw,64px) Unbounded;letter-spacing:-.04em;color:var(--goldl);margin:6px 0 18px;font-variant-numeric:tabular-nums}
+.calc label{display:block;font-weight:600;font-size:15px;color:#d9e6dc;margin-top:14px}.calc label b{float:right;color:var(--goldl)}
+.calc input[type=range]{width:100%;margin-top:10px;accent-color:var(--gold)}
+.calc p{font-size:13px;color:var(--mut);margin:16px 0 0}
+.steps-aff .step{min-height:240px}
+.aff-rules{margin-top:26px}
+.view .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.afform label{display:grid;gap:6px;font-weight:700;font-size:14px;margin:12px 0;color:var(--ink)}
+.afform select,.afform input[type=text]{font:16px Figtree;padding:12px 14px;border-radius:12px;border:1.5px solid #e4dbc6;background:#fffdf6;color:var(--ink);width:100%}
+.afform .ck{display:flex;align-items:center;gap:10px;font-weight:600;margin:8px 0}
+.afform .ck input{width:20px;height:20px;accent-color:var(--em2);flex:none}
+.lbl2{display:block;font-weight:700;font-size:14px;margin:14px 0 2px}
+.train ul{margin:6px 0 10px;padding-left:18px;font-size:14px;color:#4d5e53}.train li{margin:3px 0}
+.btn.small{padding:10px 14px;font-size:14px}
+.share{background:#fffdf6;border-radius:18px;padding:14px;margin:14px 0;box-shadow:0 2px 0 #e0d5bd,0 8px 18px rgba(60,40,10,.08)}
+.lnk{font:700 14px ui-monospace,monospace;padding:10px 12px;border-radius:10px;background:#efe7d4;color:var(--em2);word-break:break-all}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.two .btn{justify-content:center;text-align:center}
+.btn.wa{background:linear-gradient(#3ad16f,#1fa855);color:#fff;box-shadow:0 4px 0 #137a3b}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.stats div{background:#fffdf6;border-radius:16px;padding:14px;box-shadow:0 2px 0 #e0d5bd,0 8px 18px rgba(60,40,10,.06)}
+.stats b{display:block;font:900 22px Unbounded;color:var(--em2);letter-spacing:-.03em}.stats span{font-size:13px;color:#6b7a70}
+.mat{padding:12px 16px}.mat small{font-weight:800;color:var(--gold2);text-transform:uppercase;letter-spacing:.06em;font-size:11px}.mat p{font-size:14px;margin:6px 0 10px;color:var(--ink)}
+.okbar{background:#dff3e6;color:#0b4a2b;font-weight:800;padding:10px 14px;border-radius:12px;margin-bottom:8px}
+.earnbar{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;margin:14px 0 0;padding:14px 16px;border:0;border-radius:16px;background:linear-gradient(135deg,#fff3cf,#f6dc8c);color:#4a3203;font:800 15px Figtree;text-align:left;cursor:pointer;box-shadow:0 3px 0 #c9a24a}
+.mono{font-family:ui-monospace,monospace}
+@media(max-width:980px){.aff-top{grid-template-columns:1fr}}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -224,7 +256,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 </defs></svg>
 
 <header class="nav gut"><a class="logo" href="#top"><img class="brandlogo" src="brand/logo-sm.webp" alt="WiiFarms Rewards &amp; Lotto"></a>
-<nav class="links"><a href="#prizes">Prizes</a><a href="#how">How it works</a><a href="#mega">Mega Draw</a><a href="about.html">About</a><a href="#join">Try the demo</a></nav>
+<nav class="links"><a href="about.html">About</a><a href="#prizes">Prizes</a><a href="#how">How it works</a><a href="#mega">Mega Draw</a><a href="#affiliates">Affiliates</a><a href="#join">Try the demo</a></nav>
 <a class="btn red" href="#join">Get my first card</a></header>
 
 <main id="top">
@@ -281,9 +313,31 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
   <p class="note">The platform would be in English and Hausa, this demo takes no real money.</p>
 </div></section>
 
+<section class="sec gut aff" id="affiliates"><div class="max">
+  <div class="aff-top">
+    <div><div class="eyebrow">Affiliate programme</div><h2>Share the excitement. Earn 10% on every card.</h2>
+    <p class="aff-lede">Become an approved WiiFarm Rewards affiliate and earn <b>₦50 on every ₦500 card</b> bought by players who join with your link, for as long as they keep playing. Your fees are paid straight to your bank account.</p>
+    <div class="cta" style="opacity:1;animation:none"><button class="btn red" type="button" data-open="earn">Try the affiliate portal <span class="arrow">→</span></button></div></div>
+    <div class="calc" aria-label="Affiliate earnings illustration">
+      <small>What you could earn in a month</small>
+      <div class="calc-out" id="calcOut">₦150,000</div>
+      <label>Players who join with your link <b id="cpv">100</b><input type="range" id="cp1" min="10" max="1000" step="10" value="100"></label>
+      <label>Cards each player buys in a month <b id="ccv">30</b><input type="range" id="cc1" min="1" max="60" value="30"></label>
+      <p>Illustration only: 10% of ₦500 per card. What you earn depends on real sales.</p>
+    </div>
+  </div>
+  <div class="steps steps-aff">
+    <div class="step"><span class="n">1</span><h3>Apply in the app</h3><p>Verify your ID, add a bank account in your own name and complete the short compliance training.</p></div>
+    <div class="step"><span class="n">2</span><h3>Get approved</h3><p>Our Compliance team checks your application and gives you your own code and link.</p></div>
+    <div class="step"><span class="n">3</span><h3>Share approved messages</h3><p>Ready-made WhatsApp, text and social posts, with your link already in them.</p></div>
+    <div class="step"><span class="n">4</span><h3>Get paid</h3><p>10% of every card your players buy, settled to your bank account with a statement.</p></div>
+  </div>
+  <div class="pills aff-rules"><span>No sign-up fee</span><span>No downlines or recruitment bonuses</span><span>Approved messages only</span><span>Players must be 18+</span><span>Paid to your own verified bank account</span></div>
+</div></section>
+
 <section class="sec gut" id="join"><div class="max join">
   <div><div class="eyebrow">Try it now</div><h2>Play a season in two minutes.</h2>
-  <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet and the Mega Draw.</p></div>
+  <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet, the Mega Draw and the affiliate portal.</p></div>
   <form class="form" id="signup" autocomplete="off">
     <img class="formlogo" src="brand/logo-sm.webp" alt="WiiFarms Rewards &amp; Lotto" style="display:block;width:150px;height:auto;margin:0 auto 8px"><div class="pv">Private demonstration platform</div>
     <h3>Create your demo account</h3>
@@ -307,6 +361,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
     <li>For players aged 18 and over only. Play responsibly and spend only what you can afford to lose. Daily purchase limits apply.</li>
     <li>Prizes, quantities, values and images shown are for illustration and are subject to the final approved campaign terms. Prizes may be replaced with items of equal or greater value.</li>
     <li>Prizes are collected at participating WiiFarm Cooperative mega stockist and sub-stockist locations, subject to identity checks. Winnings may be subject to applicable taxes.</li>
+    <li>Affiliate fees are subject to the approval of the affiliate programme and the affiliate agreement. Earnings shown are illustrations, not promises; fees are paid only on real card sales by players who join with an affiliate's link.</li>
     <li>The service will launch only after licensing by the relevant state lottery regulator and independent certification. This is a demonstration: no real money is taken and no real prizes are paid.</li>
   </ul>
 </div></section>
@@ -386,6 +441,11 @@ if (!reduce && matchMedia("(pointer:fine)").matches) {
 }
 foil($("#heroCard canvas"), () => { confetti(); $(".hint").textContent = "That's the feeling"; });
 
+// Affiliate earnings illustration.
+const cp1 = $("#cp1"), cc1 = $("#cc1");
+const calc = () => { $("#cpv").textContent = (+cp1.value).toLocaleString("en-NG"); $("#ccv").textContent = cc1.value; $("#calcOut").textContent = naira(cp1.value * cc1.value * 50); };
+cp1.addEventListener("input", calc); cc1.addEventListener("input", calc); calc();
+
 // Sign-up.
 const nm = $("#nm"), ack = $("#ack"), go = $("#go");
 const valid = () => { go.disabled = !(nm.value.trim() && ack.checked); };
@@ -395,8 +455,10 @@ try { user = JSON.parse(localStorage.getItem("wr-demo") || "null"); } catch {}
 $("#signup").addEventListener("submit", (e) => {
   e.preventDefault(); if (go.disabled) return;
   user = { name: nm.value.trim(), cat: $("input[name=cat]:checked").value, credit: 5000, cards: [], won: 0, history: [["Demo credit", 5000]] };
-  save(); openApp("home");
+  save(); openApp(want);
 });
+let want = "home";
+document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => { want = b.dataset.open; if (user) openApp(want); else { $("#join").scrollIntoView({ behavior: "smooth" }); setTimeout(() => nm.focus({ preventScroll: true }), 700); } }));
 document.querySelectorAll('a[href="#join"]').forEach((a) => a.addEventListener("click", (e) => { if (user) { e.preventDefault(); openApp("home"); } }));
 
 // The app, as a player sees it.
@@ -406,9 +468,11 @@ const ICONS = {
   home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" fill="currentColor"/>',
   cards: '<rect x="3" y="5" width="13" height="16" rx="2" fill="currentColor" opacity=".45"/><rect x="8" y="3" width="13" height="16" rx="2" fill="currentColor"/>',
   wallet: '<rect x="2" y="6" width="20" height="14" rx="3" fill="currentColor"/><rect x="14" y="11" width="8" height="5" rx="2" fill="#fffaf0"/>',
+  earn: '<circle cx="12" cy="12" r="9.5" fill="currentColor"/><path d="M8.5 15.5l7-7" stroke="#fffaf0" stroke-width="2.2" stroke-linecap="round"/><circle cx="9" cy="9" r="1.6" fill="#fffaf0"/><circle cx="15" cy="15" r="1.6" fill="#fffaf0"/>',
   draw: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="12" cy="12" r="4" fill="currentColor"/>',
 };
-const TABS = [["home", "Home"], ["cards", "My cards"], ["wallet", "Wallet"], ["draw", "Mega Draw"]];
+const TABS = [["home", "Home"], ["cards", "My cards"], ["wallet", "Wallet"], ["draw", "Mega Draw"], ["earn", "Earn"]];
+let cur = "home";
 // Demo odds are boosted (the real game is about 1 in 146) so a visitor sees a win; the app says so.
 // The real game is about 1 in 146: here the first card always wins and later ones often, so a visitor sees how it feels.
 const roll = () => { const r = Math.random(); return r < .22 ? 500 : r < .34 ? 1000 : r < .41 ? 2000 : r < .44 ? 5000 : r < .45 ? 10000 : 0; };
@@ -418,11 +482,12 @@ const themeOf = (s) => THEMES[[...s].reduce((h, ch) => (h * 31 + ch.charCodeAt(0
 function openApp(tab) { app.hidden = false; document.body.style.overflow = "hidden"; go2(tab); }
 $("#closeApp").onclick = () => { app.hidden = true; document.body.style.overflow = ""; };
 function go2(tab, arg) {
+  cur = tab;
   $("#bal").textContent = naira(user.credit);
   $("#tabbar").innerHTML = TABS.map(([k, l]) => `<button data-t="${k}" aria-selected="${k === tab || (tab === "buy" && k === "home") || (tab === "card" && k === "cards")}"><svg viewBox="0 0 24 24">${ICONS[k]}</svg>${l}</button>`).join("");
   $("#tabbar").querySelectorAll("button").forEach((b) => (b.onclick = () => go2(b.dataset.t)));
   view.scrollTop = 0;
-  ({ home, buy, cards, card, wallet, draw })[tab](arg);
+  ({ home, buy, cards, card, wallet, draw, earn })[tab](arg);
 }
 function home() {
   const left = user.cards.filter((c) => !c.done).length;
@@ -433,7 +498,9 @@ function home() {
   ${left ? `<button class="btn big" id="toCards">Scratch your ${left} card${left > 1 ? "s" : ""}</button>` : ""}
   <h3 style="margin-top:20px">Up for grabs</h3>
   <p class="fine2" style="margin-top:-4px">Instant cash under the foil, and these at the Mega Draw:</p>
-  <div class="grid">${PRIZES.map(([f, n]) => `<div class="mini" style="cursor:default;animation:none"><img src="prizes/${f}.jpg" alt="" style="aspect-ratio:4/3;object-position:center"><span>${n}</span></div>`).join("")}</div>`;
+  <div class="grid">${PRIZES.map(([f, n]) => `<div class="mini" style="cursor:default;animation:none"><img src="prizes/${f}.jpg" alt="" style="aspect-ratio:4/3;object-position:center"><span>${n}</span></div>`).join("")}</div>
+  <button class="earnbar" id="toEarn"><span>${user.aff && user.aff.status === "approved" ? "Your affiliate portal" : "Earn 10% on every card as an affiliate"}</span><span>→</span></button>`;
+  $("#toEarn").onclick = () => go2("earn");
   $("#buyBtn").onclick = () => go2("buy");
   $("#toCards") && ($("#toCards").onclick = () => go2("cards"));
 }
@@ -495,6 +562,97 @@ function wallet() {
   view.innerHTML = `<h3>Wallet</h3><div class="season" style="text-align:center"><small>Demo balance</small><div class="p">${naira(user.credit)}</div><small>Won so far ${naira(user.won)}</small></div>
   <p class="fine2">In the real app, winnings are withdrawn from ₦500 to a bank account in your own verified name.</p>
   <div class="panel">${user.history.map(([t, a]) => `<div class="row"><span>${esc(t)}</span><b style="color:${a < 0 ? "#9e1410" : "#0b4a2b"}">${a < 0 ? "−" : "+"}${naira(Math.abs(a))}</b></div>`).join("")}</div>`;
+}
+
+// The affiliate portal (SRS section 13): apply, approval, link, approved messages, fees, payout.
+const STATES = ["Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno","Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT","Gombe","Imo","Jigawa","Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa","Niger","Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba","Yobe","Zamfara"];
+const BANKS = ["Access Bank","Fidelity Bank","First Bank","GTBank","Kuda","Moniepoint","OPay","Sterling Bank","UBA","Union Bank","Wema Bank","Zenith Bank"];
+const MAT = [
+  ["WhatsApp", "🎉 Have you tried WiiFarm Rewards? A ₦500 scratch card with instant cash up to ₦10,000, and every card goes into the Mega Draw for a luxury SUV, appliances and NaijaSweetRice. 18+ only, please play responsibly. Join with my link: {link}"],
+  ["Text message", "WiiFarm Rewards: scratch a ₦500 card for instant cash up to N10,000, plus a Mega Draw entry. 18+ only. Play responsibly. {link}"],
+  ["Social media", "Scratch. Reveal. Discover. ✨ WiiFarm Rewards cards are ₦500, with instant cash under the foil and a Mega Draw at the end of the season. Prizes are collected at WiiFarm Cooperative stockists nationwide. 18+ only. {link}"],
+];
+const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const affCode = () => Array.from({ length: 8 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[rnd(0, 31)]).join("");
+const copy = (txt, btn) => { const done = () => { const o = btn.textContent; btn.textContent = "Copied ✓"; setTimeout(() => (btn.textContent = o), 1500); }; try { navigator.clipboard.writeText(txt).then(done, done); } catch { done(); } };
+function earn() {
+  const a = user.aff;
+  if (!a) return affApply();
+  if (a.status === "review") return affReview();
+  affDash();
+}
+function affApply() {
+  view.innerHTML = `<h3>Earn with WiiFarm Rewards</h3>
+  <div class="season"><small>Affiliate fee</small><div class="p">10%</div><small>₦50 on every ₦500 card bought by players who join with your link</small></div>
+  <div class="panel"><div class="row"><span>Sign-up fee</span><b>None</b></div><div class="row"><span>Paid to</span><b>Your own bank account</b></div><div class="row"><span>Downlines or recruiting bonuses</span><b>None</b></div></div>
+  <h3 style="font-size:17px;margin-top:18px">Apply to become an affiliate</h3>
+  <form id="af" class="afform" autocomplete="off">
+    <label>State you will promote in<select name="st">${STATES.map((x) => `<option${x === "Niger" ? " selected" : ""}>${x}</option>`).join("")}</select></label>
+    <span class="lbl2">Where will you promote?</span>
+    ${["WhatsApp", "Social media", "Market or shop", "Church, mosque or community group", "Radio"].map((x, i) => `<label class="ck"><input type="checkbox" name="ch" value="${x}"${i === 0 ? " checked" : ""}>${x}</label>`).join("")}
+    <label>Bank<select name="bank">${BANKS.map((x) => `<option>${x}</option>`).join("")}</select></label>
+    <label>Account number<input type="text" name="acct" inputmode="numeric" maxlength="10" placeholder="10 digits"></label>
+    <div class="panel train"><b>Compliance training</b><ul>
+      <li>Promote only to people aged 18 and over.</li>
+      <li>Use only the approved messages in your portal, and never promise anyone a win.</li>
+      <li>No pressure, no lending money for cards and no buying cards for others.</li>
+      <li>You don't earn on your own cards, and there are no fees for recruiting other affiliates.</li></ul></div>
+    <label class="ck"><input type="checkbox" name="tr">I have read the training and agree to the affiliate agreement.</label>
+    <button class="btn red big" id="ap" disabled>Submit application</button>
+  </form>
+  <p class="fine2">In the real app you also pass a selfie check, and the bank account must be in your own verified name. Here everything is simulated.</p>`;
+  const f = $("#af"), ap = $("#ap");
+  const ok = () => { ap.disabled = !(/^\d{10}$/.test(f.acct.value) && f.tr.checked && f.querySelector("input[name=ch]:checked")); };
+  f.addEventListener("input", ok); f.addEventListener("change", ok);
+  f.onsubmit = (e) => {
+    e.preventDefault(); if (ap.disabled) return;
+    user.aff = { status: "review", st: f.st.value, ch: [...f.querySelectorAll("input[name=ch]:checked")].map((x) => x.value), bank: f.bank.value, acct: f.acct.value.slice(-4) };
+    save(); affReview();
+  };
+}
+function affReview() {
+  view.innerHTML = `<div class="ok"><div class="spin" style="margin:10px auto 18px"></div><h3>Application under review</h3><p style="color:#4d5e53">Compliance is checking your ID, bank account and training. In the demo this takes a few seconds.</p></div>`;
+  setTimeout(() => {
+    if (!user.aff || user.aff.status !== "review") return;
+    Object.assign(user.aff, { status: "approved", code: affCode(), day: 0, signups: 0, buyers: 0, cards: 0, earned: 0, paid: 0, ledger: [], payouts: [] });
+    save(); if (!app.hidden && cur === "earn") affDash(true);
+  }, 2400);
+}
+function affDash(fresh) {
+  const a = user.aff, owed = a.earned - a.paid, link = `https://wiifarmrewards.ng/r/${a.code}`;
+  view.innerHTML = `${fresh ? `<div class="okbar">✓ You're approved. Welcome aboard!</div>` : ""}
+  <h3>Affiliate portal</h3>
+  <div class="season"><small>Fees to be paid</small><div class="p">${naira(owed)}</div><small>Earned ${naira(a.earned)} · Paid out ${naira(a.paid)}</small></div>
+  <div class="panel"><div class="row"><span>Status</span><b style="color:#0b4a2b">Approved</b></div><div class="row"><span>Territory</span><b>${esc(a.st)}${a.st === "FCT" ? "" : " State"}</b></div><div class="row"><span>Your code</span><b class="mono">${a.code}</b></div></div>
+  <div class="share"><div class="lnk">${link}</div><div class="two"><button class="btn small" id="cpl">Copy link</button><a class="btn small wa" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(MAT[0][1].replace("{link}", link))}">Share on WhatsApp</a></div></div>
+  <div class="stats"><div><b>${a.signups}</b><span>sign-ups with your link</span></div><div><b>${a.buyers}</b><span>players who bought</span></div><div><b>${a.cards.toLocaleString("en-NG")}</b><span>cards bought</span></div><div><b>${naira(a.earned)}</b><span>fees earned (10%)</span></div></div>
+  <button class="btn big" id="sim">Simulate a day of referrals</button>
+  <p class="fine2" style="margin-top:0">Demo only: adds pretend sign-ups and card sales from your link so you can watch your fees grow.</p>
+  <button class="btn red big" id="pay" ${owed > 0 ? "" : "disabled"}>${owed > 0 ? `Request payout of ${naira(owed)}` : "Nothing to pay out yet"}</button>
+  <h3 style="font-size:17px;margin-top:20px">Approved messages</h3>
+  <p class="fine2" style="margin-top:-4px">Use only these. Your link is already in them.</p>
+  ${MAT.map(([ch, t], i) => `<div class="panel mat"><small>${ch}</small><p>${esc(t.replace("{link}", link))}</p><button class="btn small" data-m="${i}">Copy message</button></div>`).join("")}
+  <h3 style="font-size:17px;margin-top:20px">Fee statement</h3>
+  <div class="panel">${a.ledger.length ? a.ledger.slice(0, 12).map(([d, c, fee]) => `<div class="row"><span>${esc(d)} · ${c} card${c === 1 ? "" : "s"}</span><b style="color:#0b4a2b">+${naira(fee)}</b></div>`).join("") : `<div class="row"><span>No sales yet. Share your link to start earning.</span></div>`}</div>
+  ${a.payouts.length ? `<h3 style="font-size:17px;margin-top:20px">Payouts</h3><div class="panel">${a.payouts.map((p) => `<div class="row"><span>${esc(p.ref)}<br><small style="color:#6b7a70">${esc(p.to)}</small></span><b>${naira(p.amt)}</b></div>`).join("")}</div>` : ""}
+  <p class="fine2">You earn 10% of the cards bought by players who joined with your link, in your territory, while you are approved. You don't earn on your own cards or on players brought in by your players, and fees are taken back if a sale is refunded. Your players' names are never shown to you.</p>`;
+  $("#cpl").onclick = (e) => copy(link, e.currentTarget);
+  view.querySelectorAll("[data-m]").forEach((b) => (b.onclick = () => copy(MAT[+b.dataset.m][1].replace("{link}", link), b)));
+  $("#sim").onclick = () => {
+    a.day += 1;
+    const su = rnd(4, 14), nb = rnd(1, Math.max(1, Math.round(su * .7))), c = rnd(nb * 2, nb * 8), fee = c * 50;
+    a.signups += su; a.buyers = Math.min(a.signups, a.buyers + nb); a.cards += c; a.earned += fee;
+    a.ledger.unshift([`Day ${a.day}`, c, fee]); save(); affDash();
+  };
+  $("#pay").onclick = () => {
+    if (owed <= 0) return;
+    view.innerHTML = `<div class="spin"></div><p style="text-align:center">Paying ${naira(owed)} to ${esc(a.bank)} ••••${esc(a.acct)}…</p>`;
+    setTimeout(() => {
+      a.paid += owed; a.payouts.unshift({ ref: "SIMAFF-" + rnd(100000, 999999), amt: owed, to: `${a.bank} ••••${a.acct}` }); save();
+      view.innerHTML = `<div class="ok"><div class="tickbig">✓</div><h3 style="margin-top:18px">${naira(owed)} paid</h3><p style="color:#4d5e53">Sent to ${esc(a.bank)} ••••${esc(a.acct)}. In the real app, Finance prepares the settlement and a second person approves it.</p><button class="btn red big" id="bk">Back to my portal</button></div>`;
+      $("#bk").onclick = () => affDash();
+    }, 1300);
+  };
 }
 function draw() {
   const n = user.cards.length;
