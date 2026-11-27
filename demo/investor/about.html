@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>About WiiFarm Rewards</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="WiiFarm Rewards & Lotto is built in partnership with WiiFarm Cooperative Society, a member-owned agricultural cooperative working since 2022.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800;900&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--night:#03140c;--em:#05301b;--em2:#0b4a2b;--cream:#f7efdc;--ink:#0c1a12;--gold:#e9b949;--gold2:#a8740c;--goldl:#ffe7a3;--red:#e2362b;--red2:#9e1410;--mut:#a9c2b2;--line:rgba(247,239,220,.12)}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0}
+html{overflow-x:clip;scroll-behavior:smooth}
+body{background:var(--night);color:var(--cream);font:17px/1.6 Figtree,system-ui,sans-serif;overflow-x:clip;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:Unbounded,Figtree,sans-serif;letter-spacing:-.03em;line-height:1;margin:0;font-weight:800}
+p{margin:0 0 1em}
+a{color:inherit}
+img{display:block;max-width:100%}
+.gut{padding-left:max(5vw,18px,env(safe-area-inset-left,0px));padding-right:max(5vw,18px,env(safe-area-inset-right,0px))}
+.max{max-width:1280px;margin:0 auto}
+.eyebrow{color:var(--gold);font-weight:700;font-size:15px;margin-bottom:16px}
+h2{font-size:clamp(34px,5vw,68px)}
+.lede{font-size:clamp(18px,1.6vw,21px);color:#d9e6dc;max-width:36em}
+.btn{display:inline-flex;align-items:center;gap:10px;border:0;border-radius:999px;padding:16px 26px;font:700 16px Figtree;cursor:pointer;text-decoration:none;color:#2a1a00;background:linear-gradient(180deg,var(--goldl),var(--gold) 55%,#d39a1f);box-shadow:inset 0 1px 0 #fff8df,0 5px 0 var(--gold2),0 14px 30px rgba(233,185,73,.25);transition:transform .12s,box-shadow .12s}
+.btn:hover{transform:translateY(-2px)}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 var(--gold2)}
+.btn.red{color:#fff;background:linear-gradient(180deg,#ff5a4c,var(--red) 55%,#c4241b);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 5px 0 var(--red2),0 14px 30px rgba(226,54,43,.3)}
+.btn.line{background:transparent;color:var(--cream);box-shadow:inset 0 0 0 1.5px rgba(247,239,220,.35)}
+.btn:focus-visible,a:focus-visible{outline:3px solid var(--goldl);outline-offset:3px}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:20px;padding-block:16px;background:linear-gradient(var(--night) 40%,rgba(3,20,12,0))}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font:800 18px Unbounded;letter-spacing:-.02em}
+.logo svg{width:34px;height:34px}
+.logo small{display:block;font:600 11px Figtree;letter-spacing:.02em;color:var(--gold)}
+.links{display:flex;gap:28px;font-weight:600;font-size:15px}
+.links a{text-decoration:none;opacity:.78}.links a:hover,.links a[aria-current]{opacity:1;color:var(--goldl)}
+.nav .btn{padding:11px 18px;font-size:15px}
+
+/* hero */
+.hero{position:relative;min-height:min(92svh,860px);display:grid;align-items:end;overflow:hidden;margin-top:-76px;padding-top:120px}
+.hero-bg{position:absolute;inset:0;background:url(about/field.webp) center 40%/cover}
+.hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(3,20,12,.75),rgba(3,20,12,.35) 35%,rgba(3,20,12,.92) 82%,var(--night)),linear-gradient(90deg,rgba(3,20,12,.85),transparent 70%)}
+.hero .max{position:relative;width:100%;padding-block:0 clamp(56px,8vw,110px)}
+.hero h1{font-size:clamp(46px,8vw,118px);max-width:11ch}
+.hero h1 em{font-style:normal;color:var(--gold)}
+.hero .lede{margin-top:28px}
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+.chips span{padding:9px 16px;border-radius:999px;background:rgba(3,20,12,.55);border:1px solid rgba(247,239,220,.18);font-weight:600;font-size:14px;backdrop-filter:blur(6px)}
+
+.sec{padding-block:clamp(72px,10vw,130px)}
+
+/* who */
+.split{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(32px,6vw,90px);align-items:center}
+.photo{position:relative;border-radius:26px;overflow:hidden;box-shadow:0 0 0 2px rgba(233,185,73,.55),0 30px 60px rgba(0,0,0,.45)}
+.photo img{width:100%;height:100%;object-fit:cover}
+.photo figcaption{position:absolute;left:12px;right:12px;bottom:12px;padding:10px 14px;border-radius:14px;background:rgba(3,20,12,.78);backdrop-filter:blur(6px);font-size:14px;color:#d9e6dc}
+.quote{margin:30px 0 0;padding:4px 0 4px 22px;border-left:3px solid var(--gold);font:700 clamp(20px,2vw,26px)/1.3 Unbounded;letter-spacing:-.02em;color:#fff8e6}
+.quote cite{display:block;margin-top:10px;font:500 14px Figtree;letter-spacing:0;color:var(--mut)}
+
+/* figures */
+.figs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:2px solid var(--gold);margin-top:56px}
+.figs div{padding:24px 22px 0 0;border-right:1px solid var(--line)}
+.figs div+div{padding-left:22px}.figs div:last-child{border-right:0}
+.figs b{display:block;white-space:nowrap;font:900 clamp(26px,3.3vw,46px) Unbounded;letter-spacing:-.04em;color:var(--gold)}
+.figs span{font-size:15px;color:var(--mut)}
+
+/* journey */
+.journey{background:linear-gradient(180deg,var(--night),var(--em) 50%,var(--night))}
+.tl{list-style:none;margin:56px 0 0;padding:0;display:grid;gap:0;position:relative}
+.tl::before{content:"";position:absolute;left:111px;top:8px;bottom:8px;width:2px;background:linear-gradient(var(--gold),rgba(233,185,73,.15))}
+.tl li{display:grid;grid-template-columns:100px 1fr;gap:44px;padding:0 0 38px;position:relative}
+.tl li::before{content:"";position:absolute;left:104px;top:8px;width:16px;height:16px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 5px rgba(233,185,73,.2)}
+.tl li.next::before{background:var(--night);border:2px solid var(--gold)}
+.tl time{font:800 20px Unbounded;color:var(--gold);text-align:right;line-height:1.5}
+.tl h3{font-size:clamp(20px,2vw,26px);line-height:1.2;margin-bottom:8px}
+.tl p{color:#cfdcd3;max-width:44em;margin:0}
+
+/* gallery */
+.gallery{display:grid;grid-template-columns:1.3fr 1fr;grid-template-rows:auto auto;gap:18px;margin-top:48px}
+.gallery .photo:first-child{grid-row:span 2}
+.gallery .photo{aspect-ratio:16/10}.gallery .photo:first-child{aspect-ratio:auto}
+
+/* partnership */
+.partner{background:var(--cream);color:var(--ink)}
+.partner .eyebrow{color:var(--gold2)}
+.partner .lede{color:#3d4c42}
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:52px}
+.step{position:relative;border-radius:24px;padding:30px 26px 28px;background:#fff8e8;box-shadow:inset 0 0 0 1.5px rgba(12,26,18,.08),0 18px 36px rgba(12,26,18,.08)}
+.step .n{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font:800 18px Unbounded;color:#fff;background:linear-gradient(#14603a,#062a17);margin-bottom:20px}
+.step h3{font-size:22px;line-height:1.15;margin-bottom:12px}
+.step p{color:#3d4c42;margin:0;font-size:16px}
+.promise{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:22px}
+.promise span{border-radius:16px;padding:14px 16px;background:rgba(11,74,43,.08);font-weight:700;font-size:15px;color:#0b4a2b}
+
+/* vision */
+.vm{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:48px}
+.card{border-radius:24px;padding:32px;background:linear-gradient(180deg,#0c3b23,#06281a);border:1px solid rgba(233,185,73,.3)}
+.card h3{font-size:24px;margin-bottom:14px;color:var(--goldl)}
+.card ul{margin:0;padding-left:20px;color:#d9e6dc}.card li{margin:4px 0}
+.card p{color:#d9e6dc;margin:0}
+.values{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.values span{padding:10px 16px;border-radius:999px;border:1px solid rgba(233,185,73,.45);color:#f6dc8c;font-weight:600;font-size:15px}
+
+/* news */
+.news{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:40px}
+.news a{display:block;padding:22px 24px;border-radius:20px;border:1px solid var(--line);text-decoration:none;transition:border-color .2s,transform .2s}
+.news a:hover{border-color:var(--gold);transform:translateY(-2px)}
+.news small{display:block;color:var(--gold);font-weight:700;font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+.news b{font-size:18px;line-height:1.35}
+
+/* closing */
+.close{text-align:center}
+.close .badge{display:inline-block;background:var(--cream);border-radius:18px;padding:14px 22px;margin-bottom:34px}
+.close .badge img{height:44px;width:auto}
+.close h2{max-width:16ch;margin:0 auto}
+.close .lede{margin:24px auto 34px}
+.cta{display:flex;flex-wrap:wrap;gap:14px;justify-content:center}
+.note{font-size:13px;color:var(--mut);margin-top:40px}
+
+footer{border-top:1px solid var(--line);padding-block:36px;color:var(--mut);font-size:14px}
+footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
+
+@media(max-width:980px){
+  .links{display:none}
+  .split,.vm{grid-template-columns:1fr}
+  .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .figs div:nth-child(2){border-right:0}.figs div:nth-child(3){padding-left:0}
+  .figs div:nth-child(n+3){margin-top:22px}
+  .trio{grid-template-columns:1fr}
+  .promise{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .gallery{grid-template-columns:1fr}.gallery .photo:first-child{grid-row:auto;aspect-ratio:16/10}
+  .news{grid-template-columns:1fr}
+}
+@media(max-width:560px){
+  .nav .btn{display:none}
+  .tl::before{left:7px}
+  .tl li{grid-template-columns:1fr;gap:6px;padding-left:34px}
+  .tl li::before{left:0}
+  .tl time{text-align:left;font-size:17px}
+  .card{padding:24px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="mark" viewBox="0 0 40 40"><rect x="5" y="15" width="30" height="21" rx="3" fill="#e2362b"/><rect x="3" y="10" width="34" height="8" rx="2.5" fill="#ff5a4c"/><rect x="17" y="10" width="6" height="26" fill="#e9b949"/><path d="M20 10c-5-8-12-6-10-1 1 2 6 2 10 1zm0 0c5-8 12-6 10-1-1 2-6 2-10 1z" fill="#ffe7a3"/><path d="M27 4c3 0 6 2 6 5-3 0-6-2-6-5z" fill="#2fb35f"/></symbol>
+</defs></svg>
+
+<header class="nav gut"><a class="logo" href="./"><svg><use href="#mark"/></svg><span>WiiFarm Rewards<small>by WiiFarm</small></span></a>
+<nav class="links"><a href="./#prizes">Prizes</a><a href="./#how">How it works</a><a href="./#mega">Mega Draw</a><a href="about.html" aria-current="page">About</a></nav>
+<a class="btn red" href="./#join">Try the demo</a></header>
+
+<main>
+<section class="hero gut"><div class="hero-bg" role="img" aria-label="Aerial view of a green farm field with a tractor"></div><div class="max">
+  <div class="eyebrow">About us</div>
+  <h1>Grown from the land. <em>Shared</em> with the people.</h1>
+  <p class="lede">WiiFarm Rewards &amp; Lotto is built in partnership with WiiFarm Cooperative Society, a registered, member-owned agricultural cooperative that has been growing, processing and distributing food since 2022. Together we are building a way to reward the public for being part of it.</p>
+  <div class="chips"><span>Member-owned since 2022</span><span>NaijaSweetRice®</span><span>10,000-hectare farm estate plan</span></div>
+</div></section>
+
+<section class="sec gut" id="coop"><div class="max split">
+  <div>
+    <div class="eyebrow">Who we are</div>
+    <h2>A cooperative that builds, not just talks.</h2>
+    <p class="lede" style="margin-top:26px">WiiFarm Cooperative Society brings land, capital and labour together under one structure, so everyday Nigerians can collectively own productive farmland, grow food at scale and earn from it over the long term.</p>
+    <p style="color:#cfdcd3;max-width:36em">Its members aggregate and process paddy rice, run a food distribution network of stockists, and are developing the WiiFarm Multipurpose Farm Estate, a 10,000-hectare master plan for rice, maize, beef, poultry and fish, starting in Itu, Akwa Ibom State.</p>
+    <blockquote class="quote">“We are not just a cooperative – we are a movement.”<cite>WiiFarm Cooperative Society</cite></blockquote>
+  </div>
+  <figure class="photo" style="margin:0;aspect-ratio:3/4"><img src="about/visit.webp" alt="A WiiFarm Cooperative delegation in branded caps meeting an official in his office" loading="lazy"><figcaption>A WiiFarm Cooperative delegation on a courtesy visit.</figcaption></figure>
+</div>
+<div class="max">
+  <div class="figs">
+    <div><b>2022</b><span>members working together since</span></div>
+    <div><b>10,000 ha</b><span>farm estate master plan</span></div>
+    <div><b>5</b><span>value chains: rice, maize, beef, poultry, fish</span></div>
+    <div><b>1</b><span>member, one vote</span></div>
+  </div>
+</div></section>
+
+<section class="sec gut journey" id="journey"><div class="max">
+  <div class="eyebrow">Our journey</div>
+  <h2>Years in the field.</h2>
+  <ol class="tl">
+    <li><time>2022</time><div><h3>The Paddy Aggregation Program begins</h3><p>Members pool capital to buy paddy rice from farmers, process it and distribute it with corporate partners. The cooperative reports an average return on capital of 24% a year from the programme since 2022.</p></div></li>
+    <li><time>2022</time><div><h3>In the national press</h3><p>ThisDay reports the cooperative's plan to help members grow their earnings across the rice value chain.</p></div></li>
+    <li><time>2025</time><div><h3>Uyo Food Service Hub and fractional farmland</h3><p>The cooperative opens its food service hub in Uyo, distributing NaijaSweetRice® to a growing member network across Akwa Ibom State, and launches deed-backed fractional farmland ownership with The Factory Company.</p></div></li>
+    <li><time>2025</time><div><h3>Working with the state</h3><p>A WiiFarm delegation presents the 10,000-hectare master plan to the Akwa Ibom State Commissioner for Budget and Economic Planning.</p></div></li>
+    <li class="next"><time>Next</time><div><h3>WiiFarm Rewards &amp; Lotto</h3><p>A rewards platform that opens the cooperative's food chain to the public: ₦500 cards, instant cash, and a Mega Draw for prizes from the farm to the family table. Launch follows the state licence and certification.</p></div></li>
+  </ol>
+  <div class="gallery">
+    <figure class="photo" style="margin:0"><img src="about/stock.webp" alt="Hundreds of red and green NaijaSweetRice bags stacked in a warehouse" loading="lazy"><figcaption>NaijaSweetRice® stock ready for the member network.</figcaption></figure>
+    <figure class="photo" style="margin:0"><img src="about/hub.webp" alt="Rendering of a WiiFarm Coop depot and experience hub storefront" loading="lazy"><figcaption>The WiiFarm Coop depot and experience hub (artist's impression).</figcaption></figure>
+    <figure class="photo" style="margin:0"><img src="about/tractor.webp" alt="A tractor working a large green field, seen from above" loading="lazy"><figcaption>Mechanised farming at estate scale.</figcaption></figure>
+  </div>
+</div></section>
+
+<section class="sec gut partner" id="partnership"><div class="max">
+  <div class="eyebrow">The partnership</div>
+  <h2>A system that rewards the public.</h2>
+  <p class="lede" style="margin-top:24px">The cooperative rewards its members. WiiFarm Rewards &amp; Lotto opens that idea to everyone: buy a ₦500 card, and you take part in a season built around real food, real prizes and a nationwide network of stockists.</p>
+  <div class="trio">
+    <div class="step"><div class="n">1</div><h3>The cooperative grows and delivers</h3><p>WiiFarm Cooperative supplies the food prizes, NaijaSweetRice®, VitaActive and VitaForce, and runs the mega stockist and sub-stockist locations where prizes are collected.</p></div>
+    <div class="step"><div class="n">2</div><h3>Rewards &amp; Lotto runs the game</h3><p>We run the cards, the instant wins and the Mega Draw, keep the books, and work with an independent auditor so every result can be checked.</p></div>
+    <div class="step"><div class="n">3</div><h3>The public wins</h3><p>Instant cash of ₦500 to ₦10,000 goes straight to the winner's wallet, and every card, win or lose, goes into the Mega Draw at the end of the 90-day season.</p></div>
+  </div>
+  <div class="promise"><span>Results sealed before sale</span><span>Independent auditor signs off</span><span>Prizes redeemed nationwide</span><span>18+ only · play responsibly</span></div>
+</div></section>
+
+<section class="sec gut" id="vision"><div class="max">
+  <div class="eyebrow">What we stand for</div>
+  <h2>Growing food. Growing wealth. Growing hope.</h2>
+  <div class="vm">
+    <div class="card"><h3>Vision</h3><p>To be Africa's leading member-owned agricultural cooperative, turning underused rural land into thriving, technology-enabled food production hubs that create wealth and jobs and promote food sovereignty.</p></div>
+    <div class="card"><h3>Mission</h3><ul><li>Pool land and capital</li><li>Drive sustainable food production</li><li>Build collective wealth</li><li>Restore the dignity of agricultural labour</li><li>Strengthen national and regional food systems</li></ul></div>
+  </div>
+  <div class="values"><span>Voluntary and open membership</span><span>Democratic member control</span><span>Member economic participation</span><span>Autonomy and independence</span><span>Education, training and information</span><span>Cooperation among cooperatives</span><span>Concern for community</span></div>
+</div></section>
+
+<section class="sec gut" id="news" style="padding-top:0"><div class="max">
+  <div class="eyebrow">In the news</div>
+  <h2>What the press says.</h2>
+  <div class="news">
+    <a href="https://www.thisdaylive.com/2022/12/03/wiifarm-cooperative-set-to-help-members-grow-earnings-in-rice-value-chain/" target="_blank" rel="noopener"><small>ThisDay · December 2022</small><b>WiiFarm Cooperative set to help members grow earnings in rice value chain</b></a>
+    <a href="https://dailytrust.com/wiifarm-cooperative-launches-rice-distribution-hub/" target="_blank" rel="noopener"><small>Daily Trust · 2025</small><b>WiiFarm cooperative launches rice distribution hub</b></a>
+    <a href="https://blueprint.ng/firm-launches-rice-distribution-service-set-to-revolutionalise-farmland-ownership-model/" target="_blank" rel="noopener"><small>Blueprint · 2025</small><b>Firm launches rice distribution service, set to revolutionise farmland ownership model</b></a>
+    <a href="https://guardian.ng/features/agro-care/wiifarmcoop-factory-company-set-to-revolutionise-nigerias-agric-sector/" target="_blank" rel="noopener"><small>The Guardian</small><b>WiifarmCoop, Factory Company set to revolutionise Nigeria's agric sector</b></a>
+  </div>
+</div></section>
+
+<section class="sec gut close" style="padding-top:0"><div class="max">
+  <div class="badge"><img src="about/coop-logo.webp" alt="WiiFarm Cooperative Society logo"></div>
+  <h2>One member, one hectare, one harvest at a time.</h2>
+  <p class="lede">Try the WiiFarm Rewards demo, or learn more about the cooperative behind it.</p>
+  <div class="cta"><a class="btn red" href="./#join">Try the demo <span aria-hidden="true">→</span></a><a class="btn line" href="https://wiifarmcoop.org/" target="_blank" rel="noopener">Visit wiifarmcoop.org</a></div>
+  <p class="note">Facts about WiiFarm Cooperative Society are from wiifarmcoop.org and published news reports. Returns are as reported by the cooperative. Field photography: Chris Ensminger / Unsplash; other images © WiiFarm Cooperative Society.</p>
+</div></section>
+</main>
+
+<footer class="gut"><div class="max"><span>© WiiFarm Rewards &amp; Lotto · 18+ only · Play responsibly</span><span>Demonstration · no real money is taken or paid</span></div></footer>
+</body>
+</html>
