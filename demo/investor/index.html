@@ -194,20 +194,6 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 @media(max-width:560px){.hint{top:auto;bottom:30%;right:-12px}.ribbon{font-size:12.5px;padding:8px 6px}.ribbon b{font-size:15px}.hero h1{font-size:clamp(44px,13vw,60px)}.tilt{width:min(70vw,290px)}.deck{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.deck figure:nth-child(odd){transform:none}.deck figcaption em{font-size:16px}.deck figcaption em i{font-size:13px}.steps{grid-template-columns:1fr}.step{min-height:0}.count{gap:8px}.count div{padding:14px 4px;border-radius:14px}.hint{right:4px}.nav .btn{display:none}}
 @media(max-width:460px){.device{border-radius:0;height:100%;width:100vw;box-shadow:none}}
 @media(prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}.hero h1 span,.sub,.cta,.trust,.stage{opacity:1;transform:none}}
-
-
-.tilt{container-type:inline-size;width:min(100%,340px);margin-top:calc(min(100%,340px)*.74)}
-.popper{position:absolute;width:111cqw;left:-5.5cqw;top:-75.1cqw;z-index:0;pointer-events:none;filter:drop-shadow(0 18px 30px rgba(0,0,0,.45))}
-#heroCard{position:relative;z-index:1}
-.hint{top:auto;bottom:31%;right:-18px}
-.mega-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,360px);gap:clamp(28px,5vw,72px);align-items:end}
-.mframe{position:relative;aspect-ratio:1/1.13;margin-top:62%;border-radius:28px;background:radial-gradient(70% 55% at 50% 40%,rgba(246,215,122,.55),transparent 70%),radial-gradient(3px 3px at 20% 30%,#f6d77a 50%,transparent 51%),radial-gradient(3px 3px at 78% 22%,#fff 50%,transparent 51%),radial-gradient(4px 4px at 85% 60%,#e2362b 50%,transparent 51%),radial-gradient(3px 3px at 12% 70%,#fff 50%,transparent 51%),linear-gradient(160deg,#14603a,#062a17);box-shadow:0 0 0 3px var(--gold),0 30px 60px rgba(0,0,0,.5)}
-.mframe img{position:absolute;left:0;bottom:0;width:100%;clip-path:inset(-80% 0 0 0 round 0 0 28px 28px);filter:drop-shadow(0 -6px 20px rgba(0,0,0,.35))}
-.formwrap{position:relative;padding-top:calc(66% * 1.066 * .6)}
-.peek{position:absolute;top:0;right:6%;width:66%;z-index:0;pointer-events:none;filter:drop-shadow(0 0 28px rgba(233,185,73,.35))}
-.formwrap .form{position:relative;z-index:1}
-@media(max-width:980px){.mega-grid{grid-template-columns:1fr}.mframe{width:min(100%,340px);margin:calc(min(100%,340px)*.62) auto 0}.tilt{width:min(78vw,320px);margin-top:calc(min(78vw,320px)*.74)}}
-@media(max-width:560px){.tilt{width:min(66vw,270px);margin-top:calc(min(66vw,270px)*.74)}.hint{right:-6px}}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -227,7 +213,6 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
     <div class="trust"><span>18+ only</span><span>Results sealed before sale</span><span>Independently audited draw</span></div>
   </div>
   <div class="stage"><div class="tilt" id="tilt">
-    <img class="popper" src="people/hero-back.webp" alt="A player cheering behind the scratch card">
     <div class="scard" id="heroCard"><img src="cards/car.jpg" alt="WiiFarm Rewards card: an SUV in the Mega Draw" width="720" height="691">
       <div class="ribbon"><b>₦500</b> — Digital raffle ticket</div>
       <div class="strip"><div class="res"><span>Try it — you won</span><b>₦1,000</b><span>(just a demo)</span></div><canvas></canvas></div>
@@ -256,13 +241,11 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
   </div>
 </div></section>
 
-<section class="sec gut mega" id="mega"><div class="max mega-grid"><div>
+<section class="sec gut mega" id="mega"><div class="max">
   <div class="eyebrow">The Mega Draw · at the end of the 90-day season</div><h2>Win or lose, you're still in for the Mega Draw.</h2>
   <p style="font-size:19px;color:#d9e6dc;margin-top:22px;max-width:34em">Every card sold this season is entered. The draw takes place once, when the season closes on <b id="drawDate"></b>, and the winners are notified in the app.</p>
   <div class="count" id="count"></div>
   <div class="pills"><span>Every card entered automatically</span><span>Public randomness</span><span>Independent auditor signs off</span><span>Anyone can re-check the result</span></div>
-</div>
-  <div class="mframe"><img src="people/frame.webp" alt="A player celebrating"></div>
 </div></section>
 
 <section class="sec gut partners"><div class="max">
@@ -277,7 +260,6 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 <section class="sec gut" id="join"><div class="max join">
   <div><div class="eyebrow">Try it now</div><h2>Play a season in two minutes.</h2>
   <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet and the Mega Draw.</p></div>
-  <div class="formwrap"><img class="peek" src="people/peek.webp" alt="A player cheering over the sign-up form">
   <form class="form" id="signup" autocomplete="off">
     <div class="brand">WiiFarm Rewards &amp; Lotto</div><div class="pv">Private demonstration platform</div>
     <h3>Create your demo account</h3>
@@ -291,7 +273,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
     <label class="chk"><input id="ack" type="checkbox">I understand that this is a simulation without real payments, cash winnings or merchandise entitlements.</label>
     <button class="btn" id="go" type="submit" disabled>Create trial account</button>
     <p class="fine">This is a local interface prototype. No information is submitted to WiiFarm or stored in an external account.</p>
-  </form></div>
+  </form>
 </div></section>
 </main>
 <footer class="gut"><div class="max"><span>© WiiFarm Rewards &amp; Lotto · 18+ only · Play responsibly</span><span>Demonstration · no real money is taken or paid</span></div></footer>
