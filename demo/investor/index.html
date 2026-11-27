@@ -190,10 +190,20 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 .reel{font:900 26px Unbounded;letter-spacing:-.03em;text-align:center;padding:22px 10px;border-radius:18px;background:var(--em);color:var(--goldl);box-shadow:inset 0 3px 8px rgba(0,0,0,.5);font-variant-numeric:tabular-nums;margin:14px 0}
 .confetti{position:fixed;inset:0;pointer-events:none;z-index:60}
 @media(max-width:980px){.hero .max,.split,.join{grid-template-columns:1fr}.deck{grid-template-columns:repeat(2,minmax(0,1fr))}.deck figure:last-child{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center}.deck figure:last-child figcaption{margin-top:0}.steps{grid-template-columns:repeat(2,minmax(0,1fr))}.figs{grid-template-columns:repeat(2,minmax(0,1fr))}.figs div:nth-child(2){border-right:0}.figs div:nth-child(3){padding-left:0}.figs5 div{border-right:0!important;padding-left:0!important;border-bottom:1px solid rgba(12,26,18,.15);padding-bottom:16px}.figs5 div:last-child{grid-column:1/-1;border-bottom:0}.links{display:none}.hero{min-height:auto}.tilt{width:min(78vw,340px)}}
-@media(max-width:980px){.hero .copy{display:contents}.kicker{order:0;justify-self:start;margin-bottom:0}.hero h1{order:1}.stage{order:2}.sub{order:3;margin:0}.cta{order:4}.trust{order:5;margin-top:0}.hero .max{gap:22px}}
+@media(max-width:980px){.hero .copy{display:contents}.kicker{order:0;justify-self:start;margin-bottom:0}.hero h1{order:1}.stage{order:2}.sub{order:3;margin:0}.cta{order:4}.crowd{order:5;margin-top:0}.trust{order:6;margin-top:0}.hero .max{gap:22px}}
 @media(max-width:560px){.hint{top:auto;bottom:30%;right:-12px}.ribbon{font-size:12.5px;padding:8px 6px}.ribbon b{font-size:15px}.hero h1{font-size:clamp(44px,13vw,60px)}.tilt{width:min(70vw,290px)}.deck{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.deck figure:nth-child(odd){transform:none}.deck figcaption em{font-size:16px}.deck figcaption em i{font-size:13px}.steps{grid-template-columns:1fr}.step{min-height:0}.count{gap:8px}.count div{padding:14px 4px;border-radius:14px}.hint{right:4px}.nav .btn{display:none}}
 @media(max-width:460px){.device{border-radius:0;height:100%;width:100vw;box-shadow:none}}
-@media(prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}.hero h1 span,.sub,.cta,.trust,.stage{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}.hero h1 span,.sub,.cta,.crowd,.trust,.stage{opacity:1;transform:none}}
+
+.crowd{display:flex;align-items:center;gap:14px;margin-top:26px;opacity:0;animation:up .9s .62s forwards}.crowd span{display:flex}.crowd img{width:44px;height:44px;border-radius:50%;object-fit:cover;object-position:50% 20%;border:2.5px solid var(--night);margin-left:-12px;box-shadow:0 0 0 1.5px var(--gold)}.crowd img:first-child{margin-left:0}.crowd p{margin:0;color:#d9e6dc;font-size:15px;max-width:20em}
+.stage{position:relative}.hp{position:absolute;width:44%;aspect-ratio:3/4;object-fit:cover;object-position:50% 25%;border-radius:22px;border:3px solid var(--gold);box-shadow:0 26px 50px rgba(0,0,0,.55);z-index:0}
+.hp1{left:-14%;bottom:4%;transform:rotate(-8deg)}.hp2{right:-5%;top:2%;transform:rotate(7deg);width:38%}.stage .tilt{z-index:1}
+.mega-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,380px);gap:clamp(28px,5vw,72px);align-items:center}
+.mstack{display:grid;grid-template-columns:1fr 1fr;gap:14px}.mstack img{width:100%;aspect-ratio:3/4;object-fit:cover;object-position:50% 25%;border-radius:20px;border:2px solid rgba(233,185,73,.7);box-shadow:0 20px 40px rgba(0,0,0,.45)}
+.mstack img:first-child{grid-row:span 2;aspect-ratio:auto;height:100%}.mstack img:nth-child(2){transform:translateY(-14px)}
+.jtrio{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:12px;margin-top:34px;max-width:520px;align-items:end}.jtrio img{width:100%;aspect-ratio:3/4;object-fit:cover;object-position:50% 25%;border-radius:18px;border:2px solid rgba(233,185,73,.6)}.jtrio img:nth-child(2){aspect-ratio:3/4.4}
+@media(max-width:980px){.mega-grid{grid-template-columns:1fr}.mstack{grid-template-columns:repeat(3,1fr);max-width:560px}.mstack img:first-child{grid-row:auto;aspect-ratio:3/4;height:auto}.mstack img:nth-child(2){transform:none}.hp1{left:-4%}.hp2{right:-4%}}
+@media(max-width:560px){.hp{display:none}.crowd img{width:38px;height:38px}}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -210,9 +220,10 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
     <h1><span>Scratch.</span><span>Reveal.</span><span>Discover.</span></h1>
     <p class="sub">A ₦500 digital scratch card with instant cash under the foil — and every card, win or lose, goes into the Mega Draw for an SUV, appliances and NaijaSweetRice.</p>
     <div class="cta"><a class="btn red" href="#join">Get my first card <span class="arrow">→</span></a><a class="btn line" href="#how">How it works</a></div>
+    <div class="crowd"><span><img src="people/green.jpg" alt=""><img src="people/hoodie.jpg" alt=""><img src="people/red.jpg" alt=""><img src="people/plaid.jpg" alt=""><img src="people/braids.jpg" alt=""></span><p>Scratch with friends, family and players across Nigeria.</p></div>
     <div class="trust"><span>18+ only</span><span>Results sealed before sale</span><span>Independently audited draw</span></div>
   </div>
-  <div class="stage"><div class="tilt" id="tilt">
+  <div class="stage"><img class="hp hp1" src="people/surprise.jpg" alt="A player reacting to a win"><img class="hp hp2" src="people/yellow.jpg" alt="A player celebrating"><div class="tilt" id="tilt">
     <div class="scard" id="heroCard"><img src="cards/car.jpg" alt="WiiFarm Rewards card: an SUV in the Mega Draw" width="720" height="691">
       <div class="ribbon"><b>₦500</b> — Digital raffle ticket</div>
       <div class="strip"><div class="res"><span>Try it — you won</span><b>₦1,000</b><span>(just a demo)</span></div><canvas></canvas></div>
@@ -241,11 +252,13 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
   </div>
 </div></section>
 
-<section class="sec gut mega" id="mega"><div class="max">
+<section class="sec gut mega" id="mega"><div class="max mega-grid"><div>
   <div class="eyebrow">The Mega Draw · at the end of the 90-day season</div><h2>Win or lose, you're still in for the Mega Draw.</h2>
   <p style="font-size:19px;color:#d9e6dc;margin-top:22px;max-width:34em">Every card sold this season is entered. The draw takes place once, when the season closes on <b id="drawDate"></b>, and the winners are notified in the app.</p>
   <div class="count" id="count"></div>
   <div class="pills"><span>Every card entered automatically</span><span>Public randomness</span><span>Independent auditor signs off</span><span>Anyone can re-check the result</span></div>
+</div>
+  <div class="mstack"><img src="people/red.jpg" alt="A winner celebrating"><img src="people/black.jpg" alt="A winner celebrating"><img src="people/green.jpg" alt="A winner celebrating"></div>
 </div></section>
 
 <section class="sec gut partners"><div class="max">
@@ -259,7 +272,8 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 
 <section class="sec gut" id="join"><div class="max join">
   <div><div class="eyebrow">Try it now</div><h2>Play a season in two minutes.</h2>
-  <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet and the Mega Draw.</p></div>
+  <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet and the Mega Draw.</p>
+  <div class="jtrio"><img src="people/braids.jpg" alt=""><img src="people/plaid.jpg" alt=""><img src="people/hoodie.jpg" alt=""></div></div>
   <form class="form" id="signup" autocomplete="off">
     <div class="brand">WiiFarm Rewards &amp; Lotto</div><div class="pv">Private demonstration platform</div>
     <h3>Create your demo account</h3>
