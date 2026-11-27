@@ -313,7 +313,7 @@ const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Marquee and prize deck.
 const words = ["Instant cash up to ₦10,000", "The SUV", "50kg NaijaSweetRice", "Solar freezers", "VitaActive", "Every card in the Mega Draw", "₦500 a card"];
 $("#mq").innerHTML = [...words, ...words, ...words, ...words].map((w) => `${w}<i>✦</i>`).join("");
-const PRIZES = [["suv", "The SUV", "The top prize", ["1 SUV","worth ₦30,000,000"]], ["appliances", "Home appliances", "Solar freezers, fridges, fans", ["40 appliances","worth ₦500,000 each"]], ["rice", "NaijaSweetRice", "500 × 50kg · 500 × 25kg · 1,000 × 5kg · 7,500 × 1kg", ["9,500 bags","worth ₦71,500,000 in all"]], ["vita", "VitaActive Complete", "Fortified rice meal, 10 sachets a pack", ["10,000 packs","worth ₦20,000 each"]], ["vitaforce", "VitaForce", "Male vitality beverage, 300g box of 30 sachets", ["10,000 boxes","worth ₦25,000 each"]]];
+const PRIZES = [["suv", "A Car", "The top prize", ["1 Luxury SUV","worth ₦30,000,000"]], ["appliances", "Home appliances", "Solar freezers, fridges, fans", ["40 appliances","worth ₦500,000 each"]], ["rice", "NaijaSweetRice", "500 × 50kg · 500 × 25kg · 1,000 × 5kg · 7,500 × 1kg", ["5,000 kg","worth ₦71,500,000 in all"]], ["vita", "VitaActive Complete", "Fortified rice meal, 10 sachets a pack", ["10,000 packs","worth ₦20,000 each"]], ["vitaforce", "VitaForce", "Male vitality beverage, 15g sachets", ["10,000 boxes","worth ₦25,000 each"]]];
 $("#deck").innerHTML = PRIZES.map(([f, n, d, q]) => `<figure><img src="prizes/${f}.jpg" alt="${n}" loading="lazy"><figcaption>${n}<em>${q[0]}<i>${q[1]}</i></em><span>${d}</span></figcaption></figure>`).join("");
 
 // Mega Draw countdown: 90 days from the start of this visit's season.
