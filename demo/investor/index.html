@@ -195,7 +195,6 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 <main id="top">
 <section class="hero gut"><div class="max">
   <div class="copy">
-    <div class="kicker"><b>New</b> Harvest Season · Niger State</div>
     <h1><span>Scratch.</span><span>Reveal.</span><span>Discover.</span></h1>
     <p class="sub">A ₦500 digital scratch card with instant cash under the foil — and every card, win or lose, goes into the Mega Draw for an SUV, appliances and NaijaSweetRice.</p>
     <div class="cta"><a class="btn red" href="#join">Get my first card <span class="arrow">→</span></a><a class="btn line" href="#how">How it works</a></div>
@@ -379,7 +378,7 @@ function go2(tab, arg) {
 function home() {
   const left = user.cards.filter((c) => !c.done).length;
   view.innerHTML = `<p style="margin:2px 0 12px;color:#4d5e53">Welcome, <b>${esc(user.name)}</b></p>
-  <div class="season"><small>Harvest Season · on sale</small><div class="p">₦500 <small style="font:600 14px Figtree">per card</small></div>
+  <div class="season"><small>On sale now</small><div class="p">₦500 <small style="font:600 14px Figtree">per card</small></div>
     <div class="prog"><i></i></div><small>1,020,680 of 2,686,000 cards sold · Mega Draw on ${drawDate}</small></div>
   <button class="btn red big" id="buyBtn">Buy scratch cards</button>
   ${left ? `<button class="btn big" id="toCards">Scratch your ${left} card${left > 1 ? "s" : ""}</button>` : ""}
