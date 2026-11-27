@@ -1,5 +1,6 @@
 <title>WiiFarm Rewards</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" href="brand/icon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800;900&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -214,13 +215,15 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 .disclaimer{padding-block:48px;border-top:1px solid rgba(247,239,220,.1);background:#020e08}
 .disclaimer h3{font:800 18px Unbounded;letter-spacing:-.01em;color:var(--cream);margin-bottom:14px}
 .disclaimer ul{margin:0;padding-left:18px;display:grid;gap:8px;color:var(--mut);font-size:14px;line-height:1.55;max-width:70em}
+.brandlogo{height:74px;width:auto;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.4))}
+@media(max-width:560px){.brandlogo{height:54px}}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 <symbol id="mark" viewBox="0 0 40 40"><rect x="5" y="15" width="30" height="21" rx="3" fill="#e2362b"/><rect x="3" y="10" width="34" height="8" rx="2.5" fill="#ff5a4c"/><rect x="17" y="10" width="6" height="26" fill="#e9b949"/><path d="M20 10c-5-8-12-6-10-1 1 2 6 2 10 1zm0 0c5-8 12-6 10-1-1 2-6 2-10 1z" fill="#ffe7a3"/><path d="M27 4c3 0 6 2 6 5-3 0-6-2-6-5z" fill="#2fb35f"/></symbol>
 </defs></svg>
 
-<header class="nav gut"><a class="logo" href="#top"><svg><use href="#mark"/></svg><span>WiiFarm Rewards<small>by WiiFarm</small></span></a>
+<header class="nav gut"><a class="logo" href="#top"><img class="brandlogo" src="brand/logo-sm.webp" alt="WiiFarms Rewards &amp; Lotto"></a>
 <nav class="links"><a href="#prizes">Prizes</a><a href="#how">How it works</a><a href="#mega">Mega Draw</a><a href="about.html">About</a><a href="#join">Try the demo</a></nav>
 <a class="btn red" href="#join">Get my first card</a></header>
 
@@ -282,7 +285,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
   <div><div class="eyebrow">Try it now</div><h2>Play a season in two minutes.</h2>
   <p style="font-size:19px;color:#d9e6dc;margin-top:24px;max-width:28em">Create a demo account and the app opens just as a player sees it: ₦5,000 of demo credit, real swipe-to-scratch cards, your wallet and the Mega Draw.</p></div>
   <form class="form" id="signup" autocomplete="off">
-    <div class="brand">WiiFarm Rewards &amp; Lotto</div><div class="pv">Private demonstration platform</div>
+    <img class="formlogo" src="brand/logo-sm.webp" alt="WiiFarms Rewards &amp; Lotto" style="display:block;width:150px;height:auto;margin:0 auto 8px"><div class="pv">Private demonstration platform</div>
     <h3>Create your demo account</h3>
     <label class="lbl" for="nm">Display name or test name</label>
     <input id="nm" type="text" maxlength="40" placeholder="Enter a test name">
@@ -311,7 +314,7 @@ footer .max{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
 
 <div class="app" id="app" hidden><div class="device" role="dialog" aria-label="WiiFarm Rewards app">
   <div class="demo">DEMO · NO REAL MONEY</div>
-  <div class="top"><span class="logo"><svg><use href="#mark"/></svg>WiiFarm Rewards</span><span><span class="bal" id="bal"></span><button class="close" id="closeApp" aria-label="Close the app">×</button></span></div>
+  <div class="top"><span class="logo"><img src="brand/logo-sm.webp" alt="" style="height:34px;width:auto">WiiFarm Rewards</span><span><span class="bal" id="bal"></span><button class="close" id="closeApp" aria-label="Close the app">×</button></span></div>
   <div class="view" id="view"></div>
   <nav class="tabbar" id="tabbar"></nav>
 </div></div>
